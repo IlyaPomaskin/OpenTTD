@@ -1,5 +1,6 @@
 package org.openttd.android;
 
+import android.content.Context;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.os.Bundle;
@@ -54,28 +55,35 @@ public class MainActivity extends AppCompatActivity {
         finish();
     }
 
-    /**
-     * Copy baseset assets from APK to internal storage so OpenTTD can read them.
-     * Assets are expected at: assets/baseset/ in the APK.
-     * They are copied to:     getFilesDir()/baseset/
-     */
     private void copyAssets() {
-        File dataDir = getFilesDir();
+        copyAssetsStatic(this);
+    }
+
+    /**
+     * Copy baseset and lang assets from APK to internal storage so OpenTTD can read them.
+     * Assets are expected at: assets/baseset/ and assets/lang/ in the APK.
+     * They are copied to:     context.getFilesDir()/baseset/ and context.getFilesDir()/lang/
+     *
+     * This is static so it can be called from both the Activity and the WallpaperService.
+     */
+    static void copyAssetsStatic(Context context) {
+        File dataDir = context.getFilesDir();
+        AssetManager assets = context.getAssets();
         Log.i(TAG, "Data dir: " + dataDir.getAbsolutePath());
 
         try {
-            String[] assetList = getAssets().list("baseset");
+            String[] assetList = assets.list("baseset");
             Log.i(TAG, "Assets in baseset/: " + (assetList != null ? assetList.length : "null"));
             if (assetList != null) {
                 for (String f : assetList) Log.i(TAG, "  asset: " + f);
             }
-            copyAssetDir(getAssets(), "baseset", new File(dataDir, "baseset"));
+            copyAssetDir(assets, "baseset", new File(dataDir, "baseset"));
         } catch (IOException e) {
             Log.e(TAG, "Error extracting baseset assets", e);
         }
 
         try {
-            copyAssetDir(getAssets(), "lang", new File(dataDir, "lang"));
+            copyAssetDir(assets, "lang", new File(dataDir, "lang"));
         } catch (IOException e) {
             Log.e(TAG, "Error extracting lang assets", e);
         }
@@ -91,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void copyAssetDir(AssetManager assets, String srcPath, File destDir) throws IOException {
+    private static void copyAssetDir(AssetManager assets, String srcPath, File destDir) throws IOException {
         String[] list = assets.list(srcPath);
         if (list == null) return;
 
