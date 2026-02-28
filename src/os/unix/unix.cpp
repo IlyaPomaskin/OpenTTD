@@ -21,6 +21,10 @@
 #include <signal.h>
 #include <pthread.h>
 
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
+
 #ifdef WITH_SDL2
 #include <SDL.h>
 #endif
@@ -192,6 +196,9 @@ void ShowInfoI(std::string_view str)
 #if !defined(__APPLE__)
 void ShowOSErrorBox(std::string_view buf, bool)
 {
+#ifdef __ANDROID__
+	__android_log_print(ANDROID_LOG_ERROR, "OpenTTD", "Error: %.*s", (int)buf.size(), buf.data());
+#endif
 	/* All unix systems, except OSX. Only use escape codes on a TTY. */
 	if (isatty(fileno(stderr))) {
 		fmt::print(stderr, "\033[1;31mError: {}\033[0;39m\n", buf);

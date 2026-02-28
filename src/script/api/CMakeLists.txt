@@ -16,9 +16,9 @@ add_custom_command_timestamp(OUTPUT ${CMAKE_BINARY_DIR}/generated/script/api/scr
         COMMAND ${CMAKE_COMMAND}
                 -DGENERATE_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/script_window.hpp.in
                 -DGENERATE_BINARY_FILE=${CMAKE_BINARY_DIR}/generated/script/api/script_window.hpp
-                -P ${CMAKE_SOURCE_DIR}/cmake/scripts/GenerateWidget.cmake
+                -P ${OPENTTD_SOURCE_DIR}/cmake/scripts/GenerateWidget.cmake
         MAIN_DEPENDENCY ${CMAKE_CURRENT_SOURCE_DIR}/script_window.hpp.in
-        DEPENDS ${CMAKE_SOURCE_DIR}/cmake/scripts/GenerateWidget.cmake ${DEPENDENCIES}
+        DEPENDS ${OPENTTD_SOURCE_DIR}/cmake/scripts/GenerateWidget.cmake ${DEPENDENCIES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating script_window.hpp"
 )
@@ -55,10 +55,10 @@ foreach(API "ai;AI" "game;GS" "template;Template")
                         -DSQUIRREL_EXPORT_SQQ_HPP=${SCRIPT_API_FILE_NAME}.sq.hpp
                         -DAPIUC=${APIUC}
                         -DAPILC=${APILC}
-                        -P ${CMAKE_SOURCE_DIR}/cmake/scripts/SquirrelExport.cmake
+                        -P ${OPENTTD_SOURCE_DIR}/cmake/scripts/SquirrelExport.cmake
                 MAIN_DEPENDENCY ${SCRIPT_API_FILE}
                 DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/squirrel_export.sq.hpp.in
-                        ${CMAKE_SOURCE_DIR}/cmake/scripts/SquirrelExport.cmake
+                        ${OPENTTD_SOURCE_DIR}/cmake/scripts/SquirrelExport.cmake
                 WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                 COMMENT "Generating ${APILC}/${SCRIPT_API_FILE_NAME}.sq.hpp"
         )
@@ -85,11 +85,11 @@ foreach(API "ai;AI" "game;GS" "template;Template")
                         -DAPIUC=${APIUC}
                         -DAPILC=${APILC}
                         -DAPI_FILES=${API_FILES}
-                        -P ${CMAKE_SOURCE_DIR}/cmake/scripts/SquirrelIncludes.cmake
+                        -P ${OPENTTD_SOURCE_DIR}/cmake/scripts/SquirrelIncludes.cmake
                 MAIN_DEPENDENCY ${CMAKE_CURRENT_SOURCE_DIR}/script_includes.hpp.in
                 DEPENDS ${SCRIPT_${APIUC}_BINARY_FILES}
                         ${API_FILES}
-                        ${CMAKE_SOURCE_DIR}/cmake/scripts/SquirrelIncludes.cmake
+                        ${OPENTTD_SOURCE_DIR}/cmake/scripts/SquirrelIncludes.cmake
                 WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
                 COMMENT "Generating ${APILC}/${APILC}_includes.hpp"
         )

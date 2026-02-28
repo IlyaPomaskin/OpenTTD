@@ -761,6 +761,25 @@ void DetermineBasePaths(std::string_view exe)
 {
 	std::string tmp;
 	const std::string homedir = GetHomeDir();
+
+#ifdef __ANDROID__
+	/* On Android, the data path is passed via environment variable from Java. */
+	if (auto path = GetEnv("OPENTTD_DATA_PATH"); path.has_value()) {
+		std::string p(*path);
+		AppendPathSeparator(p);
+		_searchpaths[SP_BINARY_DIR] = p;
+		_searchpaths[SP_WORKING_DIR] = p;
+		_searchpaths[SP_PERSONAL_DIR] = p;
+		_searchpaths[SP_SHARED_DIR].clear();
+		_searchpaths[SP_INSTALLATION_DIR].clear();
+		_searchpaths[SP_APPLICATION_BUNDLE_DIR].clear();
+		_searchpaths[SP_AUTODOWNLOAD_PERSONAL_DIR] = p + "content_download" + PATHSEP;
+		_searchpaths[SP_AUTODOWNLOAD_PERSONAL_DIR_XDG].clear();
+		_searchpaths[SP_PERSONAL_DIR_XDG].clear();
+		return;
+	}
+#endif
+
 #ifdef USE_XDG
 	if (auto xdg_data_home = GetEnv("XDG_DATA_HOME"); xdg_data_home.has_value()) {
 		tmp = *xdg_data_home;

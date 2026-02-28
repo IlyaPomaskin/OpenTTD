@@ -33,12 +33,12 @@ add_custom_command_timestamp(OUTPUT ${TABLE_BINARY_DIR}/settings.h
         COMMAND ${CMAKE_COMMAND} -E make_directory ${TABLE_BINARY_DIR}
         COMMAND settingsgen
                 -o ${TABLE_BINARY_DIR}/settings.h
-                -b ${CMAKE_SOURCE_DIR}/src/table/settings.h.preamble
-                -a ${CMAKE_SOURCE_DIR}/src/table/settings.h.postamble
+                -b ${OPENTTD_SOURCE_DIR}/src/table/settings.h.preamble
+                -a ${OPENTTD_SOURCE_DIR}/src/table/settings.h.postamble
                 ${TABLE_INI_SOURCE_FILES}
         DEPENDS settingsgen ${TABLE_INI_SOURCE_FILES}
-                ${CMAKE_SOURCE_DIR}/src/table/settings.h.preamble
-                ${CMAKE_SOURCE_DIR}/src/table/settings.h.postamble
+                ${OPENTTD_SOURCE_DIR}/src/table/settings.h.preamble
+                ${OPENTTD_SOURCE_DIR}/src/table/settings.h.postamble
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         COMMENT "Generating table/settings.h"
 )

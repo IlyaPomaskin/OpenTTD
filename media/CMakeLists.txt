@@ -77,12 +77,12 @@ add_custom_command_timestamp(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_BINARY
                 -DDESKTOP_SOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/openttd.desktop
                 -DDESKTOP_BINARY_FILE=${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_BINARY_NAME}
                 -DBINARY_NAME=${BINARY_NAME}
-                -P ${CMAKE_SOURCE_DIR}/cmake/scripts/Desktop.cmake
+                -P ${OPENTTD_SOURCE_DIR}/cmake/scripts/Desktop.cmake
                 --
                 ${LANG_SOURCE_FILES}
         MAIN_DEPENDENCY ${CMAKE_CURRENT_SOURCE_DIR}/openttd.desktop
         DEPENDS ${LANG_SOURCE_FILES}
-                ${CMAKE_SOURCE_DIR}/cmake/scripts/Desktop.cmake
+                ${OPENTTD_SOURCE_DIR}/cmake/scripts/Desktop.cmake
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         COMMENT "Generating desktop file"
 )
