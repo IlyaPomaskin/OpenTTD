@@ -336,7 +336,7 @@ static void LoadIntroGame(bool load_newgrfs = true)
 		SetLocalCompany(CompanyID::Begin());
 	}
 
-	FixTitleGameZoom();
+	FixTitleGameZoom(-1);
 	_pause_mode = {};
 	_cursor.fix_at = false;
 
@@ -1161,15 +1161,6 @@ void SwitchToMode(SwitchMode new_mode)
 				ShowErrorMessage(GetEncodedString(STR_WARNING_FALLBACK_SOUNDSET), {}, WL_CRITICAL);
 				BaseSounds::ini_set = BaseSounds::GetUsedSet()->name;
 			}
-			if (_settings_client.network.participate_survey == ParticipateSurvey::Ask) {
-				/* No matter how often you go back to the main menu, only ask the first time. */
-				static bool asked_once = false;
-				if (!asked_once) {
-					asked_once = true;
-					ShowNetworkAskSurvey();
-				}
-			}
-
 			UpdateSocialIntegration(GM_MENU);
 			break;
 
