@@ -182,11 +182,10 @@ void VideoDriver_SDL_GLES::Paint()
 	}
 
 	/* Upload CPU-rendered content as background texture.
-	 * Skipped when GPU sprites are enabled since sprites render directly from atlas. */
-	if (!_gles_gpu_sprites) {
-		GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
-			_screen.width, _screen.height);
-	}
+	 * When GPU sprites are enabled, this still uploads so UI (text, windows)
+	 * renders correctly. GPU sprites draw on top of this layer. */
+	GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
+		_screen.width, _screen.height);
 
 	GLESBackend::Get()->Paint();
 
