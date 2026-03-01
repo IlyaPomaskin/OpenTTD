@@ -51,7 +51,6 @@ using ZoomLevels = EnumBitSet<ZoomLevel, uint8_t>;
 static const uint ZOOM_BASE_SHIFT = to_underlying(ZoomLevel::Normal);
 static uint const ZOOM_BASE = 1U << ZOOM_BASE_SHIFT;
 
-extern int _fps_limit;
 extern int _gui_scale;
 extern int _gui_scale_cfg;
 

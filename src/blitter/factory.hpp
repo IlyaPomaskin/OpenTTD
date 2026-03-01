@@ -102,7 +102,7 @@ public:
 
 		GetActiveBlitter() = b->CreateInstance();
 
-		Debug(driver, 1, "Successfully {} blitter '{}'", name.empty() ? "probed" : "loaded", GetCurrentBlitter()->GetName());
+		Debug(driver, 0, "Successfully {} blitter '{}'", name.empty() ? "probed" : "loaded", GetCurrentBlitter()->GetName());
 		return GetCurrentBlitter();
 	}
 

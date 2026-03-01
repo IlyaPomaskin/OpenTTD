@@ -332,7 +332,9 @@ protected:
 	{
 		TicToc::Tick("DrawTick");
 
-		return std::chrono::microseconds(1000000 / _fps_limit);
+		/* If vsync, draw interval is decided by the display driver */
+		if (_video_vsync && this->uses_hardware_acceleration) return std::chrono::microseconds(0);
+		return std::chrono::microseconds(1000000 / _settings_client.gui.refresh_rate);
 	}
 
 	/** Execute all queued commands. */
