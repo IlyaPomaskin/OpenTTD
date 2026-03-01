@@ -166,6 +166,15 @@ void VideoDriver_SDL_GLES::Paint()
 	PerformanceMeasurer framerate(PFE_VIDEO);
 
 	static int paint_count = 0;
+	static int fps_frames = 0;
+	static auto fps_last = std::chrono::steady_clock::now();
+	fps_frames++;
+	auto fps_now = std::chrono::steady_clock::now();
+	if (fps_now - fps_last >= std::chrono::seconds(1)) {
+		Debug(driver, 0, "FPS: {}", fps_frames);
+		fps_frames = 0;
+		fps_last = fps_now;
+	}
 	if (paint_count < 10) {
 		Debug(driver, 0, "GLES Paint #{}: backend={} cpu_tex={} fbo={} screen={}x{}",
 			paint_count, (void *)GLESBackend::Get(),
