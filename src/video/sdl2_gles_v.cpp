@@ -181,9 +181,12 @@ void VideoDriver_SDL_GLES::Paint()
 		this->local_palette.count_dirty = 0;
 	}
 
-	/* Upload CPU-rendered content as background texture. */
-	GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
-		_screen.width, _screen.height);
+	/* Upload CPU-rendered content as background texture.
+	 * Skipped when GPU sprites are enabled since sprites render directly from atlas. */
+	if (!_gles_gpu_sprites) {
+		GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
+			_screen.width, _screen.height);
+	}
 
 	GLESBackend::Get()->Paint();
 
