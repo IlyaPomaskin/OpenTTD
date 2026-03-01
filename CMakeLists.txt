@@ -195,6 +195,7 @@ if(MSVC)
 endif()
 
 find_package(SSE)
+find_package(NEON)
 
 find_package(Grfcodec)
 
