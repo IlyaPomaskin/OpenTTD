@@ -45,7 +45,7 @@ bool _right_button_down;    ///< Is right mouse button pressed?
 bool _right_button_clicked; ///< Is right mouse button clicked?
 DrawPixelInfo _screen;
 bool _screen_disable_anim = false;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
-bool _gles_gpu_sprites = false;      ///< When true, queue GPU draw commands instead of CPU blitting.
+bool _gles_gpu_sprites = true;       ///< When true, queue GPU draw commands instead of CPU blitting.
 std::atomic<bool> _exit_game;
 GameMode _game_mode;
 SwitchMode _switch_mode;  ///< The next mainloop command.
