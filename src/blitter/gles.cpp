@@ -21,28 +21,19 @@ static FBlitter_GLES iFBlitter_GLES;
 
 /**
  * Encode a sprite for the GLES blitter.
- * Uploads the sprite to the GPU atlas and returns a minimal Sprite struct
- * (dimensions only, no pixel data needed on CPU side).
+ * Calls the parent encoder to keep full CPU pixel data (for fallback),
+ * then also uploads to the GPU atlas for accelerated rendering.
  */
 Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
 {
+	/* Always call parent encoder first to get full CPU sprite data.
+	 * This ensures we can fall back to CPU rendering for unsupported modes. */
+	Sprite *dest_sprite = Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
+
 	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) {
-		/* Fall back to parent encoder if backend not ready yet. */
-		return Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
-	}
+	if (backend == nullptr) return dest_sprite;
 
-	/* Allocate a minimal Sprite struct. */
-	Sprite *dest_sprite = allocator.Allocate<Sprite>(sizeof(Sprite));
-
-	/* Use the normal zoom level as the representative. */
-	const SpriteLoader::Sprite &root = sprite[ZoomLevel::Normal];
-	dest_sprite->height = root.height;
-	dest_sprite->width = root.width;
-	dest_sprite->x_offs = root.x_offs;
-	dest_sprite->y_offs = root.y_offs;
-
-	/* Upload each available zoom level to the atlas. */
+	/* Also upload each available zoom level to the GPU atlas. */
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
 	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
 		ZoomLevel zoom = static_cast<ZoomLevel>(z);
@@ -60,36 +51,28 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 }
 
 /**
- * Override Draw to record a draw command instead of CPU blitting.
- * Falls back to the parent CPU blitter for non-sprite operations.
+ * Override Draw to record a draw command for GPU rendering.
+ * Always renders to the CPU buffer first (ensuring a complete scene),
+ * then additionally queues supported sprites for GPU overlay.
  */
 void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom)
 {
-	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) {
-		/* No backend — fall back to CPU. */
-		Blitter_32bppOptimized::Draw(bp, mode, zoom);
-		return;
-	}
+	/* Always render to CPU buffer — this ensures the complete scene is
+	 * available in the video buffer regardless of GPU sprite coverage. */
+	Blitter_32bppOptimized::Draw(bp, mode, zoom);
 
-	/* For remap modes that require a per-draw remap table upload, fall back to CPU.
-	 * Normal and Transparent modes are the primary targets for GPU acceleration
-	 * (they cover landscape tiles which dominate the title screen wallpaper). */
-	if (mode == BlitterMode::ColourRemap || mode == BlitterMode::TransparentRemap ||
-	    mode == BlitterMode::CrashRemap || mode == BlitterMode::BlackRemap) {
-		Blitter_32bppOptimized::Draw(bp, mode, zoom);
-		return;
-	}
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend == nullptr) return;
+
+	/* Only queue Normal and Transparent modes to GPU. */
+	if (mode != BlitterMode::Normal && mode != BlitterMode::Transparent) return;
 
 	/* Build the sprite key from the sprite data pointer and zoom level. */
 	GLESSpriteID key = MakeGLESSpriteKey(bp->sprite, zoom);
 
-	/* Check if this sprite is in the atlas. If not, fall back to CPU. */
+	/* Check if this sprite is in the atlas. */
 	const GLESSpriteEntry *entry = backend->GetSpriteAtlas().Lookup(key);
-	if (entry == nullptr) {
-		Blitter_32bppOptimized::Draw(bp, mode, zoom);
-		return;
-	}
+	if (entry == nullptr) return;
 
 	/* Compute absolute screen position.
 	 * bp->dst points into the screen buffer, bp->left/top are offsets within that.
@@ -113,6 +96,7 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 	cmd.zoom = zoom;
 	cmd.mode = mode;
 	cmd.remap_idx = 0;
+	cmd.palette_only = false;
 
 	backend->QueueDraw(cmd);
 }

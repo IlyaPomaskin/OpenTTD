@@ -16,7 +16,9 @@
 #include "sdl2_gles_v.h"
 #include "gles_backend.h"
 #include <SDL.h>
+#include <SDL_syswm.h>
 #include <GLES2/gl2.h>
+#include <EGL/egl.h>
 
 #include "../safeguards.h"
 
@@ -41,7 +43,28 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
 	this->gl_context = SDL_GL_CreateContext(this->sdl_window);
-	if (this->gl_context == nullptr) return "SDL2: Can't create GLES context";
+	if (this->gl_context == nullptr) {
+		Debug(driver, 0, "GLES: SDL_GL_CreateContext failed: {}", SDL_GetError());
+		return "SDL2: Can't create GLES context";
+	}
+
+	/* Log EGL state after context creation. */
+	EGLDisplay egl_dpy = eglGetCurrentDisplay();
+	EGLSurface egl_surf = eglGetCurrentSurface(EGL_DRAW);
+	EGLContext egl_ctx = eglGetCurrentContext();
+	Debug(driver, 0, "GLES: EGL after CreateContext: display={} surface={} context={} err=0x{:04X}",
+		(void *)egl_dpy, (void *)egl_surf, (void *)egl_ctx, eglGetError());
+
+	/* Log the SDL window WM info. */
+	SDL_SysWMinfo wminfo;
+	SDL_VERSION(&wminfo.version);
+	if (SDL_GetWindowWMInfo(this->sdl_window, &wminfo)) {
+		Debug(driver, 0, "GLES: SDL WM subsystem={}", (int)wminfo.subsystem);
+#ifdef SDL_VIDEO_DRIVER_ANDROID
+		Debug(driver, 0, "GLES: ANativeWindow={} EGLSurface={}",
+			(void *)wminfo.info.android.window, (void *)wminfo.info.android.surface);
+#endif
+	}
 
 	if (!GLESBackend::Create()) return "Failed to initialize GLES backend";
 
@@ -60,14 +83,21 @@ void VideoDriver_SDL_GLES::DestroyContext()
 
 std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &param)
 {
+	Debug(driver, 0, "GLES: Start() entering, calling SDL_Base::Start...");
 	auto error = VideoDriver_SDL_Base::Start(param);
-	if (error) return error;
+	if (error) {
+		Debug(driver, 0, "GLES: SDL_Base::Start failed: {}", *error);
+		return error;
+	}
+	Debug(driver, 0, "GLES: SDL_Base::Start OK, window={}", (void *)this->sdl_window);
 
 	error = this->AllocateContext();
 	if (error) {
+		Debug(driver, 0, "GLES: AllocateContext failed: {}", *error);
 		this->Stop();
 		return error;
 	}
+	Debug(driver, 0, "GLES: AllocateContext OK");
 
 	/* Select the GLES blitter to enable GPU sprite recording. */
 	if (BlitterFactory::SelectBlitter("gles") == nullptr) {
@@ -75,6 +105,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 		Debug(driver, 0, "GLES: Could not select 'gles' blitter, falling back to '32bpp-optimized'");
 		BlitterFactory::SelectBlitter("32bpp-optimized");
 	}
+
+	/* Prevent SwitchNewGRFBlitter() from replacing our GLES blitter. */
+	_blitter_autodetected = false;
 
 	/* Force a client-size-changed event to allocate buffers. */
 	int w, h;
@@ -131,6 +164,16 @@ void VideoDriver_SDL_GLES::Paint()
 {
 	PerformanceMeasurer framerate(PFE_VIDEO);
 
+	/* Check EGL state before rendering. */
+	static int paint_count = 0;
+	if (paint_count < 5) {
+		EGLDisplay dpy = eglGetCurrentDisplay();
+		EGLSurface surf = eglGetCurrentSurface(EGL_DRAW);
+		EGLContext ctx = eglGetCurrentContext();
+		Debug(driver, 0, "GLES Paint #{}: display={} surface={} context={} err=0x{:04X}",
+			paint_count, (void *)dpy, (void *)surf, (void *)ctx, eglGetError());
+	}
+
 	if (this->local_palette.count_dirty != 0) {
 		GLESBackend::Get()->UpdatePalette(this->local_palette.palette,
 			this->local_palette.first_dirty, this->local_palette.count_dirty);
@@ -144,4 +187,16 @@ void VideoDriver_SDL_GLES::Paint()
 	GLESBackend::Get()->Paint();
 
 	SDL_GL_SwapWindow(this->sdl_window);
+	if (paint_count < 5) {
+		EGLint egl_err = eglGetError();
+		GLenum gl_err = glGetError();
+		Debug(driver, 0, "GLES Paint #{}: egl_err=0x{:04X} gl_err=0x{:04X}",
+			paint_count, egl_err, gl_err);
+	}
+	paint_count++;
+
+	/* Force full screen redraw every frame so all sprites get queued to GPU.
+	 * OpenTTD normally uses dirty rectangles, but the GPU draw queue is
+	 * per-frame — we need everything redrawn each time. */
+	this->MakeDirty(0, 0, _screen.width, _screen.height);
 }

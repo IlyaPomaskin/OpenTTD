@@ -30,10 +30,14 @@ GLESBackend::~GLESBackend()
 	if (this->prog_normal != 0) glDeleteProgram(this->prog_normal);
 	if (this->prog_remap != 0) glDeleteProgram(this->prog_remap);
 	if (this->prog_transparent != 0) glDeleteProgram(this->prog_transparent);
+	if (this->prog_palette != 0) glDeleteProgram(this->prog_palette);
+	if (this->prog_solid != 0) glDeleteProgram(this->prog_solid);
 	if (this->prog_bgra != 0) glDeleteProgram(this->prog_bgra);
 	if (this->palette_tex != 0) glDeleteTextures(1, &this->palette_tex);
 	if (this->remap_table_tex != 0) glDeleteTextures(1, &this->remap_table_tex);
 	if (this->cpu_framebuf_tex != 0) glDeleteTextures(1, &this->cpu_framebuf_tex);
+	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
+	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 	if (this->vbo != 0) glDeleteBuffers(1, &this->vbo);
 	this->sprite_atlas.Destroy();
 }
@@ -129,6 +133,34 @@ bool GLESBackend::InitShaders()
 		this->trans_remap_uv_attr = glGetAttribLocation(this->prog_transparent, "a_remap_uv");
 	}
 
+	/* Palette-only fragment shader (M channel → palette lookup). */
+	{
+		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_palette);
+		if (fs == 0) { glDeleteShader(vs); return false; }
+		this->prog_palette = LinkProgram(vs, fs);
+		glDeleteShader(fs);
+		if (this->prog_palette == 0) { glDeleteShader(vs); return false; }
+
+		this->pal_screen_loc = glGetUniformLocation(this->prog_palette, "screen");
+		this->pal_remap_tex_loc = glGetUniformLocation(this->prog_palette, "remap_tex");
+		this->pal_palette_tex_loc = glGetUniformLocation(this->prog_palette, "palette_tex");
+		this->pal_pos_attr = glGetAttribLocation(this->prog_palette, "a_position");
+		this->pal_remap_uv_attr = glGetAttribLocation(this->prog_palette, "a_remap_uv");
+	}
+
+	/* Solid debug fragment shader. */
+	{
+		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_solid);
+		if (fs == 0) { glDeleteShader(vs); return false; }
+		this->prog_solid = LinkProgram(vs, fs);
+		glDeleteShader(fs);
+		if (this->prog_solid == 0) { glDeleteShader(vs); return false; }
+
+		this->solid_screen_loc = glGetUniformLocation(this->prog_solid, "screen");
+		this->solid_colour_loc = glGetUniformLocation(this->prog_solid, "u_colour");
+		this->solid_pos_attr = glGetAttribLocation(this->prog_solid, "a_position");
+	}
+
 	/* BGRA swizzle fragment shader (for CPU framebuffer upload). */
 	{
 		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_bgra);
@@ -213,6 +245,29 @@ void GLESBackend::Resize(int w, int h)
 {
 	this->screen_width = w;
 	this->screen_height = h;
+
+	/* (Re)create the persistent FBO at the new size. */
+	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
+	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
+
+	glGenTextures(1, &this->fbo_tex);
+	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+	glGenFramebuffers(1, &this->fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this->fbo_tex, 0);
+
+	/* Clear the new FBO to black. */
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+
+	/* Bind back to default framebuffer. */
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, w, h);
 }
 
@@ -242,6 +297,10 @@ void GLESBackend::UploadVideoBuffer(const void *buffer, int w, int h)
 void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 {
 	this->draw_queue.push_back(cmd);
+
+	/* Stamp palette_only from the sprite entry for sort/batch routing. */
+	const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
+	this->draw_queue.back().palette_only = (entry != nullptr && entry->palette_only);
 }
 
 void GLESBackend::FlushBatch(GLuint program, GLint screen_loc, GLint colour_tex_loc,
@@ -287,15 +346,62 @@ void GLESBackend::FlushBatch(GLuint program, GLint screen_loc, GLint colour_tex_
 	if (remap_uv_attr >= 0) glDisableVertexAttribArray(remap_uv_attr);
 }
 
+void GLESBackend::FlushPaletteBatch(GLuint remap_atlas,
+                                     const GLESVertex *vertices, size_t count)
+{
+	if (count == 0) return;
+
+	glUseProgram(this->prog_palette);
+	glUniform2f(this->pal_screen_loc,
+		static_cast<float>(this->screen_width), static_cast<float>(this->screen_height));
+
+	/* Unit 0: remap atlas (M channel). */
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, remap_atlas);
+	glUniform1i(this->pal_remap_tex_loc, 0);
+
+	/* Unit 1: palette texture. */
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+	glUniform1i(this->pal_palette_tex_loc, 1);
+
+	/* Upload vertices and draw. */
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, count * sizeof(GLESVertex), vertices);
+
+	glEnableVertexAttribArray(this->pal_pos_attr);
+	glVertexAttribPointer(this->pal_pos_attr, 2, GL_FLOAT, GL_FALSE,
+	                      sizeof(GLESVertex), reinterpret_cast<void *>(offsetof(GLESVertex, x)));
+	glEnableVertexAttribArray(this->pal_remap_uv_attr);
+	glVertexAttribPointer(this->pal_remap_uv_attr, 2, GL_FLOAT, GL_FALSE,
+	                      sizeof(GLESVertex), reinterpret_cast<void *>(offsetof(GLESVertex, ru)));
+
+	glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(count));
+
+	glDisableVertexAttribArray(this->pal_pos_attr);
+	glDisableVertexAttribArray(this->pal_remap_uv_attr);
+}
+
 void GLESBackend::Paint()
 {
+	static int frame_count = 0;
+	if (frame_count < 10) {
+		Debug(driver, 0, "GLES Paint: frame={} draw_queue={} fbo={} fbo_tex={} screen={}x{}",
+			frame_count, this->draw_queue.size(), this->fbo, this->fbo_tex,
+			this->screen_width, this->screen_height);
+	}
+	frame_count++;
+
+	/* === Phase 1: Render into persistent FBO (accumulates across frames). === */
+	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+	glViewport(0, 0, this->screen_width, this->screen_height);
+
+	/* Clear FBO and draw CPU buffer as the complete base scene.
+	 * The CPU blitter always renders all sprites, so the video buffer
+	 * contains the full scene. GPU sprites overlay on top for optimization. */
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	/* Render CPU video buffer as fullscreen background.
-	 * This displays any content rendered by CPU fallback (remap sprites, text, UI).
-	 * The CPU buffer uses ColourBGRA layout on little-endian (Android), but
-	 * GL_RGBA reads bytes as R,G,B,A. The BGRA shader swizzles R↔B to fix this. */
 	if (this->cpu_framebuf_tex != 0 && this->screen_width > 0 && this->screen_height > 0) {
 		glDisable(GL_BLEND);
 		glUseProgram(this->prog_bgra);
@@ -306,12 +412,11 @@ void GLESBackend::Paint()
 		glBindTexture(GL_TEXTURE_2D, this->cpu_framebuf_tex);
 		glUniform1i(this->bgra_colour_tex_loc, 0);
 
-		/* Fullscreen quad: position in pixels, UV covering entire texture. */
-		float w = static_cast<float>(this->screen_width);
-		float h = static_cast<float>(this->screen_height);
+		float bw = static_cast<float>(this->screen_width);
+		float bh = static_cast<float>(this->screen_height);
 		GLESVertex quad[6] = {
-			{0, 0, 0, 0, 0, 0}, {w, 0, 1, 0, 0, 0}, {0, h, 0, 1, 0, 0},
-			{w, 0, 1, 0, 0, 0}, {w, h, 1, 1, 0, 0}, {0, h, 0, 1, 0, 0},
+			{0, 0, 0, 0, 0, 0}, {bw, 0, 1, 0, 0, 0}, {0, bh, 0, 1, 0, 0},
+			{bw, 0, 1, 0, 0, 0}, {bw, bh, 1, 1, 0, 0}, {0, bh, 0, 1, 0, 0},
 		};
 
 		glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
@@ -330,23 +435,22 @@ void GLESBackend::Paint()
 		if (this->bgra_colour_uv_attr >= 0) glDisableVertexAttribArray(this->bgra_colour_uv_attr);
 	}
 
-	if (this->draw_queue.empty()) return;
+	if (!this->draw_queue.empty()) {
 
 	glEnable(GL_BLEND);
 
 	this->vertex_buf.clear();
 
-	/* Sort draw queue by (mode, colour_atlas_idx) for batching.
-	 * Group transparent commands separately as they need different blend func. */
+	/* Sort draw queue for batching.
+	 * Primary: transparent vs non-transparent (different blend func).
+	 * Secondary: palette_only vs normal (different shader).
+	 * Tertiary: by mode. */
 	std::stable_sort(this->draw_queue.begin(), this->draw_queue.end(),
 		[](const GLESDrawCommand &a, const GLESDrawCommand &b) {
-			/* Primary sort: rendering mode group.
-			 * Normal and ColourRemap use standard alpha blend.
-			 * Transparent uses GL_ZERO, GL_ONE_MINUS_SRC_ALPHA.
-			 * Group within each: by mode then atlas. */
 			bool a_trans = (a.mode == BlitterMode::Transparent || a.mode == BlitterMode::TransparentRemap);
 			bool b_trans = (b.mode == BlitterMode::Transparent || b.mode == BlitterMode::TransparentRemap);
 			if (a_trans != b_trans) return !a_trans;
+			if (!a_trans && a.palette_only != b.palette_only) return !a.palette_only;
 			return a.mode < b.mode;
 		});
 
@@ -362,6 +466,7 @@ void GLESBackend::Paint()
 		bool is_remap = (batch_mode == BlitterMode::ColourRemap ||
 		                 batch_mode == BlitterMode::CrashRemap ||
 		                 batch_mode == BlitterMode::BlackRemap);
+		bool is_palette = this->draw_queue[i].palette_only && !is_transparent && !is_remap;
 
 		if (is_transparent) {
 			glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
@@ -383,8 +488,10 @@ void GLESBackend::Paint()
 			bool cmd_remap = (cmd.mode == BlitterMode::ColourRemap ||
 			                  cmd.mode == BlitterMode::CrashRemap ||
 			                  cmd.mode == BlitterMode::BlackRemap);
+			bool cmd_palette = cmd.palette_only && !cmd_trans && !cmd_remap;
 			if (cmd_trans != is_transparent) break;
 			if (cmd_remap != is_remap && !is_transparent) break;
+			if (cmd_palette != is_palette && !is_transparent) break;
 
 			const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
 			if (entry == nullptr) { i++; continue; }
@@ -394,7 +501,7 @@ void GLESBackend::Paint()
 
 			/* Flush if atlas changes or buffer is full. */
 			if (!first && (colour_atlas != cur_colour_atlas ||
-			    (is_remap && remap_atlas != cur_remap_atlas) ||
+			    ((is_remap || is_palette) && remap_atlas != cur_remap_atlas) ||
 			    this->vertex_buf.size() + 6 > MAX_BATCH_VERTICES)) {
 
 				/* Flush current batch. */
@@ -406,7 +513,6 @@ void GLESBackend::Paint()
 					           cur_colour_atlas, cur_remap_atlas,
 					           this->vertex_buf.data(), this->vertex_buf.size());
 				} else if (is_remap) {
-					/* Bind remap textures for the remap shader. */
 					glUseProgram(this->prog_remap);
 					glActiveTexture(GL_TEXTURE1);
 					glBindTexture(GL_TEXTURE_2D, cur_remap_atlas);
@@ -424,6 +530,9 @@ void GLESBackend::Paint()
 					           this->remap_remap_uv_attr,
 					           cur_colour_atlas, cur_remap_atlas,
 					           this->vertex_buf.data(), this->vertex_buf.size());
+				} else if (is_palette) {
+					FlushPaletteBatch(cur_remap_atlas,
+					                  this->vertex_buf.data(), this->vertex_buf.size());
 				} else {
 					FlushBatch(this->prog_normal, this->normal_screen_loc,
 					           this->normal_colour_tex_loc,
@@ -513,6 +622,9 @@ void GLESBackend::Paint()
 				           this->remap_remap_uv_attr,
 				           cur_colour_atlas, cur_remap_atlas,
 				           this->vertex_buf.data(), this->vertex_buf.size());
+			} else if (is_palette) {
+				FlushPaletteBatch(cur_remap_atlas,
+				                  this->vertex_buf.data(), this->vertex_buf.size());
 			} else {
 				FlushBatch(this->prog_normal, this->normal_screen_loc,
 				           this->normal_colour_tex_loc,
@@ -528,4 +640,46 @@ void GLESBackend::Paint()
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glDisable(GL_BLEND);
 	this->draw_queue.clear();
+
+	} /* end if (!draw_queue.empty()) */
+
+	/* === Phase 2: Blit FBO to the actual screen. === */
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glViewport(0, 0, this->screen_width, this->screen_height);
+
+	/* Use the normal (pass-through) shader, NOT the BGRA swizzle shader.
+	 * The FBO already contains correct RGBA from Phase 1 (where BGRA shader
+	 * swizzled the CPU buffer). Using BGRA again would double-swizzle.
+	 * Flip V coordinates (1→0 instead of 0→1) because the FBO texture is
+	 * stored bottom-up in OpenGL but the vertex shader maps pixel Y top-down. */
+	glDisable(GL_BLEND);
+	glUseProgram(this->prog_normal);
+	glUniform2f(this->normal_screen_loc,
+		static_cast<float>(this->screen_width), static_cast<float>(this->screen_height));
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
+	glUniform1i(this->normal_colour_tex_loc, 0);
+
+	float w = static_cast<float>(this->screen_width);
+	float h = static_cast<float>(this->screen_height);
+	GLESVertex quad[6] = {
+		{0, 0, 0, 1, 0, 0}, {w, 0, 1, 1, 0, 0}, {0, h, 0, 0, 0, 0},
+		{w, 0, 1, 1, 0, 0}, {w, h, 1, 0, 0, 0}, {0, h, 0, 0, 0, 0},
+	};
+
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+
+	glEnableVertexAttribArray(this->normal_pos_attr);
+	glVertexAttribPointer(this->normal_pos_attr, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+	                      reinterpret_cast<void *>(offsetof(GLESVertex, x)));
+	if (this->normal_colour_uv_attr >= 0) {
+		glEnableVertexAttribArray(this->normal_colour_uv_attr);
+		glVertexAttribPointer(this->normal_colour_uv_attr, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
+	}
+	glDrawArrays(GL_TRIANGLES, 0, 6);
+	glDisableVertexAttribArray(this->normal_pos_attr);
+	if (this->normal_colour_uv_attr >= 0) glDisableVertexAttribArray(this->normal_colour_uv_attr);
 }

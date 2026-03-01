@@ -27,6 +27,7 @@ struct GLESDrawCommand {
 	ZoomLevel zoom;               ///< Zoom level.
 	BlitterMode mode;             ///< Blitter mode.
 	uint8_t remap_idx;            ///< Remap table index (for ColourRemap mode).
+	bool palette_only;            ///< True if sprite has only M channel (no RGB data).
 };
 
 /** Vertex for batched sprite rendering: position + colour UV + remap UV. */
@@ -44,6 +45,8 @@ private:
 	GLuint prog_normal = 0;      ///< Shader program for normal sprites.
 	GLuint prog_remap = 0;       ///< Shader program for colour-remapped sprites.
 	GLuint prog_transparent = 0; ///< Shader program for transparent sprites.
+	GLuint prog_palette = 0;     ///< Shader program for palette-only sprites (M → palette lookup).
+	GLuint prog_solid = 0;       ///< Shader program for debug solid colour.
 	GLuint prog_bgra = 0;        ///< Shader program for CPU framebuffer (BGRA→RGBA swizzle).
 
 	/* Normal program uniforms/attributes. */
@@ -70,6 +73,18 @@ private:
 	GLint trans_colour_uv_attr = -1;
 	GLint trans_remap_uv_attr = -1;
 
+	/* Palette program uniforms/attributes. */
+	GLint pal_screen_loc = -1;
+	GLint pal_remap_tex_loc = -1;
+	GLint pal_palette_tex_loc = -1;
+	GLint pal_pos_attr = -1;
+	GLint pal_remap_uv_attr = -1;
+
+	/* Solid debug program uniforms/attributes. */
+	GLint solid_screen_loc = -1;
+	GLint solid_colour_loc = -1;
+	GLint solid_pos_attr = -1;
+
 	/* BGRA program uniforms/attributes (for CPU framebuffer). */
 	GLint bgra_screen_loc = -1;
 	GLint bgra_colour_tex_loc = -1;
@@ -80,6 +95,9 @@ private:
 	GLuint remap_table_tex = 0;  ///< 256x1 remap table texture (current remap).
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
 	GLuint cpu_framebuf_tex = 0; ///< Texture for CPU-rendered content (video buffer upload).
+
+	GLuint fbo = 0;              ///< Persistent framebuffer object for accumulation.
+	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO.
 
 	int screen_width = 0;
 	int screen_height = 0;
@@ -100,6 +118,9 @@ private:
 	                GLint pos_attr, GLint colour_uv_attr, GLint remap_uv_attr,
 	                GLuint colour_atlas, GLuint remap_atlas,
 	                const GLESVertex *vertices, size_t count);
+
+	void FlushPaletteBatch(GLuint remap_atlas,
+	                       const GLESVertex *vertices, size_t count);
 
 public:
 	static GLESBackend *Get() { return instance; }

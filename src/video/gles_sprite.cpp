@@ -158,6 +158,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(const void *sprite_data, ZoomLevel zoom,
 
 	GLESSpriteEntry entry;
 	entry.has_remap = has_remap;
+	entry.palette_only = has_remap && !has_rgb;
 
 	/* Upload RGBA data. */
 	{

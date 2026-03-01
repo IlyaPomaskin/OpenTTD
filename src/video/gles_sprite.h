@@ -38,6 +38,7 @@ struct GLESSpriteEntry {
 	GLESSpriteRegion colour;  ///< Region in the colour (RGBA) atlas.
 	GLESSpriteRegion remap;   ///< Region in the remap (M channel) atlas.
 	bool has_remap;           ///< Whether this sprite has remap data.
+	bool palette_only;        ///< True if sprite has only M channel (no RGB data).
 };
 
 /** A single atlas texture with a shelf packer. */

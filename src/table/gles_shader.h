@@ -72,6 +72,21 @@ static const char *_gles_frag_shader_remap =
 	"  }\n"
 	"}\n";
 
+/** Fragment shader for palette-only sprite rendering.
+ *  Reads the M channel index from the remap atlas, looks up the palette
+ *  texture to get the final RGBA colour. Index 0 is transparent (discarded). */
+static const char *_gles_frag_shader_palette =
+	"precision mediump float;\n"
+	"uniform sampler2D remap_tex;\n"
+	"uniform sampler2D palette_tex;\n"
+	"varying vec2 v_remap_uv;\n"
+	"void main() {\n"
+	"  float m = texture2D(remap_tex, v_remap_uv).r;\n"
+	"  if (m < 0.002) discard;\n"
+	"  vec4 col = texture2D(palette_tex, vec2(m, 0.5));\n"
+	"  gl_FragColor = vec4(col.rgb, 1.0);\n"
+	"}\n";
+
 /** Fragment shader for CPU framebuffer rendering.
  *  The CPU video buffer stores pixels as BGRA (ColourBGRA on little-endian),
  *  but glTexImage2D with GL_RGBA reads them as RGBA. This shader swizzles
@@ -83,6 +98,14 @@ static const char *_gles_frag_shader_bgra =
 	"void main() {\n"
 	"  vec4 c = texture2D(colour_tex, v_colour_uv);\n"
 	"  gl_FragColor = vec4(c.b, c.g, c.r, c.a);\n"
+	"}\n";
+
+/** Fragment shader for debug: outputs a solid colour (no texture). */
+static const char *_gles_frag_shader_solid =
+	"precision mediump float;\n"
+	"uniform vec4 u_colour;\n"
+	"void main() {\n"
+	"  gl_FragColor = u_colour;\n"
 	"}\n";
 
 /** Fragment shader for transparent sprite rendering.
