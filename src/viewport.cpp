@@ -1827,21 +1827,38 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	_vd.dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_cur_dpi->dst_ptr, x - _cur_dpi->left, y - _cur_dpi->top);
 	AutoRestoreBackup dpi_backup(_cur_dpi, &_vd.dpi);
 
+	auto _t0 = std::chrono::steady_clock::now();
 	ViewportAddLandscape();
+	auto _t1 = std::chrono::steady_clock::now();
 	ViewportAddVehicles(&_vd.dpi);
+	auto _t2 = std::chrono::steady_clock::now();
 
 	ViewportAddKdtreeSigns(&_vd.dpi);
 
 	DrawTextEffects(&_vd.dpi);
 
 	if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw);
+	auto _t3 = std::chrono::steady_clock::now();
 
 	for (auto &psd : _vd.parent_sprites_to_draw) {
 		_vd.parent_sprites_to_sort.push_back(&psd);
 	}
 
 	_vp_sprite_sorter(&_vd.parent_sprites_to_sort);
+	auto _t4 = std::chrono::steady_clock::now();
 	ViewportDrawParentSprites(&_vd.parent_sprites_to_sort, &_vd.child_screen_sprites_to_draw);
+	auto _t5 = std::chrono::steady_clock::now();
+
+	{
+		static int _vp_log_count = 0;
+		if (_vp_log_count++ % 30 == 0) {
+			auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+			Debug(driver, 0, "VP: land={}us veh={}us signs+tiles={}us sort={}us draw={}us sprites={} area={}x{}",
+				us(_t0, _t1), us(_t1, _t2), us(_t2, _t3), us(_t3, _t4), us(_t4, _t5),
+				_vd.parent_sprites_to_sort.size(),
+				(_vd.dpi.width), (_vd.dpi.height));
+		}
+	}
 
 	if (_draw_bounding_boxes) ViewportDrawBoundingBoxes(&_vd.parent_sprites_to_sort);
 	if (_draw_dirty_blocks) ViewportDrawDirtyBlocks();
