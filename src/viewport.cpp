@@ -193,7 +193,7 @@ static ViewportDrawer _vd;
 TileHighlightData _thd;
 static TileInfo _cur_ti;
 bool _draw_bounding_boxes = false;
-bool _draw_dirty_blocks = false;
+bool _draw_dirty_blocks = true;
 uint _dirty_block_colour = 0;
 static VpSpriteSorter _vp_sprite_sorter = nullptr;
 

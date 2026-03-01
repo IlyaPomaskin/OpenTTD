@@ -35,6 +35,7 @@
 #include "misc_cmd.h"
 #include "timer/timer.h"
 #include "timer/timer_window.h"
+#include "debug.h"
 
 #include "saveload/saveload.h"
 
@@ -275,6 +276,8 @@ struct MainWindow : Window
 
 	void OnClick([[maybe_unused]] Point pt, [[maybe_unused]] WidgetID widget, [[maybe_unused]] int click_count) override
 	{
+		Debug(misc, 0, "Screen click at ({}, {}), widget={}", pt.x, pt.y, widget);
+		int old_limit = _fps_limit;
 		if (_fps_limit <= 15) {
 			_fps_limit = 30;
 		} else if (_fps_limit <= 30) {
@@ -282,6 +285,7 @@ struct MainWindow : Window
 		} else {
 			_fps_limit = 15;
 		}
+		Debug(misc, 0, "FPS limit changed: {} -> {}", old_limit, _fps_limit);
 		this->SetDirty();
 	}
 

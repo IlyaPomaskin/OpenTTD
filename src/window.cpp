@@ -28,6 +28,7 @@
 #include "ini_type.h"
 #include "newgrf_debug.h"
 #include "hotkeys.h"
+#include "debug.h"
 #include "toolbar_gui.h"
 #include "statusbar_gui.h"
 #include "error.h"
@@ -2883,11 +2884,11 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	HandlePlacePresize();
 	UpdateTileSelection();
 
-	if (VpHandlePlaceSizingDrag()  == ES_HANDLED) return;
-	if (HandleMouseDragDrop()      == ES_HANDLED) return;
-	if (HandleWindowDragging()     == ES_HANDLED) return;
-	if (HandleActiveWidget()       == ES_HANDLED) return;
-	if (HandleViewportScroll()     == ES_HANDLED) return;
+	if (VpHandlePlaceSizingDrag()  == ES_HANDLED) { if (click != MC_NONE) Debug(misc, 0, "MouseLoop: consumed by VpHandlePlaceSizingDrag"); return; }
+	if (HandleMouseDragDrop()      == ES_HANDLED) { if (click != MC_NONE) Debug(misc, 0, "MouseLoop: consumed by HandleMouseDragDrop"); return; }
+	if (HandleWindowDragging()     == ES_HANDLED) { if (click != MC_NONE) Debug(misc, 0, "MouseLoop: consumed by HandleWindowDragging"); return; }
+	if (HandleActiveWidget()       == ES_HANDLED) { if (click != MC_NONE) Debug(misc, 0, "MouseLoop: consumed by HandleActiveWidget"); return; }
+	if (HandleViewportScroll()     == ES_HANDLED) { if (click != MC_NONE) Debug(misc, 0, "MouseLoop: consumed by HandleViewportScroll"); return; }
 
 	HandleMouseOver();
 
@@ -2897,13 +2898,18 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	int x = _cursor.pos.x;
 	int y = _cursor.pos.y;
 	Window *w = FindWindowFromPt(x, y);
-	if (w == nullptr) return;
+	if (w == nullptr) { Debug(misc, 0, "MouseLoop: no window at ({}, {})", x, y); return; }
 
-	if (click != MC_HOVER && !MaybeBringWindowToFront(w)) return;
+	if (click != MC_HOVER && !MaybeBringWindowToFront(w)) { Debug(misc, 0, "MouseLoop: MaybeBringWindowToFront failed"); return; }
 	Viewport *vp = IsPtInWindowViewport(w, x, y);
 
-	/* Don't allow any action in a viewport if either in menu or when having a modal progress window */
-	if (vp != nullptr && (_game_mode == GM_MENU || HasModalProgress())) return;
+	/* Don't allow any action in a viewport if we have a modal progress window.
+	 * In menu mode, skip viewport-specific handling but still dispatch to OnClick. */
+	if (vp != nullptr && HasModalProgress()) { Debug(misc, 0, "MouseLoop: blocked by modal progress"); return; }
+	if (vp != nullptr && _game_mode == GM_MENU) {
+		Debug(misc, 0, "MouseLoop: menu mode, bypassing viewport to dispatch OnClick");
+		vp = nullptr;
+	}
 
 	if (mousewheel != 0) {
 		/* Send mousewheel event to window, unless we're scrolling a viewport or the map */
@@ -2955,6 +2961,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	switch (click) {
 		case MC_LEFT:
 		case MC_DOUBLE_LEFT:
+			Debug(misc, 0, "MouseLoop: dispatching left click to window class={}", (int)w->window_class);
 			DispatchLeftClickEvent(w, x - w->left, y - w->top, click == MC_DOUBLE_LEFT ? 2 : 1);
 			return;
 
@@ -2994,6 +3001,7 @@ void HandleMouseEvents()
 	/* Mouse event? */
 	MouseClick click = MC_NONE;
 	if (_left_button_down && !_left_button_clicked) {
+		Debug(misc, 0, "HandleMouseEvents: left click detected at ({}, {})", _cursor.pos.x, _cursor.pos.y);
 		click = MC_LEFT;
 		if (std::chrono::steady_clock::now() <= double_click_time + TIME_BETWEEN_DOUBLE_CLICK &&
 				double_click_pos.x != 0 && abs(_cursor.pos.x - double_click_pos.x) < MAX_OFFSET_DOUBLE_CLICK  &&

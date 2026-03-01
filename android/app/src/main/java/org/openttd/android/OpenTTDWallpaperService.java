@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 
@@ -30,6 +31,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private class OpenTTDEngine extends Engine {
         private static final long PAUSE_DELAY_MS = 5000;
         private Surface mEngineSurface;
+        private int mSurfaceWidth = 1;
+        private int mSurfaceHeight = 1;
         private final Handler mHandler = new Handler(Looper.getMainLooper());
         private final Runnable mDeferredPause = () -> {
             SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
@@ -39,6 +42,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
             super.onCreate(surfaceHolder);
+            setTouchEventsEnabled(true);
             // Load native libraries once per process
             if (!sLibrariesLoaded) {
                 for (String lib : LIBRARIES) {
@@ -46,6 +50,30 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 }
                 sLibrariesLoaded = true;
             }
+        }
+
+        @Override
+        public void onTouchEvent(MotionEvent event) {
+            if (!sSDLInitialized) return;
+            int action = event.getActionMasked();
+            float x = event.getX() / mSurfaceWidth;
+            float y = event.getY() / mSurfaceHeight;
+            Log.i(TAG, "onTouchEvent action=" + action + " x=" + event.getX() + " y=" + event.getY());
+            int sdlAction;
+            switch (action) {
+                case MotionEvent.ACTION_DOWN:
+                    sdlAction = 0; // SDL_FINGERDOWN
+                    break;
+                case MotionEvent.ACTION_UP:
+                    sdlAction = 1; // SDL_FINGERUP
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    sdlAction = 2; // SDL_FINGERMOTION
+                    break;
+                default:
+                    return;
+            }
+            SDLActivity.onNativeTouch(0, 0, sdlAction, x, y, event.getPressure());
         }
 
         @Override
@@ -84,6 +112,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             super.onSurfaceChanged(holder, format, width, height);
             if (!sSDLInitialized) return;
+            mSurfaceWidth = Math.max(width, 1);
+            mSurfaceHeight = Math.max(height, 1);
             mEngineSurface = holder.getSurface();
             SDLActivity.sOverrideSurface = mEngineSurface;
             SDLActivity.nativeSetScreenResolution(width, height, width, height, 60.0f);
