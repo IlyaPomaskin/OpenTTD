@@ -1014,7 +1014,7 @@ struct FrametimeGraphWindow : Window {
 };
 
 static WindowDesc _frametime_graph_window_desc(
-	WDP_AUTO, "frametime_graph", 140, 90,
+	WDP_AUTO, "frametime_graph", 140, 300,
 	WC_FRAMETIME_GRAPH, WC_NONE,
 	{},
 	_frametime_graph_window_widgets
