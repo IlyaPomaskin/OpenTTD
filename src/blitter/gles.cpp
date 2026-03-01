@@ -51,52 +51,18 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 }
 
 /**
- * Override Draw to record a draw command for GPU rendering.
- * Always renders to the CPU buffer first (ensuring a complete scene),
- * then additionally queues supported sprites for GPU overlay.
+ * Draw override for the GLES blitter.
+ * Currently delegates entirely to the CPU blitter. The FBO pipeline in
+ * GLESBackend::Paint() handles uploading the CPU buffer to the screen,
+ * solving double-buffering / dirty-rect incompatibilities.
+ *
+ * GPU sprite overlay is disabled for now because it causes artifacts:
+ * - Semi-transparent sprites get double-blended (CPU + GPU)
+ * - Palette-animated sprites (water) show stale RGBA from encode time
+ * The atlas infrastructure is kept for future use when GPU rendering
+ * can fully replace CPU rendering for supported sprite types.
  */
 void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom)
 {
-	/* Always render to CPU buffer — this ensures the complete scene is
-	 * available in the video buffer regardless of GPU sprite coverage. */
 	Blitter_32bppOptimized::Draw(bp, mode, zoom);
-
-	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) return;
-
-	/* Only queue Normal and Transparent modes to GPU. */
-	if (mode != BlitterMode::Normal && mode != BlitterMode::Transparent) return;
-
-	/* Build the sprite key from the sprite data pointer and zoom level. */
-	GLESSpriteID key = MakeGLESSpriteKey(bp->sprite, zoom);
-
-	/* Check if this sprite is in the atlas. */
-	const GLESSpriteEntry *entry = backend->GetSpriteAtlas().Lookup(key);
-	if (entry == nullptr) return;
-
-	/* Compute absolute screen position.
-	 * bp->dst points into the screen buffer, bp->left/top are offsets within that.
-	 * We need the pixel offset from _screen.dst_ptr to get absolute screen coords. */
-	ptrdiff_t pixel_offset = static_cast<const uint32_t *>(bp->dst) -
-	                          static_cast<const uint32_t *>(_screen.dst_ptr);
-	int base_x = static_cast<int>(pixel_offset % _screen.pitch);
-	int base_y = static_cast<int>(pixel_offset / _screen.pitch);
-
-	/* Record draw command. */
-	GLESDrawCommand cmd;
-	cmd.sprite_key = key;
-	cmd.screen_x = static_cast<int16_t>(base_x + bp->left);
-	cmd.screen_y = static_cast<int16_t>(base_y + bp->top);
-	cmd.width = static_cast<int16_t>(bp->width);
-	cmd.height = static_cast<int16_t>(bp->height);
-	cmd.skip_left = static_cast<int16_t>(bp->skip_left);
-	cmd.skip_top = static_cast<int16_t>(bp->skip_top);
-	cmd.sprite_width = static_cast<int16_t>(UnScaleByZoom(bp->sprite_width, zoom));
-	cmd.sprite_height = static_cast<int16_t>(UnScaleByZoom(bp->sprite_height, zoom));
-	cmd.zoom = zoom;
-	cmd.mode = mode;
-	cmd.remap_idx = 0;
-	cmd.palette_only = false;
-
-	backend->QueueDraw(cmd);
 }
