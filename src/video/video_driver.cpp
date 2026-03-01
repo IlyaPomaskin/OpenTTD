@@ -148,6 +148,10 @@ void VideoDriver::Tick()
 
 			::InputLoop();
 
+			/* GPU sprite rendering needs full redraw every frame since the
+			 * draw queue is transient (cleared after each Paint). */
+			if (_gles_gpu_sprites) MarkWholeScreenDirty();
+
 			/* Prevent drawing when switching mode, as windows can be removed when they should still appear. */
 			if (_game_mode == GM_BOOTSTRAP || _switch_mode == SM_NONE || HasModalProgress()) {
 				::UpdateWindows();
