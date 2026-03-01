@@ -1100,6 +1100,34 @@ void ConPrintFramerate()
 	}
 }
 
+/** Log performance statistics to debug output (called from FPS logger). */
+void LogPerformanceStats()
+{
+	static const char * const names[] = {
+		"GameLoop", "Economy", "Trains", "RoadVeh", "Ships", "Aircraft",
+		"Landscape", "LinkGraph", "Drawing", "Viewport", "Video", "Sound",
+	};
+	const int count = NUM_FRAMERATE_POINTS / 4;
+
+	double gl_rate = _pf_data[PFE_GAMELOOP].GetRate();
+	double draw_rate = _pf_data[PFE_DRAWING].GetRate();
+
+	Debug(driver, 0, "PERF: GL={:.1f}hz Draw={:.1f}hz | "
+		"GL={:.1f}ms Econ={:.1f}ms Train={:.1f}ms Road={:.1f}ms Ship={:.1f}ms Air={:.1f}ms Land={:.1f}ms | "
+		"Draw={:.1f}ms VP={:.1f}ms Video={:.1f}ms",
+		gl_rate, draw_rate,
+		_pf_data[PFE_GAMELOOP].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_ECONOMY].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_TRAINS].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_ROADVEHS].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_SHIPS].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_AIRCRAFT].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_GL_LANDSCAPE].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_DRAWING].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_DRAWWORLD].GetAverageDurationMilliseconds(count),
+		_pf_data[PFE_VIDEO].GetAverageDurationMilliseconds(count));
+}
+
 /**
  * This drains the PFE_SOUND measurement data queue into _pf_data.
  * PFE_SOUND measurements are made by the mixer thread and so cannot be stored
