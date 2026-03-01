@@ -462,6 +462,7 @@ if(NOT GLOBAL_DIR STREQUAL "(not set)")
 endif()
 
 link_package(SSE)
+link_package(NEON)
 
 add_definitions_based_on_options()
 

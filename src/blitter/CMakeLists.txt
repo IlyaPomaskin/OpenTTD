@@ -35,6 +35,7 @@ add_files(
 add_files(
     32bpp_anim_neon.cpp
     32bpp_anim_neon.hpp
+    32bpp_neon_func.hpp
     CONDITION NOT OPTION_DEDICATED AND NEON_FOUND
 )
 

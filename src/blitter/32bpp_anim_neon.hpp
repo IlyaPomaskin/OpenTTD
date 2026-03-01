@@ -15,8 +15,12 @@
 /** A 32 bpp blitter with palette animation using ARM NEON. */
 class Blitter_32bppNEON_Anim : public Blitter_32bppAnim {
 public:
+	void Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom) override;
 	void PaletteAnimate(const Palette &palette) override;
 	std::string_view GetName() override { return "32bpp-neon-anim"; }
+
+	template <BlitterMode mode> void Draw(const Blitter::BlitterParams *bp, ZoomLevel zoom);
+	template <BlitterMode mode> void DrawNoAnim(const Blitter::BlitterParams *bp, ZoomLevel zoom);
 };
 
 /** Factory for the NEON 32bpp blitter with animation. */
