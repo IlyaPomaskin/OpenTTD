@@ -384,15 +384,7 @@ void GLESBackend::FlushPaletteBatch(GLuint remap_atlas,
 
 void GLESBackend::Paint()
 {
-	static int frame_count = 0;
-	if (frame_count < 10) {
-		Debug(driver, 0, "GLES Paint: frame={} draw_queue={} fbo={} fbo_tex={} screen={}x{}",
-			frame_count, this->draw_queue.size(), this->fbo, this->fbo_tex,
-			this->screen_width, this->screen_height);
-	}
-	frame_count++;
-
-	/* === Phase 1: Render into persistent FBO (accumulates across frames). === */
+	/* === Phase 1: Render into persistent FBO. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 

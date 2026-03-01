@@ -135,6 +135,7 @@ void VideoDriver_SDL_GLES::ToggleVsync(bool vsync)
 
 bool VideoDriver_SDL_GLES::AllocateBackingStore(int w, int h, bool force)
 {
+	Debug(driver, 0, "GLES AllocateBackingStore: w={} h={} force={} gl_context={}", w, h, force, (void *)this->gl_context);
 	if (this->gl_context == nullptr) return false;
 
 	w = std::max(w, 64);
@@ -164,15 +165,15 @@ void VideoDriver_SDL_GLES::Paint()
 {
 	PerformanceMeasurer framerate(PFE_VIDEO);
 
-	/* Check EGL state before rendering. */
 	static int paint_count = 0;
-	if (paint_count < 5) {
-		EGLDisplay dpy = eglGetCurrentDisplay();
-		EGLSurface surf = eglGetCurrentSurface(EGL_DRAW);
-		EGLContext ctx = eglGetCurrentContext();
-		Debug(driver, 0, "GLES Paint #{}: display={} surface={} context={} err=0x{:04X}",
-			paint_count, (void *)dpy, (void *)surf, (void *)ctx, eglGetError());
+	if (paint_count < 10) {
+		Debug(driver, 0, "GLES Paint #{}: backend={} cpu_tex={} fbo={} screen={}x{}",
+			paint_count, (void *)GLESBackend::Get(),
+			GLESBackend::Get() ? GLESBackend::Get()->GetScreenWidth() : -1,
+			GLESBackend::Get() ? GLESBackend::Get()->GetScreenHeight() : -1,
+			_screen.width, _screen.height);
 	}
+	paint_count++;
 
 	if (this->local_palette.count_dirty != 0) {
 		GLESBackend::Get()->UpdatePalette(this->local_palette.palette,
@@ -187,16 +188,4 @@ void VideoDriver_SDL_GLES::Paint()
 	GLESBackend::Get()->Paint();
 
 	SDL_GL_SwapWindow(this->sdl_window);
-	if (paint_count < 5) {
-		EGLint egl_err = eglGetError();
-		GLenum gl_err = glGetError();
-		Debug(driver, 0, "GLES Paint #{}: egl_err=0x{:04X} gl_err=0x{:04X}",
-			paint_count, egl_err, gl_err);
-	}
-	paint_count++;
-
-	/* Force full screen redraw every frame so all sprites get queued to GPU.
-	 * OpenTTD normally uses dirty rectangles, but the GPU draw queue is
-	 * per-frame — we need everything redrawn each time. */
-	this->MakeDirty(0, 0, _screen.width, _screen.height);
 }
