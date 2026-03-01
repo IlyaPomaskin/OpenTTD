@@ -1,0 +1,97 @@
+/*
+ * This file is part of OpenTTD.
+ * OpenTTD is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, version 2.
+ * OpenTTD is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details. You should have received a copy of the GNU General Public License along with OpenTTD. If not, see <https://www.gnu.org/licenses/old-licenses/gpl-2.0>.
+ */
+
+/** @file gles_shader.h OpenGL ES shader programs for batched sprite rendering. */
+
+/** Vertex shader (GLSL ES 100) for batched sprite rendering.
+ *  Each vertex carries position (pixel coords) and two sets of UVs:
+ *  colour_uv for the RGBA atlas, remap_uv for the remap (M channel) atlas. */
+static const char *_gles_vertex_shader =
+	"precision mediump float;\n"
+	"uniform vec2 screen;\n"
+	"attribute vec2 a_position;\n"
+	"attribute vec2 a_colour_uv;\n"
+	"attribute vec2 a_remap_uv;\n"
+	"varying vec2 v_colour_uv;\n"
+	"varying vec2 v_remap_uv;\n"
+	"void main() {\n"
+	"  vec2 ndc = (a_position / screen) * 2.0 - 1.0;\n"
+	"  ndc.y = -ndc.y;\n"
+	"  gl_Position = vec4(ndc, 0.0, 1.0);\n"
+	"  v_colour_uv = a_colour_uv;\n"
+	"  v_remap_uv = a_remap_uv;\n"
+	"}\n";
+
+/** Fragment shader for normal (RGBA) sprite rendering. */
+static const char *_gles_frag_shader_normal =
+	"precision mediump float;\n"
+	"uniform sampler2D colour_tex;\n"
+	"varying vec2 v_colour_uv;\n"
+	"void main() {\n"
+	"  gl_FragColor = texture2D(colour_tex, v_colour_uv);\n"
+	"}\n";
+
+/** Fragment shader for colour-remapped sprite rendering.
+ *  Reads the M channel from the remap atlas, looks up the remap table
+ *  to get the final palette index, then looks up the palette texture.
+ *  Brightness from the RGBA sprite modulates the final colour. */
+static const char *_gles_frag_shader_remap =
+	"precision mediump float;\n"
+	"uniform sampler2D colour_tex;\n"
+	"uniform sampler2D remap_tex;\n"
+	"uniform sampler2D palette_tex;\n"
+	"uniform sampler2D remap_table_tex;\n"
+	"varying vec2 v_colour_uv;\n"
+	"varying vec2 v_remap_uv;\n"
+	"\n"
+	"float max3(vec3 v) {\n"
+	"  return max(max(v.x, v.y), v.z);\n"
+	"}\n"
+	"\n"
+	"vec3 adj_brightness(vec3 colour, float brightness) {\n"
+	"  vec3 adj = colour * (brightness > 0.0 ? brightness / 0.5 : 1.0);\n"
+	"  vec3 ob_vec = clamp(adj - 1.0, 0.0, 1.0);\n"
+	"  float ob = (ob_vec.r + ob_vec.g + ob_vec.b) / 2.0;\n"
+	"  return clamp(adj + ob * (1.0 - adj), 0.0, 1.0);\n"
+	"}\n"
+	"\n"
+	"void main() {\n"
+	"  float m = texture2D(remap_tex, v_remap_uv).r;\n"
+	"  float remapped = texture2D(remap_table_tex, vec2(m, 0.5)).r;\n"
+	"  vec4 pal_col = texture2D(palette_tex, vec2(remapped, 0.5));\n"
+	"  vec4 rgb_col = texture2D(colour_tex, v_colour_uv);\n"
+	"  if (m > 0.0) {\n"
+	"    gl_FragColor.a = pal_col.a;\n"
+	"    gl_FragColor.rgb = adj_brightness(pal_col.rgb, max3(rgb_col.rgb));\n"
+	"  } else {\n"
+	"    gl_FragColor = rgb_col;\n"
+	"  }\n"
+	"}\n";
+
+/** Fragment shader for CPU framebuffer rendering.
+ *  The CPU video buffer stores pixels as BGRA (ColourBGRA on little-endian),
+ *  but glTexImage2D with GL_RGBA reads them as RGBA. This shader swizzles
+ *  the R and B channels back to correct order. */
+static const char *_gles_frag_shader_bgra =
+	"precision mediump float;\n"
+	"uniform sampler2D colour_tex;\n"
+	"varying vec2 v_colour_uv;\n"
+	"void main() {\n"
+	"  vec4 c = texture2D(colour_tex, v_colour_uv);\n"
+	"  gl_FragColor = vec4(c.b, c.g, c.r, c.a);\n"
+	"}\n";
+
+/** Fragment shader for transparent sprite rendering.
+ *  Outputs black with alpha, used with glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA). */
+static const char *_gles_frag_shader_transparent =
+	"precision mediump float;\n"
+	"uniform sampler2D colour_tex;\n"
+	"varying vec2 v_colour_uv;\n"
+	"void main() {\n"
+	"  float a = texture2D(colour_tex, v_colour_uv).a;\n"
+	"  gl_FragColor = vec4(0.0, 0.0, 0.0, a * 0.5);\n"
+	"}\n";

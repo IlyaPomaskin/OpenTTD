@@ -184,6 +184,12 @@ if(NOT EMSCRIPTEN AND NOT ANDROID AND NOT OPTION_DEDICATED)
     find_package(OpenGL COMPONENTS OpenGL)
 endif()
 
+if(ANDROID)
+    set(OPENGLES_FOUND TRUE)
+    add_definitions(-DWITH_OPENGLES)
+    message(STATUS "OpenGL ES found -- -DWITH_OPENGLES -- (Android built-in)")
+endif()
+
 if(MSVC)
     find_package(Editbin REQUIRED)
 endif()

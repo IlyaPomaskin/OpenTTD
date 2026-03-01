@@ -152,6 +152,12 @@ add_subdirectory("${OPENTTD_ROOT}" "${CMAKE_BINARY_DIR}/openttd")
 # Ensure pre-built deps are downloaded before OpenTTD compiles.
 add_dependencies(openttd_lib libs)
 
+# Link OpenGL ES 2.0 for GPU-accelerated sprite rendering.
+find_library(GLES_LIB GLESv2)
+if(GLES_LIB)
+    target_link_libraries(openttd_lib ${GLES_LIB})
+endif()
+
 # ---------------------------------------------------------------------------
 # Copy baseset and lang files to APK assets directory after building.
 # ---------------------------------------------------------------------------
