@@ -20,6 +20,8 @@
 #include "32bpp_neon_func.hpp"
 #endif
 
+#include <unordered_set>
+
 #include "../safeguards.h"
 
 static FBlitter_GLES iFBlitter_GLES;
@@ -266,11 +268,58 @@ template void DrawNeon<BlitterMode::ColourRemap>(Blitter::BlitterParams *, ZoomL
 
 /**
  * Draw override for the GLES blitter.
- * Uses NEON-optimized inner loops for Normal and ColourRemap on ARM64.
- * Falls back to CPU blitter for other modes.
+ * When GPU sprites are enabled, queues draw commands for the GPU batch renderer.
+ * Otherwise uses NEON-optimized CPU inner loops (ARM64) or scalar fallback.
  */
 void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom)
 {
+	if (_gles_gpu_sprites) {
+		GLESBackend *backend = GLESBackend::Get();
+		if (backend != nullptr) {
+			/* Only intercept draws to the actual screen buffer, not screenshots. */
+			const uint32_t *screen_start = static_cast<const uint32_t *>(_screen.dst_ptr);
+			const uint32_t *screen_end = screen_start + _screen.pitch * _screen.height;
+			const uint32_t *dst = static_cast<const uint32_t *>(bp->dst);
+
+			if (dst >= screen_start && dst < screen_end) {
+				GLESSpriteID key = MakeGLESSpriteKey(bp->sprite, zoom);
+				GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+				const GLESSpriteEntry *entry = atlas.Lookup(key);
+
+				if (entry != nullptr) {
+					/* Convert buffer-relative coords to absolute screen coords. */
+					ptrdiff_t pixel_offset = dst - screen_start;
+					int abs_x = static_cast<int>(pixel_offset % _screen.pitch) + bp->left;
+					int abs_y = static_cast<int>(pixel_offset / _screen.pitch) + bp->top;
+
+					GLESDrawCommand cmd;
+					cmd.sprite_key = key;
+					cmd.screen_x = static_cast<int16_t>(abs_x);
+					cmd.screen_y = static_cast<int16_t>(abs_y);
+					cmd.width = static_cast<int16_t>(bp->width);
+					cmd.height = static_cast<int16_t>(bp->height);
+					cmd.skip_left = static_cast<int16_t>(bp->skip_left);
+					cmd.skip_top = static_cast<int16_t>(bp->skip_top);
+					/* Use zoom-adjusted dimensions so UV fractions are correct. */
+					cmd.sprite_width = static_cast<int16_t>(UnScaleByZoom(bp->sprite_width, zoom));
+					cmd.sprite_height = static_cast<int16_t>(UnScaleByZoom(bp->sprite_height, zoom));
+					cmd.zoom = zoom;
+					cmd.mode = mode;
+					cmd.remap_idx = 0;
+					backend->QueueDraw(cmd);
+					return;
+				}
+
+				/* Sprite not in atlas — warn once, fall through to CPU. */
+				static std::unordered_set<GLESSpriteID> warned;
+				if (warned.insert(key).second) {
+					Debug(driver, 1, "GPU sprite not in atlas: key={}", key);
+				}
+			}
+		}
+	}
+
+	/* CPU fallback. */
 #ifdef WITH_NEON
 	switch (mode) {
 		case BlitterMode::Normal:      DrawNeon<BlitterMode::Normal>(bp, zoom); return;
