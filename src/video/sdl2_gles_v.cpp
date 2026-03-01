@@ -161,6 +161,19 @@ void *VideoDriver_SDL_GLES::GetVideoPointer()
 	return this->video_buffer.data();
 }
 
+void VideoDriver_SDL_GLES::CheckPaletteAnim()
+{
+	if (!CopyPalette(this->local_palette)) return;
+
+	/* With GPU sprites the palette texture is updated in Paint().
+	 * Skip the full-screen MakeDirty that the base class does —
+	 * the persistent FBO already has correct pixels and the GPU
+	 * shaders will pick up the new palette on next draw. */
+	if (!_gles_gpu_sprites) {
+		this->MakeDirty(0, 0, _screen.width, _screen.height);
+	}
+}
+
 void VideoDriver_SDL_GLES::Paint()
 {
 	PerformanceMeasurer framerate(PFE_VIDEO);
@@ -172,6 +185,7 @@ void VideoDriver_SDL_GLES::Paint()
 	auto fps_now = std::chrono::steady_clock::now();
 	if (fps_now - fps_last >= std::chrono::seconds(1)) {
 		Debug(driver, 0, "FPS: {}", fps_frames);
+		LogPerformanceStats();
 		fps_frames = 0;
 		fps_last = fps_now;
 	}
@@ -190,11 +204,20 @@ void VideoDriver_SDL_GLES::Paint()
 		this->local_palette.count_dirty = 0;
 	}
 
+	/* Forward dirty rectangles to the GLES backend for selective FBO clearing. */
+	if (_gles_gpu_sprites && this->dirty_rect.right > this->dirty_rect.left) {
+		GLESBackend::Get()->AddDirtyRect(
+			this->dirty_rect.left, this->dirty_rect.top,
+			this->dirty_rect.right, this->dirty_rect.bottom);
+	}
+	this->dirty_rect = {};
+
 	/* Upload CPU-rendered content as background texture.
-	 * When GPU sprites are enabled, this still uploads so UI (text, windows)
-	 * renders correctly. GPU sprites draw on top of this layer. */
-	GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
-		_screen.width, _screen.height);
+	 * Skipped when GPU sprites enabled to measure GPU-only performance. */
+	if (!_gles_gpu_sprites) {
+		GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
+			_screen.width, _screen.height);
+	}
 
 	GLESBackend::Get()->Paint();
 

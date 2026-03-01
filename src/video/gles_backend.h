@@ -106,6 +106,7 @@ private:
 
 	std::vector<GLESDrawCommand> draw_queue; ///< Pending draw commands.
 	std::vector<GLESVertex> vertex_buf;      ///< Temporary vertex assembly buffer.
+	std::vector<Rect> dirty_rects;           ///< Dirty regions to clear in FBO before drawing.
 
 	GLESBackend();
 	~GLESBackend();
@@ -138,6 +139,9 @@ public:
 
 	/** Add a draw command to the queue. Called from the GLES blitter's Draw(). */
 	void QueueDraw(const GLESDrawCommand &cmd);
+
+	/** Add a dirty rectangle that needs clearing in the FBO before drawing. */
+	void AddDirtyRect(int left, int top, int right, int bottom);
 
 	/** Flush all queued draw commands as batched GL draw calls. */
 	void Paint();

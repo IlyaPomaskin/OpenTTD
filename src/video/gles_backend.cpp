@@ -294,6 +294,12 @@ void GLESBackend::UploadVideoBuffer(const void *buffer, int w, int h)
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
 }
 
+void GLESBackend::AddDirtyRect(int left, int top, int right, int bottom)
+{
+	Rect r = {left, top, right, bottom};
+	this->dirty_rects.push_back(r);
+}
+
 void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 {
 	this->draw_queue.push_back(cmd);
@@ -388,11 +394,26 @@ void GLESBackend::Paint()
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 
-	/* Clear FBO and draw CPU buffer as the complete base scene.
-	 * The CPU blitter always renders all sprites, so the video buffer
-	 * contains the full scene. GPU sprites overlay on top for optimization. */
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
+	/* Orphan the VBO to avoid GPU sync stalls.  Tells the driver we don't
+	 * need the old contents, so it can give us fresh storage while the GPU
+	 * finishes reading the previous frame's data. */
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
+
+	/* Clear only dirty regions in FBO to preserve previous frame content.
+	 * This avoids re-rendering the entire viewport every frame. */
+	if (!this->dirty_rects.empty()) {
+		glEnable(GL_SCISSOR_TEST);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		for (const Rect &r : this->dirty_rects) {
+			/* OpenGL scissor Y is bottom-up, so flip. */
+			int gl_y = this->screen_height - r.bottom;
+			glScissor(r.left, gl_y, r.right - r.left, r.bottom - r.top);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		glDisable(GL_SCISSOR_TEST);
+		this->dirty_rects.clear();
+	}
 
 	if (this->cpu_framebuf_tex != 0 && this->screen_width > 0 && this->screen_height > 0) {
 		glDisable(GL_BLEND);
