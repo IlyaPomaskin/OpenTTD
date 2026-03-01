@@ -1157,8 +1157,7 @@ void SwitchToMode(SwitchMode new_mode)
 
 		case SM_MENU: // Switch to game intro menu
 			LoadIntroGame();
-			if (BaseSounds::ini_set.empty() && BaseSounds::GetUsedSet()->fallback && SoundDriver::GetInstance()->HasOutput()) {
-				ShowErrorMessage(GetEncodedString(STR_WARNING_FALLBACK_SOUNDSET), {}, WL_CRITICAL);
+			if (BaseSounds::ini_set.empty() && BaseSounds::GetUsedSet()->fallback) {
 				BaseSounds::ini_set = BaseSounds::GetUsedSet()->name;
 			}
 			UpdateSocialIntegration(GM_MENU);
