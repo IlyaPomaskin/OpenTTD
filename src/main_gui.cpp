@@ -256,6 +256,33 @@ struct MainWindow : Window
 	void OnPaint() override
 	{
 		this->DrawWidgets();
+
+		/* Simple FPS counter */
+		static uint32_t frame_count = 0;
+		static std::chrono::steady_clock::time_point last_time = std::chrono::steady_clock::now();
+		static double fps = 0.0;
+		frame_count++;
+		auto now = std::chrono::steady_clock::now();
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_time).count();
+		if (elapsed >= 1000) {
+			fps = frame_count * 1000.0 / elapsed;
+			frame_count = 0;
+			last_time = now;
+		}
+		std::string fps_str = fmt::format("FPS: {:.1f} (limit: {})", fps, _fps_limit);
+		DrawString(0, this->width - 1, this->height / 2, fps_str, TC_WHITE, SA_CENTER);
+	}
+
+	void OnClick([[maybe_unused]] Point pt, [[maybe_unused]] WidgetID widget, [[maybe_unused]] int click_count) override
+	{
+		if (_fps_limit <= 15) {
+			_fps_limit = 30;
+		} else if (_fps_limit <= 30) {
+			_fps_limit = 60;
+		} else {
+			_fps_limit = 15;
+		}
+		this->SetDirty();
 	}
 
 	EventState OnHotkey(int hotkey) override

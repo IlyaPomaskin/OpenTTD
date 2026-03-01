@@ -59,6 +59,7 @@ static void GfxMainBlitter(const Sprite *sprite, int x, int y, BlitterMode mode,
 
 static ReusableBuffer<uint8_t> _cursor_backup;
 
+int _fps_limit = 60;                        ///< FPS limit for draw interval
 ZoomLevel _gui_zoom = ZoomLevel::Normal; ///< GUI Zoom level
 ZoomLevel _font_zoom = _gui_zoom;           ///< Sprite font Zoom level (not clamped)
 int _gui_scale       = MIN_INTERFACE_SCALE; ///< GUI scale, 100 is 100%.
