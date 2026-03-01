@@ -20,6 +20,7 @@
 #include "../rev.h"
 #include "../thread.h"
 #include "../window_func.h"
+#include "../window_gui.h"
 #include "video_driver.hpp"
 
 #include "../safeguards.h"
@@ -148,9 +149,13 @@ void VideoDriver::Tick()
 
 			::InputLoop();
 
-			/* GPU sprite rendering needs full redraw every frame since the
-			 * draw queue is transient (cleared after each Paint). */
-			if (_gles_gpu_sprites) MarkWholeScreenDirty();
+			/* GPU sprite rendering needs viewport redraw every frame since
+			 * the draw queue is transient (cleared after each Paint).
+			 * Only dirty the main viewport, not UI windows. */
+			if (_gles_gpu_sprites) {
+				Window *mw = GetMainWindow();
+				if (mw != nullptr) mw->SetDirty();
+			}
 
 			/* Prevent drawing when switching mode, as windows can be removed when they should still appear. */
 			if (_game_mode == GM_BOOTSTRAP || _switch_mode == SM_NONE || HasModalProgress()) {
