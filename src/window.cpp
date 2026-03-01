@@ -3181,6 +3181,22 @@ void UpdateWindows()
 	 * But still empty the invalidation queues above. */
 	if (_network_dedicated) return;
 
+	/* Throttle viewport redraws when GPU sprites are active.
+	 * The persistent FBO retains the scene, so we only need to
+	 * redraw every Nth frame. This saves the expensive CPU-side
+	 * tile iteration in ViewportAddLandscape. */
+	if (_gles_gpu_sprites) {
+		static int draw_frame_counter = 0;
+		if (++draw_frame_counter % 3 != 0) {
+			/* Still update viewport positions and cursor on skipped frames. */
+			for (Window *w : Window::Iterate()) {
+				if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
+			}
+			DrawMouseCursor();
+			return;
+		}
+	}
+
 	DrawDirtyBlocks();
 
 	for (Window *w : Window::Iterate()) {
