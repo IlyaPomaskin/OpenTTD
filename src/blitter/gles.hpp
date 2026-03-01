@@ -17,6 +17,7 @@
 class Blitter_GLES : public Blitter_32bppOptimized {
 public:
 	void Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom) override;
+	void DrawRect(void *video, int width, int height, PixelColour colour) override;
 	Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator) override;
 
 	std::string_view GetName() override { return "gles"; }

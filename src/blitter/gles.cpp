@@ -266,6 +266,14 @@ template void DrawNeon<BlitterMode::Normal>(Blitter::BlitterParams *, ZoomLevel)
 template void DrawNeon<BlitterMode::ColourRemap>(Blitter::BlitterParams *, ZoomLevel);
 #endif /* WITH_NEON */
 
+void Blitter_GLES::DrawRect(void *video, int width, int height, PixelColour colour)
+{
+	/* Skip CPU rectangle fills when GPU sprites are active —
+	 * the CPU buffer is not displayed so this is wasted work. */
+	if (_gles_gpu_sprites) return;
+	Blitter_32bppBase::DrawRect(video, width, height, colour);
+}
+
 /**
  * Draw override for the GLES blitter.
  * When GPU sprites are enabled, queues draw commands for the GPU batch renderer.
