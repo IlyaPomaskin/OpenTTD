@@ -76,16 +76,19 @@ static FBlitter_GLES iFBlitter_GLES;
 
 /**
  * Encode a sprite for the GLES blitter.
- * Calls the parent encoder to keep full CPU pixel data (for fallback),
- * then also uploads to the GPU atlas for accelerated rendering.
+ * Allocates a minimal Sprite (dimensions only) and uploads pixel data to the GPU atlas.
+ * No CPU-side RLE encoding — all rendering goes through the GPU.
  */
 Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
 {
-	/* Always call parent encoder first to get full CPU sprite data.
-	 * This ensures we can fall back to CPU rendering for unsupported modes. */
-	Sprite *dest_sprite = Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
-
 	_gles_perf.encode_total++;
+
+	const auto &root = sprite.Root();
+	Sprite *dest_sprite = allocator.Allocate<Sprite>(sizeof(Sprite));
+	dest_sprite->height = root.height;
+	dest_sprite->width = root.width;
+	dest_sprite->x_offs = root.x_offs;
+	dest_sprite->y_offs = root.y_offs;
 
 	GLESBackend *backend = GLESBackend::Get();
 	if (backend == nullptr) {
@@ -93,7 +96,6 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		return dest_sprite;
 	}
 
-	/* Also upload each available zoom level to the GPU atlas. */
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
 	int zooms_uploaded = 0;
 	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
@@ -101,52 +103,42 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		const SpriteLoader::Sprite &src = sprite[zoom];
 		if (src.data == nullptr || src.width == 0 || src.height == 0) continue;
 
-		/* Check if pixel data has any non-transparent content. */
-		bool all_transparent = true;
-		size_t total_px = static_cast<size_t>(src.width) * src.height;
-		for (size_t i = 0; i < total_px && all_transparent; i++) {
-			if (src.data[i].a > 0) all_transparent = false;
-		}
-
 		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
 		bool has_remap = src.colours.Test(SpriteComponent::Palette);
-
-		if (all_transparent && !has_remap) {
-			_gles_perf.encode_all_transparent++;
-			static int transp_log_count = 0;
-			if (transp_log_count < 30) {
-				transp_log_count++;
-				Debug(driver, 0, "GLES: ALL-TRANSPARENT sprite_id={} zoom={} {}x{} rgb={} remap={}",
-				      _gles_encoding_sprite_id, z, src.width, src.height, has_rgb, has_remap);
-			}
-		}
 
 		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
 		             src.width, src.height, has_rgb, has_remap);
 		zooms_uploaded++;
-
-		/* Log hovercraft encode with M channel stats. */
-		if (_gles_encoding_sprite_id >= 3693 && _gles_encoding_sprite_id <= 3700) {
-			int m_nonzero = 0;
-			int a_nonzero = 0;
-			uint8_t m_max = 0;
-			for (size_t i = 0; i < total_px; i++) {
-				if (src.data[i].m > 0) m_nonzero++;
-				if (src.data[i].a > 0) a_nonzero++;
-				if (src.data[i].m > m_max) m_max = src.data[i].m;
-			}
-			Debug(driver, 0, "HOVER-ENCODE sid={} zoom={} {}x{} rgb={} remap={} transp={} m_nz={}/{} m_max={} a_nz={}",
-			      _gles_encoding_sprite_id, z, src.width, src.height,
-			      static_cast<int>(has_rgb), static_cast<int>(has_remap),
-			      static_cast<int>(all_transparent),
-			      m_nonzero, static_cast<int>(total_px), static_cast<int>(m_max), a_nonzero);
-		}
-
-		/* Dump sprite to file for debugging. */
-		DumpSpritePPM(_gles_encoding_sprite_id, z, src.data,
-		              src.width, src.height, has_rgb, has_remap);
 	}
 	if (zooms_uploaded > 0) _gles_perf.encode_uploaded++;
+
+	return dest_sprite;
+}
+
+/**
+ * Encode with CPU fallback.
+ * Not used. May be needed in the future for CPU-side font glyph rendering.
+ * Calls parent 32bpp RLE encoder (for CPU Draw path) + GPU atlas upload.
+ */
+Sprite *Blitter_GLES::EncodeCpuFallback(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
+{
+	Sprite *dest_sprite = Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
+
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend == nullptr) return dest_sprite;
+
+	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
+		ZoomLevel zoom = static_cast<ZoomLevel>(z);
+		const SpriteLoader::Sprite &src = sprite[zoom];
+		if (src.data == nullptr || src.width == 0 || src.height == 0) continue;
+
+		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
+		bool has_remap = src.colours.Test(SpriteComponent::Palette);
+
+		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
+		             src.width, src.height, has_rgb, has_remap);
+	}
 
 	return dest_sprite;
 }
