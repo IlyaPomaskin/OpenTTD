@@ -13,8 +13,6 @@
 #include <GLES2/gl2.h>
 #include <vector>
 #include <unordered_map>
-#include <thread>
-#include <mutex>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
@@ -55,17 +53,6 @@ struct GLESAtlasPage {
 	bool is_luminance;        ///< True for remap atlas (GL_LUMINANCE).
 };
 
-/** Deferred sprite upload queued from a non-GL thread. */
-struct GLESPendingUpload {
-	SpriteID sprite_id;
-	ZoomLevel zoom;
-	uint16_t width;
-	uint16_t height;
-	bool has_rgb;
-	bool has_remap;
-	std::vector<SpriteLoader::CommonPixel> pixels; ///< Copied pixel data.
-};
-
 /** Manages sprite atlas textures for the GLES backend. */
 class GLESSpriteAtlas {
 private:
@@ -74,33 +61,20 @@ private:
 	uint16_t atlas_size = 2048;              ///< Atlas page dimension.
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
-	std::thread::id gl_thread_id; ///< Thread that owns the GL context.
-
-	std::mutex pending_mutex;                      ///< Guards pending_uploads.
-	std::vector<GLESPendingUpload> pending_uploads; ///< Uploads deferred to the GL thread.
 
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
 	                uint16_t w, uint16_t h, GLESSpriteRegion &out);
 
-	/** Actually perform GL upload (must be on GL thread). */
-	void DoUpload(SpriteID sprite_id, ZoomLevel zoom,
-	              const SpriteLoader::CommonPixel *pixels,
-	              uint16_t width, uint16_t height,
-	              bool has_rgb, bool has_remap);
-
 public:
 	void Init();
 	void Destroy();
 
-	/** Upload a sprite — queues if not on GL thread. */
+	/** Upload a sprite to the atlas. Must be called from the GL thread. */
 	GLESSpriteID Upload(SpriteID sprite_id, ZoomLevel zoom,
 	                    const SpriteLoader::CommonPixel *pixels,
 	                    uint16_t width, uint16_t height,
 	                    bool has_rgb, bool has_remap);
-
-	/** Process pending uploads from non-GL threads. Call from GL thread before rendering. */
-	void FlushPendingUploads();
 
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;

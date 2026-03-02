@@ -341,9 +341,6 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 
 void GLESBackend::Paint()
 {
-	/* Flush sprites queued from non-GL threads before rendering. */
-	this->sprite_atlas.FlushPendingUploads();
-
 	/* === Phase 1: Render into persistent FBO. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glViewport(0, 0, this->screen_width, this->screen_height);
