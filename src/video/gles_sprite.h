@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
+#include "../gfx_func.h"
 
 /** Unique key for a sprite at a specific zoom level. */
 using GLESSpriteID = uint64_t;

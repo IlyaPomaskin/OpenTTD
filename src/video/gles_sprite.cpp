@@ -22,6 +22,10 @@ void GLESSpriteAtlas::Init()
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
 	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
 
+	/* Tightly-packed rows for all texture uploads (critical for GL_LUMINANCE
+	 * where row byte count may not be a multiple of the default alignment 4). */
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
 	Debug(driver, 1, "GLES: Atlas page size {}x{}", this->atlas_size, this->atlas_size);
 }
 
@@ -153,8 +157,41 @@ GLESSpriteID GLESSpriteAtlas::Upload(const void *sprite_data, ZoomLevel zoom,
 {
 	GLESSpriteID key = MakeGLESSpriteKey(sprite_data, zoom);
 
-	/* Already uploaded? */
-	if (this->sprites.find(key) != this->sprites.end()) return key;
+	/* Check for existing entry (stale atlas entry from reused heap address). */
+	auto it = this->sprites.find(key);
+	if (it != this->sprites.end()) {
+		GLESSpriteEntry &existing = it->second;
+		if (existing.colour.w == width && existing.colour.h == height) {
+			/* Same dimensions — re-upload texture data in-place. */
+			std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
+			for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
+				rgba[i * 4 + 0] = pixels[i].r;
+				rgba[i * 4 + 1] = pixels[i].g;
+				rgba[i * 4 + 2] = pixels[i].b;
+				rgba[i * 4 + 3] = pixels[i].a;
+			}
+			glBindTexture(GL_TEXTURE_2D, this->colour_pages[existing.colour.atlas_idx].texture);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, existing.colour.x, existing.colour.y,
+			                width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+
+			if (has_remap) {
+				std::vector<uint8_t> m_data(static_cast<size_t>(width) * height);
+				for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
+					m_data[i] = pixels[i].m;
+				}
+				glBindTexture(GL_TEXTURE_2D, this->remap_pages[existing.remap.atlas_idx].texture);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, existing.remap.x, existing.remap.y,
+				                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, m_data.data());
+			}
+
+			existing.has_remap = has_remap;
+			existing.palette_only = has_remap && !has_rgb;
+			_gles_perf.gpu_sprites_reuploaded++;
+			return key;
+		}
+		/* Different dimensions — discard old entry, re-pack below. */
+		this->sprites.erase(it);
+	}
 
 	GLESSpriteEntry entry;
 	entry.has_remap = has_remap;

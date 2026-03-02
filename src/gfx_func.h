@@ -101,6 +101,8 @@ struct GLESPerfCounters {
 	int64_t swap_us = 0;           ///< SDL_GL_SwapWindow time.
 	int gpu_draw_cmds = 0;         ///< GPU draw commands queued.
 	int gpu_batches = 0;           ///< GPU draw batches (actual glDrawArrays calls).
+	int gpu_sprites_missing = 0;   ///< Sprites not found in atlas (silently skipped).
+	int gpu_sprites_reuploaded = 0;///< Sprites re-uploaded due to cache key collision.
 
 	int frames = 0;                ///< Frames in this measurement period.
 };
