@@ -292,7 +292,9 @@ void GLESBackend::UpdatePalette(const Colour *pal, uint first, uint length)
 		rgba[i * 4 + 0] = pal[first + i].r;
 		rgba[i * 4 + 1] = pal[first + i].g;
 		rgba[i * 4 + 2] = pal[first + i].b;
-		rgba[i * 4 + 3] = pal[first + i].a;
+		/* Palette entries are loaded as 24-bit RGB with alpha=0.
+		 * Force alpha=255 for all entries except index 0 (transparent). */
+		rgba[i * 4 + 3] = (first + i == 0) ? 0 : 255;
 	}
 
 	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
@@ -339,6 +341,9 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 
 void GLESBackend::Paint()
 {
+	/* Flush sprites queued from non-GL threads before rendering. */
+	this->sprite_atlas.FlushPendingUploads();
+
 	/* === Phase 1: Render into persistent FBO. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glViewport(0, 0, this->screen_width, this->screen_height);
@@ -440,15 +445,28 @@ void GLESBackend::Paint()
 		/* Track dimension mismatches for diagnostics. */
 		if (cmd.sprite_width != entry->colour.w || cmd.sprite_height != entry->colour.h) {
 			_gles_perf.gpu_dim_mismatches++;
+			/* Log when atlas is SMALLER than expected — UVs would overflow. */
+			static int dimmis_log = 0;
+			if ((entry->colour.w < cmd.sprite_width || entry->colour.h < cmd.sprite_height) && dimmis_log < 30) {
+				dimmis_log++;
+				Debug(driver, 0, "GLES: DIM-SMALL key={:#x} cmd=({},{}) atlas=({},{}) skip=({},{}) vis=({},{}) mode={}",
+				      cmd.sprite_key, cmd.sprite_width, cmd.sprite_height,
+				      static_cast<int>(entry->colour.w), static_cast<int>(entry->colour.h),
+				      cmd.skip_left, cmd.skip_top, cmd.width, cmd.height,
+				      static_cast<int>(cmd.mode));
+			}
 		}
 
 		BatchType type;
 		if (cmd.mode == BlitterMode::Transparent || cmd.mode == BlitterMode::TransparentRemap) {
 			type = BT_TRANSPARENT;
-		} else if (cmd.mode == BlitterMode::ColourRemap || cmd.mode == BlitterMode::CrashRemap ||
-		           cmd.mode == BlitterMode::BlackRemap) {
+		} else if ((cmd.mode == BlitterMode::ColourRemap || cmd.mode == BlitterMode::CrashRemap ||
+		            cmd.mode == BlitterMode::BlackRemap) && entry->has_remap) {
+			/* Only use remap shader when sprite actually has M channel data.
+			 * Without remap data, the remap UVs point to random atlas locations,
+			 * causing garbage M values and invisible/corrupted pixels. */
 			type = BT_REMAP;
-		} else if (cmd.palette_only) {
+		} else if (entry->palette_only) {
 			type = BT_PALETTE;
 		} else {
 			type = BT_NORMAL;
@@ -491,6 +509,22 @@ void GLESBackend::Paint()
 		float uv_skip_t = static_cast<float>(cmd.skip_top) / sprite_h;
 		float uv_w = static_cast<float>(cmd.width) / sprite_w;
 		float uv_h = static_cast<float>(cmd.height) / sprite_h;
+
+		/* Detect UV overflow: skip + visible exceeds atlas sprite dimensions. */
+		{
+			static int uv_log_count = 0;
+			float total_u = uv_skip_l + uv_w;
+			float total_v = uv_skip_t + uv_h;
+			if ((total_u > 1.01f || total_v > 1.01f) && uv_log_count < 30) {
+				uv_log_count++;
+				Debug(driver, 0, "GLES: UV overflow key={:#x} skip=({},{}) vis=({},{}) atlas=({},{}) cmd_sprite=({},{}) total_uv=({:.3f},{:.3f})",
+				      cmd.sprite_key, cmd.skip_left, cmd.skip_top,
+				      cmd.width, cmd.height,
+				      entry->colour.w, entry->colour.h,
+				      cmd.sprite_width, cmd.sprite_height,
+				      total_u, total_v);
+			}
+		}
 
 		float cu0 = entry->colour.u0 + uv_skip_l * (entry->colour.u1 - entry->colour.u0);
 		float cv0 = entry->colour.v0 + uv_skip_t * (entry->colour.v1 - entry->colour.v0);

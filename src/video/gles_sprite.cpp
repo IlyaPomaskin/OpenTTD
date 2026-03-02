@@ -12,6 +12,7 @@
 #include "../debug.h"
 #include <GLES2/gl2.h>
 #include <algorithm>
+#include <thread>
 
 #include "../safeguards.h"
 
@@ -25,6 +26,9 @@ void GLESSpriteAtlas::Init()
 	/* Tightly-packed rows for all texture uploads (critical for GL_LUMINANCE
 	 * where row byte count may not be a multiple of the default alignment 4). */
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+	/* Remember which thread owns the GL context for safety checks. */
+	this->gl_thread_id = std::this_thread::get_id();
 
 	Debug(driver, 1, "GLES: Atlas page size {}x{}", this->atlas_size, this->atlas_size);
 }
@@ -156,18 +160,63 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
                                       bool has_rgb, bool has_remap)
 {
 	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
+	bool on_gl_thread = (std::this_thread::get_id() == this->gl_thread_id);
 
-	/* Check for existing entry (stale atlas entry from reused heap address). */
+	if (on_gl_thread) {
+		/* On GL thread — upload immediately. */
+		DoUpload(sprite_id, zoom, pixels, width, height, has_rgb, has_remap);
+	} else {
+		/* Not on GL thread — queue a copy of the pixel data for later. */
+		size_t total_px = static_cast<size_t>(width) * height;
+		GLESPendingUpload pu;
+		pu.sprite_id = sprite_id;
+		pu.zoom = zoom;
+		pu.width = width;
+		pu.height = height;
+		pu.has_rgb = has_rgb;
+		pu.has_remap = has_remap;
+		pu.pixels.assign(pixels, pixels + total_px);
+
+		std::lock_guard<std::mutex> lock(this->pending_mutex);
+		this->pending_uploads.push_back(std::move(pu));
+	}
+
+	return key;
+}
+
+void GLESSpriteAtlas::FlushPendingUploads()
+{
+	std::vector<GLESPendingUpload> batch;
+	{
+		std::lock_guard<std::mutex> lock(this->pending_mutex);
+		if (this->pending_uploads.empty()) return;
+		batch.swap(this->pending_uploads);
+	}
+
+	for (auto &pu : batch) {
+		DoUpload(pu.sprite_id, pu.zoom, pu.pixels.data(),
+		         pu.width, pu.height, pu.has_rgb, pu.has_remap);
+	}
+
+	if (!batch.empty()) {
+		Debug(driver, 0, "GLES: Flushed {} pending uploads", batch.size());
+	}
+}
+
+void GLESSpriteAtlas::DoUpload(SpriteID sprite_id, ZoomLevel zoom,
+                                const SpriteLoader::CommonPixel *pixels,
+                                uint16_t width, uint16_t height,
+                                bool has_rgb, bool has_remap)
+{
+	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
+
+	/* Check for existing entry. */
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) {
 		GLESSpriteEntry &existing = it->second;
-		/* In-place re-upload is only safe when dimensions AND remap status match.
-		 * When has_remap differs, the remap region coordinates reference a different
-		 * atlas page vector (colour_pages vs remap_pages), so in-place upload would
-		 * corrupt atlas data or access out-of-bounds. */
 		if (existing.colour.w == width && existing.colour.h == height &&
 		    existing.has_remap == has_remap) {
-			/* Same dimensions and same remap status — re-upload texture data in-place. */
+			/* Same dimensions — re-upload texture data in-place. */
 			std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
 			for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
 				rgba[i * 4 + 0] = pixels[i].r;
@@ -191,7 +240,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 			existing.palette_only = has_remap && !has_rgb;
 			_gles_perf.gpu_sprites_reuploaded++;
-			return key;
+			return;
 		}
 		/* Different dimensions or remap status changed — discard old entry, re-pack below. */
 		this->sprites.erase(it);
@@ -212,7 +261,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 		}
 
 		if (!PackRegion(this->colour_pages, false, width, height, entry.colour)) {
-			return key;
+			return;
 		}
 
 		glBindTexture(GL_TEXTURE_2D, this->colour_pages[entry.colour.atlas_idx].texture);
@@ -228,7 +277,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 		}
 
 		if (!PackRegion(this->remap_pages, true, width, height, entry.remap)) {
-			return key;
+			return;
 		}
 
 		glBindTexture(GL_TEXTURE_2D, this->remap_pages[entry.remap.atlas_idx].texture);
@@ -240,7 +289,6 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 	}
 
 	this->sprites[key] = entry;
-	return key;
 }
 
 const GLESSpriteEntry *GLESSpriteAtlas::Lookup(GLESSpriteID key) const

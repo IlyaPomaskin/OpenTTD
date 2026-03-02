@@ -183,19 +183,13 @@ void VideoDriver_SDL_GLES::Paint()
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | vp: land={} veh={} signs={}(kd={} te={} ts={}) sort={} draw={}us tiles={} psprites={} csprites={} area={}x{} calls={} | blit: draws={} px={}k fillrect={} glyphs={} | gpu: cmds={} batches={} missing={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] upload={}us rows={} bytes={}k paint={}us swap={}us | atlas: cpages={} rpages={} sprites={}",
+		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} sprites={}",
 			fps, p.frames,
-			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
-			p.vp_kdtree_us / n, p.vp_texteff_us / n, p.vp_tilesprites_us / n,
-			p.vp_sort_us / n, p.vp_draw_us / n,
-			p.vp_tiles_iterated / n, p.vp_parent_sprites / n, p.vp_child_sprites / n,
-			p.vp_area_w, p.vp_area_h, p.vp_calls,
-			p.blit_draw_calls / n, p.blit_draw_pixels / n / 1000,
-			p.blit_fillrect_calls / n, p.blit_drawstring_glyphs / n,
-			p.gpu_draw_cmds / n, p.gpu_batches / n, p.gpu_sprites_missing, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
+			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
+			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
 			p.gpu_zoom_counts[0], p.gpu_zoom_counts[1], p.gpu_zoom_counts[2], p.gpu_zoom_counts[3], p.gpu_zoom_counts[4], p.gpu_zoom_counts[5],
-			p.upload_us / n, p.upload_rows / n, p.upload_bytes / n / 1024,
 			p.gpu_paint_us / n, p.swap_us / n,
+			p.encode_total, p.encode_uploaded, p.encode_all_transparent,
 			atlas.GetColourPageCount(), atlas.GetRemapPageCount(), atlas.GetSpriteCount());
 		p = {};  /* Reset counters. */
 		fps_frames = 0;

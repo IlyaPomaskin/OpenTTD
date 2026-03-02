@@ -105,7 +105,14 @@ struct GLESPerfCounters {
 	int gpu_sprites_missing = 0;   ///< Sprites not found in atlas (silently skipped).
 	int gpu_sprites_reuploaded = 0;///< Sprites re-uploaded due to cache key collision.
 	int gpu_dim_mismatches = 0;   ///< Sprites where computed dims != atlas entry dims.
+	int gpu_skip_offscreen = 0;   ///< Draws skipped: dst outside screen buffer.
 	int gpu_zoom_counts[8] = {};  ///< Draw calls per zoom level.
+
+	/* Encode/Upload lifecycle */
+	int encode_total = 0;          ///< Total Encode() calls this period.
+	int encode_skipped = 0;        ///< Encode() calls skipped (no backend).
+	int encode_uploaded = 0;       ///< Encode() calls that uploaded to atlas.
+	int encode_all_transparent = 0;///< Sprites uploaded with all alpha=0.
 
 	int frames = 0;                ///< Frames in this measurement period.
 };

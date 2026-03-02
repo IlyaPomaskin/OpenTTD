@@ -21,8 +21,56 @@
 #endif
 
 #include <unordered_set>
+#include <fstream>
+#include <iomanip>
+#include <sstream>
 
 #include "../safeguards.h"
+
+/** Write sprite pixel data as PPM file (RGB, transparent pixels as magenta). */
+static void DumpSpritePPM(SpriteID id, int zoom, const SpriteLoader::CommonPixel *pixels,
+                          int w, int h, bool has_rgb, bool has_remap)
+{
+	const char *flags = (has_rgb && has_remap) ? "both" :
+	                    has_rgb ? "rgb" :
+	                    has_remap ? "pal" : "none";
+
+	/* Write RGB image. */
+	{
+		std::ostringstream ss;
+		ss << "/data/data/org.openttd.android/files/sprites/" << std::setfill('0') << std::setw(6) << id
+		   << "_z" << zoom << "_" << w << "x" << h << "_" << flags << ".ppm";
+		std::ofstream f(ss.str(), std::ios::binary);
+		if (!f) return;
+		f << "P6\n" << w << " " << h << "\n255\n";
+		for (int i = 0; i < w * h; i++) {
+			uint8_t rgb[3];
+			if (pixels[i].a > 0) {
+				rgb[0] = pixels[i].r;
+				rgb[1] = pixels[i].g;
+				rgb[2] = pixels[i].b;
+			} else {
+				rgb[0] = 255; rgb[1] = 0; rgb[2] = 255; /* magenta = transparent */
+			}
+			f.write(reinterpret_cast<char *>(rgb), 3);
+		}
+	}
+
+	/* Also write M channel if remap data exists. */
+	if (has_remap) {
+		std::ostringstream ss;
+		ss << "/data/data/org.openttd.android/files/sprites/" << std::setfill('0') << std::setw(6) << id
+		   << "_z" << zoom << "_" << w << "x" << h << "_M.ppm";
+		std::ofstream f(ss.str(), std::ios::binary);
+		if (!f) return;
+		f << "P6\n" << w << " " << h << "\n255\n";
+		for (int i = 0; i < w * h; i++) {
+			uint8_t v = pixels[i].m;
+			uint8_t rgb[3] = {v, v, v};
+			f.write(reinterpret_cast<char *>(rgb), 3);
+		}
+	}
+}
 
 static FBlitter_GLES iFBlitter_GLES;
 
@@ -37,22 +85,68 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 	 * This ensures we can fall back to CPU rendering for unsupported modes. */
 	Sprite *dest_sprite = Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
 
+	_gles_perf.encode_total++;
+
 	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) return dest_sprite;
+	if (backend == nullptr) {
+		_gles_perf.encode_skipped++;
+		return dest_sprite;
+	}
 
 	/* Also upload each available zoom level to the GPU atlas. */
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	int zooms_uploaded = 0;
 	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
 		ZoomLevel zoom = static_cast<ZoomLevel>(z);
 		const SpriteLoader::Sprite &src = sprite[zoom];
 		if (src.data == nullptr || src.width == 0 || src.height == 0) continue;
 
+		/* Check if pixel data has any non-transparent content. */
+		bool all_transparent = true;
+		size_t total_px = static_cast<size_t>(src.width) * src.height;
+		for (size_t i = 0; i < total_px && all_transparent; i++) {
+			if (src.data[i].a > 0) all_transparent = false;
+		}
+
 		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
 		bool has_remap = src.colours.Test(SpriteComponent::Palette);
 
+		if (all_transparent && !has_remap) {
+			_gles_perf.encode_all_transparent++;
+			static int transp_log_count = 0;
+			if (transp_log_count < 30) {
+				transp_log_count++;
+				Debug(driver, 0, "GLES: ALL-TRANSPARENT sprite_id={} zoom={} {}x{} rgb={} remap={}",
+				      _gles_encoding_sprite_id, z, src.width, src.height, has_rgb, has_remap);
+			}
+		}
+
 		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
 		             src.width, src.height, has_rgb, has_remap);
+		zooms_uploaded++;
+
+		/* Log hovercraft encode with M channel stats. */
+		if (_gles_encoding_sprite_id >= 3693 && _gles_encoding_sprite_id <= 3700) {
+			int m_nonzero = 0;
+			int a_nonzero = 0;
+			uint8_t m_max = 0;
+			for (size_t i = 0; i < total_px; i++) {
+				if (src.data[i].m > 0) m_nonzero++;
+				if (src.data[i].a > 0) a_nonzero++;
+				if (src.data[i].m > m_max) m_max = src.data[i].m;
+			}
+			Debug(driver, 0, "HOVER-ENCODE sid={} zoom={} {}x{} rgb={} remap={} transp={} m_nz={}/{} m_max={} a_nz={}",
+			      _gles_encoding_sprite_id, z, src.width, src.height,
+			      static_cast<int>(has_rgb), static_cast<int>(has_remap),
+			      static_cast<int>(all_transparent),
+			      m_nonzero, static_cast<int>(total_px), static_cast<int>(m_max), a_nonzero);
+		}
+
+		/* Dump sprite to file for debugging. */
+		DumpSpritePPM(_gles_encoding_sprite_id, z, src.data,
+		              src.width, src.height, has_rgb, has_remap);
 	}
+	if (zooms_uploaded > 0) _gles_perf.encode_uploaded++;
 
 	return dest_sprite;
 }
@@ -291,7 +385,10 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		const uint32_t *screen_end = screen_start + _screen.pitch * _screen.height;
 		const uint32_t *dst = static_cast<const uint32_t *>(bp->dst);
 
-		if (dst < screen_start || dst >= screen_end) return;
+		if (dst < screen_start || dst >= screen_end) {
+			_gles_perf.gpu_skip_offscreen++;
+			return;
+		}
 
 		GLESSpriteID key = MakeGLESSpriteKey(bp->sprite_id, zoom);
 		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
@@ -300,9 +397,82 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		int zi = static_cast<int>(zoom);
 		if (zi >= 0 && zi < 8) _gles_perf.gpu_zoom_counts[zi]++;
 
+		/* Targeted logging for hovercraft sprites (3693-3700). */
+		if (bp->sprite_id >= 3693 && bp->sprite_id <= 3700) {
+			static int hover_log = 0;
+			if (hover_log < 200) {
+				hover_log++;
+				int found = (entry != nullptr) ? 1 : 0;
+				int po = entry ? static_cast<int>(entry->palette_only) : -1;
+				int hr = entry ? static_cast<int>(entry->has_remap) : -1;
+				Debug(driver, 0, "HOVER-DRAW sid={} zoom={} mode={} found={} skip=({},{}) vis=({},{}) spr=({},{}) palonly={} remap={}",
+				      bp->sprite_id, static_cast<int>(zoom), static_cast<int>(mode), found,
+				      bp->skip_left, bp->skip_top, bp->width, bp->height,
+				      bp->sprite_width, bp->sprite_height, po, hr);
+				if (entry != nullptr) {
+					int cw = static_cast<int>(entry->colour.w);
+					int ch = static_cast<int>(entry->colour.h);
+					int cp = static_cast<int>(entry->colour.atlas_idx);
+					int rw = static_cast<int>(entry->remap.w);
+					int rh = static_cast<int>(entry->remap.h);
+					int rp = static_cast<int>(entry->remap.atlas_idx);
+					/* UVs as fixed-point *10000 for readable logging. */
+					int cu0 = static_cast<int>(entry->colour.u0 * 10000);
+					int cu1 = static_cast<int>(entry->colour.u1 * 10000);
+					int cv0 = static_cast<int>(entry->colour.v0 * 10000);
+					int cv1 = static_cast<int>(entry->colour.v1 * 10000);
+					int ru0 = static_cast<int>(entry->remap.u0 * 10000);
+					int ru1 = static_cast<int>(entry->remap.u1 * 10000);
+					int rv0 = static_cast<int>(entry->remap.v0 * 10000);
+					int rv1 = static_cast<int>(entry->remap.v1 * 10000);
+					Debug(driver, 0, "HOVER-ATLAS sid={} c=({}x{} p{} u={}-{} v={}-{}) r=({}x{} p{} u={}-{} v={}-{})",
+					      bp->sprite_id, cw, ch, cp, cu0, cu1, cv0, cv1, rw, rh, rp, ru0, ru1, rv0, rv1);
+				}
+			}
+		}
+
 		if (entry == nullptr) {
 			_gles_perf.gpu_sprites_missing++;
+			static int miss_log_count = 0;
+			if (miss_log_count < 50) {
+				miss_log_count++;
+				Debug(driver, 0, "GLES: Draw miss sprite_id={} zoom={} key={:#x} mode={} skip=({},{}) vis=({},{}) spr=({},{})",
+				      bp->sprite_id, static_cast<int>(zoom), key, static_cast<int>(mode),
+				      bp->skip_left, bp->skip_top, bp->width, bp->height,
+				      bp->sprite_width, bp->sprite_height);
+			}
 			return;
+		}
+
+		/* Log suspicious atlas entries that could render as empty. */
+		{
+			static int bad_log_count = 0;
+			int bad_type = 0; /* 0=ok, 1=zero-dim, 2=zero-vis, 3=cpage>1, 4=rpage>1, 5=clipped */
+			int spr_w = static_cast<int>(UnScaleByZoom(bp->sprite_width, zoom));
+			int spr_h = static_cast<int>(UnScaleByZoom(bp->sprite_height, zoom));
+
+			if (entry->colour.w == 0 || entry->colour.h == 0) {
+				bad_type = 1;
+			} else if (bp->width <= 0 || bp->height <= 0) {
+				bad_type = 2;
+			} else if (entry->colour.atlas_idx > 1) {
+				bad_type = 3;
+			} else if (entry->has_remap && entry->remap.atlas_idx > 1) {
+				bad_type = 4;
+			} else if (bp->skip_left >= spr_w || bp->skip_top >= spr_h) {
+				bad_type = 5;
+			}
+
+			if (bad_type > 0 && bad_log_count < 50) {
+				bad_log_count++;
+				Debug(driver, 0, "GLES: BAD-DRAW type={} sid={} zoom={} mode={} skip=({},{}) vis=({},{}) spr=({},{}) atlas_c=({},{} p{}) atlas_r=({},{} p{}) remap={} palonly={}",
+				      bad_type, bp->sprite_id, static_cast<int>(zoom), static_cast<int>(mode),
+				      bp->skip_left, bp->skip_top, bp->width, bp->height,
+				      spr_w, spr_h,
+				      static_cast<int>(entry->colour.w), static_cast<int>(entry->colour.h), static_cast<int>(entry->colour.atlas_idx),
+				      static_cast<int>(entry->remap.w), static_cast<int>(entry->remap.h), static_cast<int>(entry->remap.atlas_idx),
+				      static_cast<int>(entry->has_remap), static_cast<int>(entry->palette_only));
+			}
 		}
 
 		/* Convert buffer-relative coords to absolute screen coords. */
@@ -324,6 +494,7 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		cmd.zoom = zoom;
 		cmd.mode = mode;
 		cmd.remap_idx = 0;
+		cmd.palette_only = entry->palette_only;
 		if (mode == BlitterMode::ColourRemap || mode == BlitterMode::CrashRemap ||
 		    mode == BlitterMode::BlackRemap) {
 			cmd.remap = bp->remap;
