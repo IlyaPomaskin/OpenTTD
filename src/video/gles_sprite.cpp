@@ -240,6 +240,52 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 	return key;
 }
 
+GLESSpriteID GLESSpriteAtlas::Stage(SpriteID sprite_id, ZoomLevel zoom,
+                                     const SpriteLoader::CommonPixel *pixels,
+                                     uint16_t width, uint16_t height,
+                                     bool has_rgb, bool has_remap)
+{
+	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
+	size_t count = static_cast<size_t>(width) * height;
+
+	GLESStagedPixels sp;
+	sp.pixels.assign(pixels, pixels + count);
+	sp.width = width;
+	sp.height = height;
+	sp.has_rgb = has_rgb;
+	sp.has_remap = has_remap;
+
+	std::lock_guard<std::mutex> lock(this->staged_mutex);
+	this->staged[key] = std::move(sp);
+	return key;
+}
+
+const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
+{
+	/* Fast path: already uploaded to GPU. */
+	auto it = this->sprites.find(key);
+	if (it != this->sprites.end()) return &it->second;
+
+	/* Check staged data. */
+	GLESStagedPixels sp;
+	{
+		std::lock_guard<std::mutex> lock(this->staged_mutex);
+		auto sit = this->staged.find(key);
+		if (sit == this->staged.end()) return nullptr;
+		sp = std::move(sit->second);
+		this->staged.erase(sit);
+	}
+
+	/* Upload to GPU (we're on the GL thread). */
+	SpriteID sprite_id = static_cast<SpriteID>(key >> 4);
+	ZoomLevel zoom = static_cast<ZoomLevel>(key & 0xF);
+	this->Upload(sprite_id, zoom, sp.pixels.data(), sp.width, sp.height, sp.has_rgb, sp.has_remap);
+
+	it = this->sprites.find(key);
+	if (it != this->sprites.end()) return &it->second;
+	return nullptr;
+}
+
 const GLESSpriteEntry *GLESSpriteAtlas::Lookup(GLESSpriteID key) const
 {
 	auto it = this->sprites.find(key);

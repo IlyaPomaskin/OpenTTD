@@ -75,9 +75,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 		Debug(driver, 0, "GLES: SDL_Base::Start failed: {}", *error);
 		return error;
 	}
-	/* Single-threaded mode: game loop runs on the render thread so that
-	 * sprite Encode() always has a valid GL context for atlas uploads. */
-	this->is_game_threaded = false;
+	/* Threaded mode: Encode() stages pixel data (no GL calls), Draw()
+	 * lazily uploads to GPU on first use from the GL thread. */
+	this->is_game_threaded = true;
 
 	Debug(driver, 0, "GLES: SDL_Base::Start OK, window={}", (void *)this->sdl_window);
 

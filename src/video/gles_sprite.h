@@ -13,6 +13,7 @@
 #include <GLES2/gl2.h>
 #include <vector>
 #include <unordered_map>
+#include <mutex>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
@@ -42,6 +43,13 @@ struct GLESSpriteEntry {
 	bool palette_only;        ///< True if sprite has only M channel (no RGB data).
 };
 
+/** Staged pixel data waiting for GPU upload. */
+struct GLESStagedPixels {
+	std::vector<SpriteLoader::CommonPixel> pixels;
+	uint16_t width, height;
+	bool has_rgb, has_remap;
+};
+
 /** A single atlas texture with a shelf packer. */
 struct GLESAtlasPage {
 	GLuint texture = 0;       ///< GL texture handle.
@@ -62,6 +70,9 @@ private:
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
 
+	std::mutex staged_mutex;
+	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
+
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
 	                uint16_t w, uint16_t h, GLESSpriteRegion &out);
@@ -75,6 +86,15 @@ public:
 	                    const SpriteLoader::CommonPixel *pixels,
 	                    uint16_t width, uint16_t height,
 	                    bool has_rgb, bool has_remap);
+
+	/** Stage pixel data for deferred GPU upload. Thread-safe, no GL calls. */
+	GLESSpriteID Stage(SpriteID sprite_id, ZoomLevel zoom,
+	                   const SpriteLoader::CommonPixel *pixels,
+	                   uint16_t width, uint16_t height,
+	                   bool has_rgb, bool has_remap);
+
+	/** Look up a sprite, uploading from staged data if needed. GL thread only. */
+	const GLESSpriteEntry *LookupOrUpload(GLESSpriteID key);
 
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;

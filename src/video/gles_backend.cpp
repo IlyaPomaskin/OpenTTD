@@ -335,7 +335,7 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 	this->draw_queue.push_back(cmd);
 
 	/* Stamp palette_only from the sprite entry for sort/batch routing. */
-	const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
+	const GLESSpriteEntry *entry = this->sprite_atlas.LookupOrUpload(cmd.sprite_key);
 	this->draw_queue.back().palette_only = (entry != nullptr && entry->palette_only);
 }
 
@@ -436,7 +436,7 @@ void GLESBackend::Paint()
 	bool first = true;
 
 	for (const GLESDrawCommand &cmd : this->draw_queue) {
-		const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
+		const GLESSpriteEntry *entry = this->sprite_atlas.LookupOrUpload(cmd.sprite_key);
 		if (entry == nullptr) continue;
 
 		/* Track dimension mismatches for diagnostics. */

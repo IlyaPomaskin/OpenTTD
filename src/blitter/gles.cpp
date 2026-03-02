@@ -106,8 +106,8 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
 		bool has_remap = src.colours.Test(SpriteComponent::Palette);
 
-		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
-		             src.width, src.height, has_rgb, has_remap);
+		atlas.Stage(_gles_encoding_sprite_id, zoom, src.data,
+		            src.width, src.height, has_rgb, has_remap);
 		zooms_uploaded++;
 	}
 	if (zooms_uploaded > 0) _gles_perf.encode_uploaded++;
@@ -384,7 +384,7 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 
 		GLESSpriteID key = MakeGLESSpriteKey(bp->sprite_id, zoom);
 		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-		const GLESSpriteEntry *entry = atlas.Lookup(key);
+		const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
 
 		int zi = static_cast<int>(zoom);
 		if (zi >= 0 && zi < 8) _gles_perf.gpu_zoom_counts[zi]++;
