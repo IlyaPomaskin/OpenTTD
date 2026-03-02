@@ -27,6 +27,7 @@ struct GLESDrawCommand {
 	ZoomLevel zoom;               ///< Zoom level.
 	BlitterMode mode;             ///< Blitter mode.
 	uint8_t remap_idx;            ///< Remap table index (for ColourRemap mode).
+	const uint8_t *remap = nullptr; ///< Remap table for ColourRemap mode (256 bytes).
 	bool palette_only;            ///< True if sprite has only M channel (no RGB data).
 	uint16_t sort_atlas;          ///< Atlas page index for sorting (set before sort).
 };

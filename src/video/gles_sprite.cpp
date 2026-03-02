@@ -150,19 +150,24 @@ compute_uv:
 	return true;
 }
 
-GLESSpriteID GLESSpriteAtlas::Upload(const void *sprite_data, ZoomLevel zoom,
+GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
                                       const SpriteLoader::CommonPixel *pixels,
                                       uint16_t width, uint16_t height,
                                       bool has_rgb, bool has_remap)
 {
-	GLESSpriteID key = MakeGLESSpriteKey(sprite_data, zoom);
+	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
 
 	/* Check for existing entry (stale atlas entry from reused heap address). */
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) {
 		GLESSpriteEntry &existing = it->second;
-		if (existing.colour.w == width && existing.colour.h == height) {
-			/* Same dimensions — re-upload texture data in-place. */
+		/* In-place re-upload is only safe when dimensions AND remap status match.
+		 * When has_remap differs, the remap region coordinates reference a different
+		 * atlas page vector (colour_pages vs remap_pages), so in-place upload would
+		 * corrupt atlas data or access out-of-bounds. */
+		if (existing.colour.w == width && existing.colour.h == height &&
+		    existing.has_remap == has_remap) {
+			/* Same dimensions and same remap status — re-upload texture data in-place. */
 			std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
 			for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
 				rgba[i * 4 + 0] = pixels[i].r;
@@ -184,12 +189,11 @@ GLESSpriteID GLESSpriteAtlas::Upload(const void *sprite_data, ZoomLevel zoom,
 				                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, m_data.data());
 			}
 
-			existing.has_remap = has_remap;
 			existing.palette_only = has_remap && !has_rgb;
 			_gles_perf.gpu_sprites_reuploaded++;
 			return key;
 		}
-		/* Different dimensions — discard old entry, re-pack below. */
+		/* Different dimensions or remap status changed — discard old entry, re-pack below. */
 		this->sprites.erase(it);
 	}
 

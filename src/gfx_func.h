@@ -65,6 +65,7 @@ extern DrawPixelInfo _screen;
 extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
 extern bool _gles_gpu_sprites;      ///< When true, queue GPU draw commands instead of CPU blitting.
 extern bool _gles_video_active;     ///< When true, GLES video driver is active (enables dirty block coalescing).
+extern SpriteID _gles_encoding_sprite_id; ///< SpriteID currently being encoded.
 
 /** Per-frame rendering performance counters. Reset after logging. */
 struct GLESPerfCounters {
@@ -103,6 +104,8 @@ struct GLESPerfCounters {
 	int gpu_batches = 0;           ///< GPU draw batches (actual glDrawArrays calls).
 	int gpu_sprites_missing = 0;   ///< Sprites not found in atlas (silently skipped).
 	int gpu_sprites_reuploaded = 0;///< Sprites re-uploaded due to cache key collision.
+	int gpu_dim_mismatches = 0;   ///< Sprites where computed dims != atlas entry dims.
+	int gpu_zoom_counts[8] = {};  ///< Draw calls per zoom level.
 
 	int frames = 0;                ///< Frames in this measurement period.
 };

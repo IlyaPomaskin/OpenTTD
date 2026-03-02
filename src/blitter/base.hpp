@@ -32,6 +32,7 @@ public:
 	struct BlitterParams {
 		const void *sprite; ///< Pointer to the sprite how ever the encoder stored it
 		const uint8_t *remap;  ///< XXX -- Temporary storage for remap array
+		SpriteID sprite_id;    ///< Stable sprite identifier for GPU atlas keying
 
 		int skip_left;      ///< How much pixels of the source to skip on the left (based on zoom of dst)
 		int skip_top;       ///< How much pixels of the source to skip on the top (based on zoom of dst)

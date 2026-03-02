@@ -421,6 +421,7 @@ void GLESBackend::Paint()
 	struct BatchRange {
 		size_t start, count;
 		BatchType type;
+		const uint8_t *remap = nullptr; ///< Remap table pointer for BT_REMAP batches.
 	};
 
 	this->vertex_buf.clear();
@@ -428,12 +429,18 @@ void GLESBackend::Paint()
 	batches.reserve(16);
 
 	BatchType cur_type = BT_NORMAL;
+	const uint8_t *cur_remap = nullptr;
 	size_t batch_start = 0;
 	bool first = true;
 
 	for (const GLESDrawCommand &cmd : this->draw_queue) {
 		const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
 		if (entry == nullptr) continue;
+
+		/* Track dimension mismatches for diagnostics. */
+		if (cmd.sprite_width != entry->colour.w || cmd.sprite_height != entry->colour.h) {
+			_gles_perf.gpu_dim_mismatches++;
+		}
 
 		BatchType type;
 		if (cmd.mode == BlitterMode::Transparent || cmd.mode == BlitterMode::TransparentRemap) {
@@ -447,14 +454,19 @@ void GLESBackend::Paint()
 			type = BT_NORMAL;
 		}
 
-		/* Batch break only on shader type change. */
-		if (!first && type != cur_type) {
+		/* Batch break on shader type change or remap table change. */
+		bool need_break = !first && type != cur_type;
+		if (!need_break && !first && type == BT_REMAP && cmd.remap != cur_remap) {
+			need_break = true;
+		}
+		if (need_break) {
 			size_t cnt = this->vertex_buf.size() - batch_start;
-			if (cnt > 0) batches.push_back({batch_start, cnt, cur_type});
+			if (cnt > 0) batches.push_back({batch_start, cnt, cur_type, cur_remap});
 			batch_start = this->vertex_buf.size();
 		}
 
 		cur_type = type;
+		if (type == BT_REMAP) cur_remap = cmd.remap;
 		first = false;
 
 		/* Per-vertex atlas page indices (0.0 or 1.0). */
@@ -467,8 +479,13 @@ void GLESBackend::Paint()
 		float x1 = x0 + static_cast<float>(cmd.width);
 		float y1 = y0 + static_cast<float>(cmd.height);
 
-		float sprite_w = static_cast<float>(cmd.sprite_width);
-		float sprite_h = static_cast<float>(cmd.sprite_height);
+		/* Use actual atlas entry dimensions for UV computation.
+		 * cmd.sprite_width is derived from root sprite width via integer
+		 * UnScaleByZoom, which may differ from the real pixel dimensions
+		 * stored in the atlas (rounding).  Using atlas truth prevents UV
+		 * errors that sample into neighbouring sprites. */
+		float sprite_w = static_cast<float>(entry->colour.w);
+		float sprite_h = static_cast<float>(entry->colour.h);
 
 		float uv_skip_l = static_cast<float>(cmd.skip_left) / sprite_w;
 		float uv_skip_t = static_cast<float>(cmd.skip_top) / sprite_h;
@@ -499,7 +516,7 @@ void GLESBackend::Paint()
 
 	/* Record final batch. */
 	if (this->vertex_buf.size() > batch_start) {
-		batches.push_back({batch_start, this->vertex_buf.size() - batch_start, cur_type});
+		batches.push_back({batch_start, this->vertex_buf.size() - batch_start, cur_type, cur_remap});
 	}
 
 	/* === Single upload of ALL vertices === */
@@ -592,6 +609,14 @@ void GLESBackend::Paint()
 				glUniform1i(this->pal_palette_tex_loc, 4);
 				break;
 			}
+		}
+
+		/* Upload remap table for remap batches (may change per-batch). */
+		if (b.type == BT_REMAP && b.remap != nullptr) {
+			glActiveTexture(GL_TEXTURE5);
+			glBindTexture(GL_TEXTURE_2D, this->remap_table_tex);
+			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1,
+			                GL_LUMINANCE, GL_UNSIGNED_BYTE, b.remap);
 		}
 
 		prev_type = b.type;

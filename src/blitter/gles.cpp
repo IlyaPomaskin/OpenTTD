@@ -50,7 +50,7 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
 		bool has_remap = src.colours.Test(SpriteComponent::Palette);
 
-		atlas.Upload(dest_sprite->data, zoom, src.data,
+		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
 		             src.width, src.height, has_rgb, has_remap);
 	}
 
@@ -293,11 +293,17 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 
 		if (dst < screen_start || dst >= screen_end) return;
 
-		GLESSpriteID key = MakeGLESSpriteKey(bp->sprite, zoom);
+		GLESSpriteID key = MakeGLESSpriteKey(bp->sprite_id, zoom);
 		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
 		const GLESSpriteEntry *entry = atlas.Lookup(key);
 
-		if (entry == nullptr) return; /* Not in atlas — skip. */
+		int zi = static_cast<int>(zoom);
+		if (zi >= 0 && zi < 8) _gles_perf.gpu_zoom_counts[zi]++;
+
+		if (entry == nullptr) {
+			_gles_perf.gpu_sprites_missing++;
+			return;
+		}
 
 		/* Convert buffer-relative coords to absolute screen coords. */
 		ptrdiff_t pixel_offset = dst - screen_start;
@@ -318,6 +324,10 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		cmd.zoom = zoom;
 		cmd.mode = mode;
 		cmd.remap_idx = 0;
+		if (mode == BlitterMode::ColourRemap || mode == BlitterMode::CrashRemap ||
+		    mode == BlitterMode::BlackRemap) {
+			cmd.remap = bp->remap;
+		}
 		backend->QueueDraw(cmd);
 		return;
 	}

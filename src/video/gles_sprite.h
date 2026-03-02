@@ -20,10 +20,10 @@
 /** Unique key for a sprite at a specific zoom level. */
 using GLESSpriteID = uint64_t;
 
-/** Make a sprite key from sprite pointer and zoom level. */
-inline GLESSpriteID MakeGLESSpriteKey(const void *sprite_data, ZoomLevel zoom)
+/** Make a sprite key from SpriteID and zoom level. */
+inline GLESSpriteID MakeGLESSpriteKey(SpriteID sprite_id, ZoomLevel zoom)
 {
-	return (static_cast<uint64_t>(reinterpret_cast<uintptr_t>(sprite_data)) << 4) | static_cast<uint64_t>(zoom);
+	return (static_cast<uint64_t>(sprite_id) << 4) | static_cast<uint64_t>(zoom);
 }
 
 /** A region within a texture atlas. */
@@ -71,7 +71,7 @@ public:
 	void Destroy();
 
 	/** Upload a sprite for a given zoom level and return a key for later lookup. */
-	GLESSpriteID Upload(const void *sprite_data, ZoomLevel zoom,
+	GLESSpriteID Upload(SpriteID sprite_id, ZoomLevel zoom,
 	                    const SpriteLoader::CommonPixel *pixels,
 	                    uint16_t width, uint16_t height,
 	                    bool has_rgb, bool has_remap);

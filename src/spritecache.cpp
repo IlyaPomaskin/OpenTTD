@@ -19,6 +19,7 @@
 #include "video/video_driver.hpp"
 #include "spritecache.h"
 #include "spritecache_internal.h"
+#include "gfx_func.h"
 
 #include "table/sprites.h"
 #include "table/palette_convert.h"
@@ -531,6 +532,7 @@ static void *ReadSprite(const SpriteCache *sc, SpriteID id, SpriteType sprite_ty
 		sprite[ZoomLevel::Min] = sprite[_font_zoom];
 	}
 
+	_gles_encoding_sprite_id = id;
 	return encoder->Encode(sprite_type, sprite, allocator);
 }
 

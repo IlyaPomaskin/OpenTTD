@@ -48,6 +48,7 @@ bool _screen_disable_anim = false;   ///< Disable palette animation (important f
 bool _gles_gpu_sprites = false;      ///< When true, queue GPU draw commands instead of CPU blitting.
 bool _gles_video_active = false;     ///< When true, GLES video driver is active (enables dirty block coalescing).
 GLESPerfCounters _gles_perf;         ///< Per-frame rendering performance counters.
+SpriteID _gles_encoding_sprite_id = 0; ///< SpriteID currently being encoded (set before Encode(), read by GLES blitter).
 std::atomic<bool> _exit_game;
 GameMode _game_mode;
 SwitchMode _switch_mode;  ///< The next mainloop command.
@@ -1115,6 +1116,7 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 
 	/* Copy the main data directly from the sprite */
 	bp.sprite = sprite->data;
+	bp.sprite_id = sprite_id;
 	bp.sprite_width = sprite->width;
 	bp.sprite_height = sprite->height;
 	bp.top = 0;
