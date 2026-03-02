@@ -64,6 +64,48 @@ extern bool _right_button_clicked;
 extern DrawPixelInfo _screen;
 extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
 extern bool _gles_gpu_sprites;      ///< When true, queue GPU draw commands instead of CPU blitting.
+extern bool _gles_video_active;     ///< When true, GLES video driver is active (enables dirty block coalescing).
+
+/** Per-frame rendering performance counters. Reset after logging. */
+struct GLESPerfCounters {
+	/* Viewport phases (microseconds) */
+	int64_t vp_land_us = 0;        ///< ViewportAddLandscape time.
+	int64_t vp_vehicles_us = 0;    ///< ViewportAddVehicles time.
+	int64_t vp_signs_tiles_us = 0; ///< Signs + tile sprites + text effects time.
+	int64_t vp_kdtree_us = 0;      ///< ViewportAddKdtreeSigns time.
+	int64_t vp_texteff_us = 0;     ///< DrawTextEffects time.
+	int64_t vp_tilesprites_us = 0; ///< ViewportDrawTileSprites time.
+	int vp_kdtree_found = 0;       ///< K-d tree items found (stations+towns+signs).
+	int vp_strings_queued = 0;     ///< Strings queued for rendering.
+	int vp_tile_sprites = 0;       ///< Tile sprites drawn.
+	int64_t vp_sort_us = 0;        ///< Sprite sort time.
+	int64_t vp_draw_us = 0;        ///< ViewportDrawParentSprites time (CPU compositing).
+	int vp_parent_sprites = 0;     ///< Number of parent sprites drawn.
+	int vp_child_sprites = 0;      ///< Number of child sprites drawn.
+	int vp_tiles_iterated = 0;     ///< Tiles iterated in ViewportAddLandscape.
+	int vp_area_w = 0;             ///< Viewport dirty area width.
+	int vp_area_h = 0;             ///< Viewport dirty area height.
+	int vp_calls = 0;              ///< Number of ViewportDoDraw calls this period.
+
+	/* Blitter counters */
+	int blit_draw_calls = 0;       ///< Total Blitter::Draw() calls.
+	int64_t blit_draw_pixels = 0;  ///< Total pixels composited by blitter.
+	int blit_fillrect_calls = 0;   ///< GfxFillRect calls.
+	int blit_drawstring_glyphs = 0;///< DrawString glyph count.
+
+	/* Upload / Paint */
+	int64_t upload_us = 0;         ///< UploadVideoBuffer time.
+	int upload_bytes = 0;          ///< Bytes uploaded.
+	int upload_rows = 0;           ///< Rows uploaded (0 = skipped).
+	int64_t gpu_paint_us = 0;      ///< GLESBackend::Paint time.
+	int64_t swap_us = 0;           ///< SDL_GL_SwapWindow time.
+	int gpu_draw_cmds = 0;         ///< GPU draw commands queued.
+	int gpu_batches = 0;           ///< GPU draw batches (actual glDrawArrays calls).
+
+	int frames = 0;                ///< Frames in this measurement period.
+};
+
+extern GLESPerfCounters _gles_perf;
 
 extern std::vector<Dimension> _resolutions;
 extern Dimension _cur_resolution;

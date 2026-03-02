@@ -10,5 +10,6 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_centerInParent="true"
+        android:contentDescription="set_wallpaper_btn"
         android:text="@string/set_wallpaper" />
 </RelativeLayout>

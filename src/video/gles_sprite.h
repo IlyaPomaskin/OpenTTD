@@ -83,6 +83,11 @@ public:
 
 	/** Get the GL texture handle for a remap atlas page. */
 	GLuint GetRemapTexture(uint16_t idx) const { return remap_pages[idx].texture; }
+
+	/** Get atlas page counts for diagnostics. */
+	size_t GetColourPageCount() const { return colour_pages.size(); }
+	size_t GetRemapPageCount() const { return remap_pages.size(); }
+	size_t GetSpriteCount() const { return sprites.size(); }
 };
 
 #endif /* VIDEO_GLES_SPRITE_H */

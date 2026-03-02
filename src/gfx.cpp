@@ -45,7 +45,9 @@ bool _right_button_down;    ///< Is right mouse button pressed?
 bool _right_button_clicked; ///< Is right mouse button clicked?
 DrawPixelInfo _screen;
 bool _screen_disable_anim = false;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
-bool _gles_gpu_sprites = true;       ///< When true, queue GPU draw commands instead of CPU blitting.
+bool _gles_gpu_sprites = false;      ///< When true, queue GPU draw commands instead of CPU blitting.
+bool _gles_video_active = false;     ///< When true, GLES video driver is active (enables dirty block coalescing).
+GLESPerfCounters _gles_perf;         ///< Per-frame rendering performance counters.
 std::atomic<bool> _exit_game;
 GameMode _game_mode;
 SwitchMode _switch_mode;  ///< The next mainloop command.
@@ -116,6 +118,7 @@ void GfxScroll(int left, int top, int width, int height, int xo, int yo)
  */
 void GfxFillRect(int left, int top, int right, int bottom, const std::variant<PixelColour, PaletteID> &colour, FillRectMode mode)
 {
+	_gles_perf.blit_fillrect_calls++;
 	Blitter *blitter = BlitterFactory::GetCurrentBlitter();
 	const DrawPixelInfo *dpi = _cur_dpi;
 	void *dst;
@@ -628,6 +631,7 @@ static int DrawLayoutLine(const ParagraphLayouter::Line &line, int y, int left, 
 				if (do_shadow && (glyph & SPRITE_GLYPH) != 0) continue;
 
 				GfxMainBlitter(sprite, begin_x + (do_shadow ? shadow_offset : 0), top + (do_shadow ? shadow_offset : 0), BlitterMode::ColourRemap);
+				_gles_perf.blit_drawstring_glyphs++;
 			}
 		}
 		return last_colour;
@@ -1183,6 +1187,8 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 		}
 	}
 
+	_gles_perf.blit_draw_calls++;
+	_gles_perf.blit_draw_pixels += static_cast<int64_t>(bp.width) * bp.height;
 	BlitterFactory::GetCurrentBlitter()->Draw(&bp, mode, zoom);
 }
 
@@ -1457,10 +1463,12 @@ void RedrawScreenRect(int left, int top, int right, int bottom)
  */
 void DrawDirtyBlocks()
 {
-	/* When GPU sprites are active, coalesce all dirty blocks into a single
-	 * bounding rectangle.  This issues one ViewportDoDraw call instead of
-	 * many, eliminating redundant per-call ViewportAddLandscape overhead. */
-	if (_gles_gpu_sprites) {
+	/* When the GLES video driver is active, coalesce all dirty blocks into
+	 * a single bounding rectangle.  This issues one ViewportDoDraw call
+	 * instead of many, eliminating redundant per-call overhead (sorting,
+	 * ViewportAddLandscape, etc.) that causes FPS drops with many animated
+	 * elements on screen. */
+	if (_gles_gpu_sprites || _gles_video_active) {
 		int left = _screen.width, top = _screen.height, right = 0, bottom = 0;
 		auto block = _dirty_blocks.begin();
 		for (size_t x = 0; x < _dirty_blocks_per_row; ++x) {

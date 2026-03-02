@@ -48,23 +48,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 		return "SDL2: Can't create GLES context";
 	}
 
-	/* Log EGL state after context creation. */
-	EGLDisplay egl_dpy = eglGetCurrentDisplay();
-	EGLSurface egl_surf = eglGetCurrentSurface(EGL_DRAW);
-	EGLContext egl_ctx = eglGetCurrentContext();
 	Debug(driver, 0, "GLES: EGL after CreateContext: display={} surface={} context={} err=0x{:04X}",
-		(void *)egl_dpy, (void *)egl_surf, (void *)egl_ctx, eglGetError());
-
-	/* Log the SDL window WM info. */
-	SDL_SysWMinfo wminfo;
-	SDL_VERSION(&wminfo.version);
-	if (SDL_GetWindowWMInfo(this->sdl_window, &wminfo)) {
-		Debug(driver, 0, "GLES: SDL WM subsystem={}", (int)wminfo.subsystem);
-#ifdef SDL_VIDEO_DRIVER_ANDROID
-		Debug(driver, 0, "GLES: ANativeWindow={} EGLSurface={}",
-			(void *)wminfo.info.android.window, (void *)wminfo.info.android.surface);
-#endif
-	}
+		(void *)eglGetCurrentDisplay(), (void *)eglGetCurrentSurface(EGL_DRAW),
+		(void *)eglGetCurrentContext(), eglGetError());
 
 	if (!GLESBackend::Create()) return "Failed to initialize GLES backend";
 
@@ -109,6 +95,12 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 	/* Prevent SwitchNewGRFBlitter() from replacing our GLES blitter. */
 	_blitter_autodetected = false;
 
+	/* Enable dirty block coalescing for GLES (single RedrawScreenRect). */
+	_gles_video_active = true;
+
+	/* Enable GPU sprite rendering — blitter queues draw commands instead of CPU blitting. */
+	_gles_gpu_sprites = true;
+
 	/* Force a client-size-changed event to allocate buffers. */
 	int w, h;
 	SDL_GetWindowSize(this->sdl_window, &w, &h);
@@ -124,6 +116,8 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 
 void VideoDriver_SDL_GLES::Stop()
 {
+	_gles_gpu_sprites = false;
+	_gles_video_active = false;
 	this->DestroyContext();
 	this->VideoDriver_SDL_Base::Stop();
 }
@@ -183,18 +177,27 @@ void VideoDriver_SDL_GLES::Paint()
 	static auto fps_last = std::chrono::steady_clock::now();
 	fps_frames++;
 	auto fps_now = std::chrono::steady_clock::now();
-	if (fps_now - fps_last >= std::chrono::seconds(1)) {
-		Debug(driver, 0, "FPS: {}", fps_frames);
-		LogPerformanceStats();
+	if (fps_now - fps_last >= std::chrono::milliseconds(500)) {
+		auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(fps_now - fps_last).count();
+		int fps = (elapsed_ms > 0) ? static_cast<int>(fps_frames * 1000 / elapsed_ms) : 0;
+		auto &p = _gles_perf;
+		int n = std::max(1, p.frames);
+		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
+		Debug(driver, 0, "PERF fps={} frames={} | vp: land={} veh={} signs={}(kd={} te={} ts={}) sort={} draw={}us tiles={} psprites={} csprites={} area={}x{} calls={} | blit: draws={} px={}k fillrect={} glyphs={} | gpu: cmds={} batches={} upload={}us rows={} bytes={}k paint={}us swap={}us | atlas: cpages={} rpages={} sprites={}",
+			fps, p.frames,
+			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
+			p.vp_kdtree_us / n, p.vp_texteff_us / n, p.vp_tilesprites_us / n,
+			p.vp_sort_us / n, p.vp_draw_us / n,
+			p.vp_tiles_iterated / n, p.vp_parent_sprites / n, p.vp_child_sprites / n,
+			p.vp_area_w, p.vp_area_h, p.vp_calls,
+			p.blit_draw_calls / n, p.blit_draw_pixels / n / 1000,
+			p.blit_fillrect_calls / n, p.blit_drawstring_glyphs / n,
+			p.gpu_draw_cmds / n, p.gpu_batches / n, p.upload_us / n, p.upload_rows / n, p.upload_bytes / n / 1024,
+			p.gpu_paint_us / n, p.swap_us / n,
+			atlas.GetColourPageCount(), atlas.GetRemapPageCount(), atlas.GetSpriteCount());
+		p = {};  /* Reset counters. */
 		fps_frames = 0;
 		fps_last = fps_now;
-	}
-	if (paint_count < 10) {
-		Debug(driver, 0, "GLES Paint #{}: backend={} cpu_tex={} fbo={} screen={}x{}",
-			paint_count, (void *)GLESBackend::Get(),
-			GLESBackend::Get() ? GLESBackend::Get()->GetScreenWidth() : -1,
-			GLESBackend::Get() ? GLESBackend::Get()->GetScreenHeight() : -1,
-			_screen.width, _screen.height);
 	}
 	paint_count++;
 
@@ -210,16 +213,31 @@ void VideoDriver_SDL_GLES::Paint()
 			this->dirty_rect.left, this->dirty_rect.top,
 			this->dirty_rect.right, this->dirty_rect.bottom);
 	}
-	this->dirty_rect = {};
 
-	/* Upload CPU-rendered content as background texture.
-	 * Skipped when GPU sprites enabled to measure GPU-only performance. */
+	auto t_upload0 = std::chrono::steady_clock::now();
+
 	if (!_gles_gpu_sprites) {
+		/* CPU mode: upload dirty rows of CPU buffer to GPU texture. */
+		Rect upload_dirty = this->dirty_rect;
 		GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
-			_screen.width, _screen.height);
+			_screen.width, _screen.height, upload_dirty);
 	}
+	/* GPU sprites mode: no CPU buffer upload needed. */
 
+	this->dirty_rect = {};
+	auto t_upload1 = std::chrono::steady_clock::now();
+
+	_gles_perf.gpu_draw_cmds += static_cast<int>(GLESBackend::Get()->GetDrawQueueSize());
 	GLESBackend::Get()->Paint();
+	auto t_paint1 = std::chrono::steady_clock::now();
 
 	SDL_GL_SwapWindow(this->sdl_window);
+	auto t_swap1 = std::chrono::steady_clock::now();
+
+	/* Accumulate GPU timing. */
+	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+	_gles_perf.upload_us += us(t_upload0, t_upload1);
+	_gles_perf.gpu_paint_us += us(t_upload1, t_paint1);
+	_gles_perf.swap_us += us(t_paint1, t_swap1);
+	_gles_perf.frames++;
 }

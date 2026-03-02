@@ -28,13 +28,16 @@ struct GLESDrawCommand {
 	BlitterMode mode;             ///< Blitter mode.
 	uint8_t remap_idx;            ///< Remap table index (for ColourRemap mode).
 	bool palette_only;            ///< True if sprite has only M channel (no RGB data).
+	uint16_t sort_atlas;          ///< Atlas page index for sorting (set before sort).
 };
 
-/** Vertex for batched sprite rendering: position + colour UV + remap UV. */
+/** Vertex for batched sprite rendering: position + colour UV + remap UV + page indices. */
 struct GLESVertex {
 	float x, y;     ///< Screen position in pixels.
 	float u, v;     ///< Colour atlas UV.
 	float ru, rv;   ///< Remap atlas UV.
+	float cpage;    ///< Colour atlas page index (0.0 or 1.0).
+	float rpage;    ///< Remap atlas page index (0.0 or 1.0).
 };
 
 /** OpenGL ES backend singleton managing shaders, textures, and batched rendering. */
@@ -49,52 +52,44 @@ private:
 	GLuint prog_solid = 0;       ///< Shader program for debug solid colour.
 	GLuint prog_bgra = 0;        ///< Shader program for CPU framebuffer (BGRA→RGBA swizzle).
 
-	/* Normal program uniforms/attributes. */
+	/* Normal program uniforms. */
 	GLint normal_screen_loc = -1;
 	GLint normal_colour_tex_loc = -1;
-	GLint normal_pos_attr = -1;
-	GLint normal_colour_uv_attr = -1;
-	GLint normal_remap_uv_attr = -1;
+	GLint normal_colour_tex1_loc = -1;
 
-	/* Remap program uniforms/attributes. */
+	/* Remap program uniforms. */
 	GLint remap_screen_loc = -1;
 	GLint remap_colour_tex_loc = -1;
+	GLint remap_colour_tex1_loc = -1;
 	GLint remap_remap_tex_loc = -1;
+	GLint remap_remap_tex1_loc = -1;
 	GLint remap_palette_tex_loc = -1;
 	GLint remap_table_tex_loc = -1;
-	GLint remap_pos_attr = -1;
-	GLint remap_colour_uv_attr = -1;
-	GLint remap_remap_uv_attr = -1;
 
-	/* Transparent program uniforms/attributes. */
+	/* Transparent program uniforms. */
 	GLint trans_screen_loc = -1;
 	GLint trans_colour_tex_loc = -1;
-	GLint trans_pos_attr = -1;
-	GLint trans_colour_uv_attr = -1;
-	GLint trans_remap_uv_attr = -1;
+	GLint trans_colour_tex1_loc = -1;
 
-	/* Palette program uniforms/attributes. */
+	/* Palette program uniforms. */
 	GLint pal_screen_loc = -1;
 	GLint pal_remap_tex_loc = -1;
+	GLint pal_remap_tex1_loc = -1;
 	GLint pal_palette_tex_loc = -1;
-	GLint pal_pos_attr = -1;
-	GLint pal_remap_uv_attr = -1;
 
-	/* Solid debug program uniforms/attributes. */
+	/* Solid debug program uniforms. */
 	GLint solid_screen_loc = -1;
 	GLint solid_colour_loc = -1;
-	GLint solid_pos_attr = -1;
 
-	/* BGRA program uniforms/attributes (for CPU framebuffer). */
+	/* BGRA program uniforms (for CPU framebuffer). */
 	GLint bgra_screen_loc = -1;
 	GLint bgra_colour_tex_loc = -1;
-	GLint bgra_pos_attr = -1;
-	GLint bgra_colour_uv_attr = -1;
 
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
 	GLuint remap_table_tex = 0;  ///< 256x1 remap table texture (current remap).
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
 	GLuint cpu_framebuf_tex = 0; ///< Texture for CPU-rendered content (video buffer upload).
+	bool cpu_tex_allocated = false; ///< True once cpu_framebuf_tex has been allocated at current size.
 
 	GLuint fbo = 0;              ///< Persistent framebuffer object for accumulation.
 	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO.
@@ -115,14 +110,6 @@ private:
 	GLuint CompileShader(GLenum type, const char *source);
 	GLuint LinkProgram(GLuint vert, GLuint frag);
 
-	void FlushBatch(GLuint program, GLint screen_loc, GLint colour_tex_loc,
-	                GLint pos_attr, GLint colour_uv_attr, GLint remap_uv_attr,
-	                GLuint colour_atlas, GLuint remap_atlas,
-	                const GLESVertex *vertices, size_t count);
-
-	void FlushPaletteBatch(GLuint remap_atlas,
-	                       const GLESVertex *vertices, size_t count);
-
 public:
 	static GLESBackend *Get() { return instance; }
 	static bool Create();
@@ -131,8 +118,10 @@ public:
 	void Resize(int w, int h);
 	void UpdatePalette(const Colour *pal, uint first, uint length);
 
-	/** Upload CPU-rendered video buffer as background before GPU sprites. */
-	void UploadVideoBuffer(const void *buffer, int w, int h);
+	/** Upload CPU-rendered video buffer as background before GPU sprites.
+	 * @param dirty Dirty rectangle; only rows in [top, bottom) are uploaded.
+	 *              Pass empty rect ({}) to force full upload. */
+	void UploadVideoBuffer(const void *buffer, int w, int h, const Rect &dirty);
 
 	/** Get the sprite atlas for encoding sprites. */
 	GLESSpriteAtlas &GetSpriteAtlas() { return sprite_atlas; }
@@ -148,6 +137,9 @@ public:
 
 	/** Clear the draw queue without rendering. */
 	void ClearQueue() { draw_queue.clear(); }
+
+	/** Get the current draw queue size. */
+	size_t GetDrawQueueSize() const { return draw_queue.size(); }
 
 	int GetScreenWidth() const { return screen_width; }
 	int GetScreenHeight() const { return screen_height; }

@@ -89,6 +89,7 @@
 #include "command_func.h"
 #include "network/network_func.h"
 #include "framerate_type.h"
+#include "gfx_func.h"
 #include "viewport_cmd.h"
 
 #include <forward_list>
@@ -1310,6 +1311,7 @@ static void ViewportAddLandscape()
 
 				_tile_type_procs[tile_type]->draw_tile_proc(&_cur_ti);
 				if (_cur_ti.tile != INVALID_TILE) DrawTileSelection(&_cur_ti);
+				_gles_perf.vp_tiles_iterated++;
 			}
 		}
 	}
@@ -1457,8 +1459,10 @@ static void ViewportAddKdtreeSigns(DrawPixelInfo *dpi)
 	std::vector<const BaseStation *> stations;
 	std::vector<const Town *> towns;
 	std::vector<const Sign *> signs;
+	int kdtree_visited = 0;
 
 	_viewport_sign_kdtree.FindContained(search_rect.left, search_rect.top, search_rect.right, search_rect.bottom, [&](const ViewportSignKdtreeItem & item) {
+		kdtree_visited++;
 		switch (item.type) {
 			case ViewportSignKdtreeItem::VKI_STATION: {
 				if (!show_stations) break;
@@ -1510,6 +1514,8 @@ static void ViewportAddKdtreeSigns(DrawPixelInfo *dpi)
 				NOT_REACHED();
 		}
 	});
+
+	_gles_perf.vp_kdtree_found += kdtree_visited;
 
 	/* Small versions of signs are used zoom level 4X and higher. */
 	bool small = dpi->zoom >= ZoomLevel::Out4x;
@@ -1833,9 +1839,12 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	ViewportAddVehicles(&_vd.dpi);
 	auto _t2 = std::chrono::steady_clock::now();
 
-	ViewportAddKdtreeSigns(&_vd.dpi);
-
-	DrawTextEffects(&_vd.dpi);
+	if (!_gles_gpu_sprites) {
+		ViewportAddKdtreeSigns(&_vd.dpi);
+		DrawTextEffects(&_vd.dpi);
+	}
+	auto _t2a = std::chrono::steady_clock::now();
+	auto _t2b = _t2a;
 
 	if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw);
 	auto _t3 = std::chrono::steady_clock::now();
@@ -1849,15 +1858,24 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	ViewportDrawParentSprites(&_vd.parent_sprites_to_sort, &_vd.child_screen_sprites_to_draw);
 	auto _t5 = std::chrono::steady_clock::now();
 
+	/* Accumulate perf counters. */
 	{
-		static int _vp_log_count = 0;
-		if (_vp_log_count++ % 30 == 0) {
-			auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-			Debug(driver, 0, "VP: land={}us veh={}us signs+tiles={}us sort={}us draw={}us sprites={} area={}x{}",
-				us(_t0, _t1), us(_t1, _t2), us(_t2, _t3), us(_t3, _t4), us(_t4, _t5),
-				_vd.parent_sprites_to_sort.size(),
-				(_vd.dpi.width), (_vd.dpi.height));
-		}
+		auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+		_gles_perf.vp_land_us += us(_t0, _t1);
+		_gles_perf.vp_vehicles_us += us(_t1, _t2);
+		_gles_perf.vp_signs_tiles_us += us(_t2, _t3);
+		_gles_perf.vp_kdtree_us += us(_t2, _t2a);
+		_gles_perf.vp_texteff_us += us(_t2a, _t2b);
+		_gles_perf.vp_tilesprites_us += us(_t2b, _t3);
+		_gles_perf.vp_strings_queued += static_cast<int>(_vd.string_sprites_to_draw.size());
+		_gles_perf.vp_tile_sprites += static_cast<int>(_vd.tile_sprites_to_draw.size());
+		_gles_perf.vp_sort_us += us(_t3, _t4);
+		_gles_perf.vp_draw_us += us(_t4, _t5);
+		_gles_perf.vp_parent_sprites += static_cast<int>(_vd.parent_sprites_to_sort.size());
+		_gles_perf.vp_child_sprites += static_cast<int>(_vd.child_screen_sprites_to_draw.size());
+		_gles_perf.vp_area_w = std::max(_gles_perf.vp_area_w, static_cast<int>(_vd.dpi.width));
+		_gles_perf.vp_area_h = std::max(_gles_perf.vp_area_h, static_cast<int>(_vd.dpi.height));
+		_gles_perf.vp_calls++;
 	}
 
 	if (_draw_bounding_boxes) ViewportDrawBoundingBoxes(&_vd.parent_sprites_to_sort);
@@ -1877,7 +1895,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		vp.overlay->Draw(&dp);
 	}
 
-	if (!_vd.string_sprites_to_draw.empty()) {
+	if (!_gles_gpu_sprites && !_vd.string_sprites_to_draw.empty()) {
 		/* translate to world coordinates */
 		dp.left = UnScaleByZoom(_vd.dpi.left, zoom);
 		dp.top = UnScaleByZoom(_vd.dpi.top, zoom);

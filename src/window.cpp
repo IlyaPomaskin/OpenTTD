@@ -3181,13 +3181,15 @@ void UpdateWindows()
 	 * But still empty the invalidation queues above. */
 	if (_network_dedicated) return;
 
-	/* Throttle viewport redraws when GPU sprites are active.
-	 * The persistent FBO retains the scene, so we only need to
-	 * redraw every Nth frame. This saves the expensive CPU-side
-	 * tile iteration in ViewportAddLandscape. */
-	if (_gles_gpu_sprites) {
+	/* Throttle viewport redraws when the GLES video driver is active.
+	 * The CPU buffer and FBO persist between frames, so we only need to
+	 * redraw every Nth frame. This saves the expensive CPU-side tile
+	 * iteration in ViewportAddLandscape on skipped frames.
+	 * Combined with partial texture upload, skipped frames have near-zero
+	 * GPU cost since no dirty region means no upload. */
+	if (_gles_gpu_sprites || _gles_video_active) {
 		static int draw_frame_counter = 0;
-		if (++draw_frame_counter % 3 != 0) {
+		if (++draw_frame_counter % 2 != 0) {
 			/* Still update viewport positions and cursor on skipped frames. */
 			for (Window *w : Window::Iterate()) {
 				if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());

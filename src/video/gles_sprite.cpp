@@ -66,8 +66,8 @@ GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, boo
 
 	pages.push_back(page);
 
-	Debug(driver, 1, "GLES: Allocated {} atlas page {} ({}x{})",
-	      luminance ? "remap" : "colour", pages.size() - 1, page.width, page.height);
+	Debug(driver, 0, "GLES: Allocated {} atlas page {} ({}x{}) total_pages={}",
+	      luminance ? "remap" : "colour", pages.size() - 1, page.width, page.height, pages.size());
 
 	return pages.back();
 }
