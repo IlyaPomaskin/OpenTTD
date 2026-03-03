@@ -316,8 +316,9 @@ static void DoSetViewportPosition(Window::IteratorToFront it, int left, int top,
 		int xo = _vp_move_offs.x;
 		int yo = _vp_move_offs.y;
 
-		if (abs(xo) >= width || abs(yo) >= height) {
-			/* fully_outside */
+		if (_gles_gpu_sprites || abs(xo) >= width || abs(yo) >= height) {
+			/* GPU sprites mode: all sprites need full redraw at new positions.
+			 * Also handles fully_outside case for CPU mode. */
 			RedrawScreenRect(left, top, left + width, top + height);
 			return;
 		}

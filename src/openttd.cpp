@@ -1161,10 +1161,10 @@ void SwitchToMode(SwitchMode new_mode)
 				BaseSounds::ini_set = BaseSounds::GetUsedSet()->name;
 			}
 			UpdateSocialIntegration(GM_MENU);
-			{
-				extern void ShowFramerateWindow();
-				ShowFramerateWindow();
-			}
+			// {
+			// 	extern void ShowFramerateWindow();
+			// 	ShowFramerateWindow();
+			// }
 			break;
 
 		case SM_SAVE_GAME: // Save game.

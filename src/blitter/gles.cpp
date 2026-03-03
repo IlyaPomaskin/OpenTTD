@@ -389,40 +389,6 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		int zi = static_cast<int>(zoom);
 		if (zi >= 0 && zi < 8) _gles_perf.gpu_zoom_counts[zi]++;
 
-		/* Targeted logging for hovercraft sprites (3693-3700). */
-		if (bp->sprite_id >= 3693 && bp->sprite_id <= 3700) {
-			static int hover_log = 0;
-			if (hover_log < 200) {
-				hover_log++;
-				int found = (entry != nullptr) ? 1 : 0;
-				int po = entry ? static_cast<int>(entry->palette_only) : -1;
-				int hr = entry ? static_cast<int>(entry->has_remap) : -1;
-				Debug(driver, 0, "HOVER-DRAW sid={} zoom={} mode={} found={} skip=({},{}) vis=({},{}) spr=({},{}) palonly={} remap={}",
-				      bp->sprite_id, static_cast<int>(zoom), static_cast<int>(mode), found,
-				      bp->skip_left, bp->skip_top, bp->width, bp->height,
-				      bp->sprite_width, bp->sprite_height, po, hr);
-				if (entry != nullptr) {
-					int cw = static_cast<int>(entry->colour.w);
-					int ch = static_cast<int>(entry->colour.h);
-					int cp = static_cast<int>(entry->colour.atlas_idx);
-					int rw = static_cast<int>(entry->remap.w);
-					int rh = static_cast<int>(entry->remap.h);
-					int rp = static_cast<int>(entry->remap.atlas_idx);
-					/* UVs as fixed-point *10000 for readable logging. */
-					int cu0 = static_cast<int>(entry->colour.u0 * 10000);
-					int cu1 = static_cast<int>(entry->colour.u1 * 10000);
-					int cv0 = static_cast<int>(entry->colour.v0 * 10000);
-					int cv1 = static_cast<int>(entry->colour.v1 * 10000);
-					int ru0 = static_cast<int>(entry->remap.u0 * 10000);
-					int ru1 = static_cast<int>(entry->remap.u1 * 10000);
-					int rv0 = static_cast<int>(entry->remap.v0 * 10000);
-					int rv1 = static_cast<int>(entry->remap.v1 * 10000);
-					Debug(driver, 0, "HOVER-ATLAS sid={} c=({}x{} p{} u={}-{} v={}-{}) r=({}x{} p{} u={}-{} v={}-{})",
-					      bp->sprite_id, cw, ch, cp, cu0, cu1, cv0, cv1, rw, rh, rp, ru0, ru1, rv0, rv1);
-				}
-			}
-		}
-
 		if (entry == nullptr) {
 			_gles_perf.gpu_sprites_missing++;
 			static int miss_log_count = 0;

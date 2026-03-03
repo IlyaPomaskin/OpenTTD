@@ -2481,7 +2481,7 @@ static EventState HandleViewportScroll()
 	 * outside of the window and should not left-mouse scroll anymore. */
 	if (_last_scroll_window == nullptr) _last_scroll_window = FindWindowFromPt(_cursor.pos.x, _cursor.pos.y);
 
-	if (_last_scroll_window == nullptr || !((_settings_client.gui.scroll_mode != ViewportScrollMode::MapLMB && _right_button_down) || scrollwheel_scrolling || (_settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB && _left_button_down))) {
+	if (_last_scroll_window == nullptr || !((_gles_gpu_sprites && _left_button_down) || (_settings_client.gui.scroll_mode != ViewportScrollMode::MapLMB && _right_button_down) || scrollwheel_scrolling || (_settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB && _left_button_down))) {
 		_cursor.fix_at = false;
 		_scrolling_viewport = false;
 		_last_scroll_window = nullptr;
@@ -2926,6 +2926,12 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	 * In menu mode, skip viewport-specific handling but still dispatch to OnClick. */
 	if (vp != nullptr && HasModalProgress()) { Debug(misc, 0, "MouseLoop: blocked by modal progress"); return; }
 	if (vp != nullptr && _game_mode == GM_MENU) {
+		if (_gles_gpu_sprites && (click == MC_LEFT || click == MC_DOUBLE_LEFT)) {
+			Debug(misc, 0, "GLES touch scroll start at ({},{})", x, y);
+			_scrolling_viewport = true;
+			_cursor.fix_at = false;
+			return;
+		}
 		Debug(misc, 0, "MouseLoop: menu mode, bypassing viewport to dispatch OnClick");
 		vp = nullptr;
 	}
@@ -2952,6 +2958,11 @@ static void MouseLoop(MouseClick click, int mousewheel)
 		switch (click) {
 			case MC_DOUBLE_LEFT:
 			case MC_LEFT:
+				if (_gles_gpu_sprites) {
+					_scrolling_viewport = true;
+					_cursor.fix_at = false;
+					return;
+				}
 				if (HandleViewportClicked(*vp, x, y)) return;
 				if (!w->flags.Test(WindowFlag::DisableVpScroll) &&
 						_settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB) {
