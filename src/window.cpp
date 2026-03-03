@@ -962,6 +962,25 @@ void DrawOverlappedWindowForAll(int left, int top, int right, int bottom)
 	DrawPixelInfo bk;
 	AutoRestoreBackup dpi_backup(_cur_dpi, &bk);
 
+	if (_gles_gpu_sprites) {
+		/* GPU sprites mode: only the viewport (WC_MAIN_WINDOW) renders.
+		 * No other windows exist visually, so skip overlap logic entirely. */
+		for (Window *w : Window::IterateFromBack()) {
+			if (w->window_class != WC_MAIN_WINDOW || !MayBeShown(w)) continue;
+			DrawPixelInfo *dp = _cur_dpi;
+			dp->width = right - left;
+			dp->height = bottom - top;
+			dp->left = left - w->left;
+			dp->top = top - w->top;
+			dp->pitch = _screen.pitch;
+			dp->dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_screen.dst_ptr, left, top);
+			dp->zoom = ZoomLevel::Min;
+			w->OnPaint();
+			break;
+		}
+		return;
+	}
+
 	for (Window *w : Window::IterateFromBack()) {
 		if (MayBeShown(w) &&
 				right > w->left &&
@@ -3194,7 +3213,7 @@ void UpdateWindows()
 			for (Window *w : Window::Iterate()) {
 				if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 			}
-			DrawMouseCursor();
+			if (!_gles_gpu_sprites) DrawMouseCursor();
 			return;
 		}
 	}
@@ -3205,9 +3224,9 @@ void UpdateWindows()
 		/* Update viewport only if window is not shaded. */
 		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 	}
-	NetworkDrawChatMessage();
+	if (!_gles_gpu_sprites) NetworkDrawChatMessage();
 	/* Redraw mouse cursor in case it was hidden */
-	DrawMouseCursor();
+	if (!_gles_gpu_sprites) DrawMouseCursor();
 
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW) {
 		/* We are done with the last draw-frame, so we know what sprites we
