@@ -164,25 +164,26 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 		if (existing.colour.w == width && existing.colour.h == height &&
 		    existing.has_remap == has_remap) {
 			/* Same dimensions — re-upload texture data in-place. */
-			std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
-			for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
-				rgba[i * 4 + 0] = pixels[i].r;
-				rgba[i * 4 + 1] = pixels[i].g;
-				rgba[i * 4 + 2] = pixels[i].b;
-				rgba[i * 4 + 3] = pixels[i].a;
+			size_t npixels = static_cast<size_t>(width) * height;
+			this->upload_rgba_buf.resize(npixels * 4);
+			for (size_t i = 0; i < npixels; i++) {
+				this->upload_rgba_buf[i * 4 + 0] = pixels[i].r;
+				this->upload_rgba_buf[i * 4 + 1] = pixels[i].g;
+				this->upload_rgba_buf[i * 4 + 2] = pixels[i].b;
+				this->upload_rgba_buf[i * 4 + 3] = pixels[i].a;
 			}
 			glBindTexture(GL_TEXTURE_2D, this->colour_pages[existing.colour.atlas_idx].texture);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, existing.colour.x, existing.colour.y,
-			                width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+			                width, height, GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
 
 			if (has_remap) {
-				std::vector<uint8_t> m_data(static_cast<size_t>(width) * height);
-				for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
-					m_data[i] = pixels[i].m;
+				this->upload_m_buf.resize(npixels);
+				for (size_t i = 0; i < npixels; i++) {
+					this->upload_m_buf[i] = pixels[i].m;
 				}
 				glBindTexture(GL_TEXTURE_2D, this->remap_pages[existing.remap.atlas_idx].texture);
 				glTexSubImage2D(GL_TEXTURE_2D, 0, existing.remap.x, existing.remap.y,
-				                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, m_data.data());
+				                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 			}
 
 			existing.palette_only = has_remap && !has_rgb;
@@ -199,12 +200,13 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 	/* Upload RGBA data. */
 	{
-		std::vector<uint8_t> rgba(static_cast<size_t>(width) * height * 4);
-		for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
-			rgba[i * 4 + 0] = pixels[i].r;
-			rgba[i * 4 + 1] = pixels[i].g;
-			rgba[i * 4 + 2] = pixels[i].b;
-			rgba[i * 4 + 3] = pixels[i].a;
+		size_t npixels = static_cast<size_t>(width) * height;
+		this->upload_rgba_buf.resize(npixels * 4);
+		for (size_t i = 0; i < npixels; i++) {
+			this->upload_rgba_buf[i * 4 + 0] = pixels[i].r;
+			this->upload_rgba_buf[i * 4 + 1] = pixels[i].g;
+			this->upload_rgba_buf[i * 4 + 2] = pixels[i].b;
+			this->upload_rgba_buf[i * 4 + 3] = pixels[i].a;
 		}
 
 		if (!PackRegion(this->colour_pages, false, width, height, entry.colour)) {
@@ -213,14 +215,15 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 		glBindTexture(GL_TEXTURE_2D, this->colour_pages[entry.colour.atlas_idx].texture);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, entry.colour.x, entry.colour.y,
-		                width, height, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
+		                width, height, GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
 	}
 
 	/* Upload M (remap) channel. */
 	if (has_remap) {
-		std::vector<uint8_t> m_data(static_cast<size_t>(width) * height);
-		for (size_t i = 0; i < static_cast<size_t>(width) * height; i++) {
-			m_data[i] = pixels[i].m;
+		size_t npixels = static_cast<size_t>(width) * height;
+		this->upload_m_buf.resize(npixels);
+		for (size_t i = 0; i < npixels; i++) {
+			this->upload_m_buf[i] = pixels[i].m;
 		}
 
 		if (!PackRegion(this->remap_pages, true, width, height, entry.remap)) {
@@ -229,7 +232,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 		glBindTexture(GL_TEXTURE_2D, this->remap_pages[entry.remap.atlas_idx].texture);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, entry.remap.x, entry.remap.y,
-		                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, m_data.data());
+		                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 	} else {
 		/* No remap data; fill with zeros in colour region. */
 		entry.remap = entry.colour;

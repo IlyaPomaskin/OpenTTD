@@ -73,6 +73,9 @@ private:
 	std::mutex staged_mutex;
 	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
 
+	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
+	std::vector<uint8_t> upload_m_buf;    ///< Reusable buffer for M channel extraction.
+
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
 	                uint16_t w, uint16_t h, GLESSpriteRegion &out);
