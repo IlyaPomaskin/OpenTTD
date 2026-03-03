@@ -326,6 +326,14 @@ static void DoSetViewportPosition(Window::IteratorToFront it, int left, int top,
 			return;
 		}
 
+		if (_gles_gpu_sprites) {
+			/* GPU sprites: no CPU buffer to scroll, just redraw the whole
+			 * viewport region.  Skip GfxScroll (which would call MakeDirty
+			 * and clear the FBO to black without matching sprite coverage). */
+			RedrawScreenRect(left, top, left + width, top + height);
+			return;
+		}
+
 		GfxScroll(left, top, width, height, xo, yo);
 
 		if (xo > 0) {

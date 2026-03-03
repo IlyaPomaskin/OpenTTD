@@ -163,13 +163,15 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 {
 	if (!CopyPalette(this->local_palette)) return;
 
-	/* With GPU sprites the palette texture is updated in Paint().
-	 * Skip the full-screen MakeDirty that the base class does —
-	 * the persistent FBO already has correct pixels and the GPU
-	 * shaders will pick up the new palette on next draw. */
-	if (!_gles_gpu_sprites) {
-		this->MakeDirty(0, 0, _screen.width, _screen.height);
+	if (_gles_gpu_sprites) {
+		/* GPU sprites: mark all dirty blocks so DrawDirtyBlocks() re-renders
+		 * the full viewport next frame with new palette colours.  Do NOT call
+		 * MakeDirty() here — it would clear the FBO this frame while sprites
+		 * are only queued next frame, causing a black flash. */
+		MarkWholeScreenDirty();
+		return;
 	}
+	this->MakeDirty(0, 0, _screen.width, _screen.height);
 }
 
 void VideoDriver_SDL_GLES::Paint()

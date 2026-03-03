@@ -28,7 +28,7 @@ public:
 
 	bool Is32BppSupported() override { return true; }
 	uint GetSpriteAlignment() override { return 1; }
-	Blitter::PaletteAnimation UsePaletteAnimation() override { return Blitter::PaletteAnimation::None; }
+	Blitter::PaletteAnimation UsePaletteAnimation() override { return Blitter::PaletteAnimation::Blitter; }
 };
 
 /** Factory for the OpenGL ES blitter. */
