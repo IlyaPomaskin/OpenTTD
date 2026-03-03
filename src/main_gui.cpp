@@ -23,6 +23,7 @@
 #include "transparency.h"
 #include "strings_func.h"
 #include "zoom_func.h"
+#include "gfx_func.h"
 #include "company_base.h"
 #include "company_func.h"
 #include "toolbar_gui.h"
@@ -416,10 +417,18 @@ struct MainWindow : Window
 
 	void OnScroll(Point delta) override
 	{
-		this->viewport->scrollpos_x += ScaleByZoom(delta.x, this->viewport->zoom);
-		this->viewport->scrollpos_y += ScaleByZoom(delta.y, this->viewport->zoom);
-		this->viewport->dest_scrollpos_x = this->viewport->scrollpos_x;
-		this->viewport->dest_scrollpos_y = this->viewport->scrollpos_y;
+		int dx = ScaleByZoom(delta.x, this->viewport->zoom);
+		int dy = ScaleByZoom(delta.y, this->viewport->zoom);
+		if (_gles_gpu_sprites) {
+			/* Smooth scrolling for touch: only move dest, let viewport interpolation ease. */
+			this->viewport->dest_scrollpos_x += dx;
+			this->viewport->dest_scrollpos_y += dy;
+		} else {
+			this->viewport->scrollpos_x += dx;
+			this->viewport->scrollpos_y += dy;
+			this->viewport->dest_scrollpos_x = this->viewport->scrollpos_x;
+			this->viewport->dest_scrollpos_y = this->viewport->scrollpos_y;
+		}
 		this->refresh_timeout.Reset();
 	}
 
