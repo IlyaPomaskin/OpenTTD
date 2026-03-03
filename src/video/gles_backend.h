@@ -87,7 +87,9 @@ private:
 	GLint bgra_colour_tex_loc = -1;
 
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
-	GLuint remap_table_tex = 0;  ///< 256x1 remap table texture (current remap).
+	GLuint remap_table_tex[2] = {0, 0}; ///< Double-buffered 256x1 remap table textures.
+	int remap_table_idx = 0;            ///< Current remap table texture index (0 or 1).
+	const uint8_t *last_remap_ptr = nullptr; ///< Last uploaded remap table pointer (cache).
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
 	GLuint cpu_framebuf_tex = 0; ///< Texture for CPU-rendered content (video buffer upload).
 	bool cpu_tex_allocated = false; ///< True once cpu_framebuf_tex has been allocated at current size.

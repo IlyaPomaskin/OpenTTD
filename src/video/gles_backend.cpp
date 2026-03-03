@@ -35,7 +35,7 @@ GLESBackend::~GLESBackend()
 	if (this->prog_solid != 0) glDeleteProgram(this->prog_solid);
 	if (this->prog_bgra != 0) glDeleteProgram(this->prog_bgra);
 	if (this->palette_tex != 0) glDeleteTextures(1, &this->palette_tex);
-	if (this->remap_table_tex != 0) glDeleteTextures(1, &this->remap_table_tex);
+	glDeleteTextures(2, this->remap_table_tex);
 	if (this->cpu_framebuf_tex != 0) glDeleteTextures(1, &this->cpu_framebuf_tex);
 	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
@@ -210,14 +210,16 @@ bool GLESBackend::Create()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-	/* Create 256x1 remap table texture (luminance). */
-	glGenTextures(1, &backend->remap_table_tex);
-	glBindTexture(GL_TEXTURE_2D, backend->remap_table_tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+	/* Create double-buffered 256x1 remap table textures (luminance). */
+	glGenTextures(2, backend->remap_table_tex);
+	for (int i = 0; i < 2; i++) {
+		glBindTexture(GL_TEXTURE_2D, backend->remap_table_tex[i]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+	}
 
 	/* Create VBO for batched vertices. */
 	glGenBuffers(1, &backend->vbo);
@@ -341,6 +343,8 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 
 void GLESBackend::Paint()
 {
+	this->last_remap_ptr = nullptr;
+
 	/* === Phase 1: Render into persistent FBO. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glViewport(0, 0, this->screen_width, this->screen_height);
@@ -586,7 +590,7 @@ void GLESBackend::Paint()
 	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, rp0);
 	glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, rp1);
 	glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, this->palette_tex);
-	glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, this->remap_table_tex);
+	glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
 
 	/* === Draw batches — only break on shader type change === */
 	glEnable(GL_BLEND);
@@ -642,12 +646,15 @@ void GLESBackend::Paint()
 			}
 		}
 
-		/* Upload remap table for remap batches (may change per-batch). */
-		if (b.type == BT_REMAP && b.remap != nullptr) {
+		/* Upload remap table for remap batches, skip if same pointer as last time. */
+		if (b.type == BT_REMAP && b.remap != nullptr && b.remap != this->last_remap_ptr) {
+			/* Swap to the other remap texture to avoid GPU ghost on the one still in use. */
+			this->remap_table_idx ^= 1;
 			glActiveTexture(GL_TEXTURE5);
-			glBindTexture(GL_TEXTURE_2D, this->remap_table_tex);
+			glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1,
 			                GL_LUMINANCE, GL_UNSIGNED_BYTE, b.remap);
+			this->last_remap_ptr = b.remap;
 		}
 
 		prev_type = b.type;
