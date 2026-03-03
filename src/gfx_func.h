@@ -114,6 +114,7 @@ struct GLESPerfCounters {
 	int encode_uploaded = 0;       ///< Encode() calls that uploaded to atlas.
 	int encode_all_transparent = 0;///< Sprites uploaded with all alpha=0.
 
+	int64_t update_windows_us = 0; ///< Total UpdateWindows time.
 	int frames = 0;                ///< Frames in this measurement period.
 };
 

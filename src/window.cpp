@@ -3229,14 +3229,14 @@ void UpdateWindows()
 		}
 	}
 
+	auto uw_t0 = std::chrono::steady_clock::now();
 	DrawDirtyBlocks();
 
 	for (Window *w : Window::Iterate()) {
-		/* Update viewport only if window is not shaded. */
 		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 	}
+	_gles_perf.update_windows_us += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uw_t0).count();
 	if (!_gles_gpu_sprites) NetworkDrawChatMessage();
-	/* Redraw mouse cursor in case it was hidden */
 	if (!_gles_gpu_sprites) DrawMouseCursor();
 
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW) {
