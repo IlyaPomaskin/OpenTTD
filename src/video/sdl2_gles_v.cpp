@@ -14,14 +14,57 @@
 #include "../blitter/factory.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
+#include "../map_func.h"
+#include "../tile_type.h"
+#include "../viewport_func.h"
+#include "../window_func.h"
 #include "sdl2_gles_v.h"
 #include "gles_backend.h"
+#include "gles_waypoints.h"
 #include <SDL.h>
 #include <SDL_syswm.h>
 #include <GLES2/gl2.h>
 #include <EGL/egl.h>
+#include <atomic>
+#include <cstdlib>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 
 #include "../safeguards.h"
+
+/** Set to true from Java before pause; processed in Paint() to jump camera to a random waypoint. */
+static std::atomic<bool> _gles_jump_waypoint{false};
+static int _gles_last_waypoint_idx = -1;
+
+/** Jump the main viewport to a random entry from kDefaultWaypoints. */
+static void PrepareBackground()
+{
+	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;
+
+	int count = static_cast<int>(kDefaultWaypoints.size());
+	int idx;
+	do {
+		idx = std::rand() % count;
+	} while (count > 1 && idx == _gles_last_waypoint_idx);
+	_gles_last_waypoint_idx = idx;
+
+	const GlesWaypoint &wp = kDefaultWaypoints[idx];
+	int world_x = static_cast<int>(wp.map_fx * Map::SizeX() * TILE_SIZE);
+	int world_y = static_cast<int>(wp.map_fy * Map::SizeY() * TILE_SIZE);
+
+	Debug(driver, 0, "GLES PrepareBackground: waypoint={} pos=({},{})", idx, world_x, world_y);
+	ScrollMainWindowTo(world_x, world_y, -1, true);
+	MarkWholeScreenDirty();
+}
+
+#ifdef __ANDROID__
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
+{
+	_gles_jump_waypoint = true;
+}
+#endif
 
 static FVideoDriver_SDL_GLES iFVideoDriver_SDL_GLES;
 
@@ -191,6 +234,9 @@ void VideoDriver_SDL_GLES::Paint()
 		this->MakeDirty(0, 0, _screen.width, _screen.height);
 		return; /* Skip this frame; draw_queue was cleared, FBO is black anyway. */
 	}
+
+	/* Jump to a random waypoint before pause (requested from Java onVisibilityChanged). */
+	if (_gles_jump_waypoint.exchange(false)) PrepareBackground();
 
 	/* Log EGL context state every 60 frames to detect context loss. */
 	static int paint_count = 0;

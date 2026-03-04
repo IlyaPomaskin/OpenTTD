@@ -1,7 +1,5 @@
 package org.openttd.android;
 
-import android.os.Handler;
-import android.os.Looper;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -13,6 +11,9 @@ import org.libsdl.app.SDLActivity;
 
 public class OpenTTDWallpaperService extends WallpaperService {
     private static final String TAG = "OpenTTDWallpaper";
+
+    /** Jump camera to a random map waypoint and mark the area dirty for asset pre-loading. */
+    private static native void nativePrepareBackground();
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -29,15 +30,9 @@ public class OpenTTDWallpaperService extends WallpaperService {
     }
 
     private class OpenTTDEngine extends Engine {
-        private static final long PAUSE_DELAY_MS = 5000;
         private Surface mEngineSurface;
         private int mSurfaceWidth = 1;
         private int mSurfaceHeight = 1;
-        private final Handler mHandler = new Handler(Looper.getMainLooper());
-        private final Runnable mDeferredPause = () -> {
-            SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
-            SDLActivity.handleNativeState();
-        };
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -131,7 +126,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
         public void onSurfaceDestroyed(SurfaceHolder holder) {
             Log.i(TAG, "onSurfaceDestroyed: mEngineSurface=" + mEngineSurface
                 + " sOverrideSurface=" + SDLActivity.sOverrideSurface);
-            mHandler.removeCallbacks(mDeferredPause);
             if (SDLActivity.sOverrideSurface == mEngineSurface) {
                 Log.i(TAG, "onSurfaceDestroyed: calling onNativeSurfaceDestroyed");
                 SDLActivity.sOverrideSurface = null;
@@ -153,7 +147,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
             super.onVisibilityChanged(visible);
             if (!sSDLInitialized) return;
             if (visible) {
-                mHandler.removeCallbacks(mDeferredPause);
                 // Re-inject surface if lost during engine transition
                 Surface currentSurface = getSurfaceHolder().getSurface();
                 Log.i(TAG, "onVisibilityChanged visible: currentSurface=" + currentSurface
@@ -175,16 +168,12 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                Log.i(TAG, "onVisibilityChanged: scheduling deferred pause in " + PAUSE_DELAY_MS + "ms");
-                mHandler.removeCallbacks(mDeferredPause);
-                mHandler.postDelayed(mDeferredPause, PAUSE_DELAY_MS);
+                Log.i(TAG, "onVisibilityChanged: preparing background then pausing");
+                nativePrepareBackground();
+                SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
+                SDLActivity.handleNativeState();
             }
         }
 
-        @Override
-        public void onDestroy() {
-            mHandler.removeCallbacks(mDeferredPause);
-            super.onDestroy();
-        }
     }
 }
