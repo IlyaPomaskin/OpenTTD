@@ -2925,7 +2925,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	/* Don't allow any action in a viewport if we have a modal progress window.
 	 * In menu mode, skip viewport-specific handling but still dispatch to OnClick. */
 	if (vp != nullptr && HasModalProgress()) { Debug(misc, 0, "MouseLoop: blocked by modal progress"); return; }
-	if (vp != nullptr && _game_mode == GM_MENU && !_gles_gpu_sprites) {
+	if (vp != nullptr && _game_mode == GM_MENU /*&& !_gles_gpu_sprites*/) {
 		Debug(misc, 0, "MouseLoop: menu mode, bypassing viewport to dispatch OnClick");
 		vp = nullptr;
 	}
@@ -2954,7 +2954,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 			case MC_LEFT:
 				if (HandleViewportClicked(*vp, x, y)) return;
 				if (!w->flags.Test(WindowFlag::DisableVpScroll) &&
-						(_gles_gpu_sprites || _settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB)) {
+						(/*_gles_gpu_sprites ||*/ _settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB)) {
 					_scrolling_viewport = true;
 					_cursor.fix_at = false;
 					return;

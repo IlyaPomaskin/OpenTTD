@@ -2054,7 +2054,7 @@ void UpdateViewportPosition(Window *w, uint32_t delta_ms)
 
 		bool update_overlay = false;
 		if (delta_x != 0 || delta_y != 0) {
-			if (_settings_client.gui.smooth_scroll || _gles_gpu_sprites) {
+			if (_settings_client.gui.smooth_scroll /*|| _gles_gpu_sprites*/) {
 				int delta_x_clamped;
 				int delta_y_clamped;
 
