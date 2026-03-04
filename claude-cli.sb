@@ -116,6 +116,12 @@
 (allow file-read*
     (subpath "/opt/homebrew"))
 
+(allow file-test-existence
+    (subpath "/opt/homebrew"))
+
+(allow process-exec
+    (subpath "/opt/homebrew"))
+
 ;; ============================================================
 ;; Temp directories — runtime needs (read/write)
 ;; ============================================================
@@ -215,6 +221,10 @@
     (subpath (string-append home-dir "/Library/Android/sdk"))
     (subpath (string-append home-dir "/.android"))
     (subpath (string-append home-dir "/.gradle")))
+
+;; Allow executing binaries from Android SDK (simpleperf, etc.)
+(allow process-exec
+    (subpath (string-append home-dir "/Library/Android/sdk")))
 
 (allow file-write*
     (subpath (string-append home-dir "/.android"))
