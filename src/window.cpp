@@ -3219,11 +3219,11 @@ void UpdateWindows()
 	}
 
 	auto uw_t0 = std::chrono::steady_clock::now();
-	DrawDirtyBlocks();
 
 	for (Window *w : Window::Iterate()) {
 		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 	}
+	DrawDirtyBlocks();
 	_gles_perf.update_windows_us += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uw_t0).count();
 	if (!_gles_gpu_sprites) NetworkDrawChatMessage();
 	if (!_gles_gpu_sprites) DrawMouseCursor();
