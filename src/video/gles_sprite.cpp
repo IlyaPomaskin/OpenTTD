@@ -57,10 +57,20 @@ void GLESSpriteAtlas::ResetGPU()
 	/* Invalidate GPU sprite entries (texture handles no longer valid). */
 	this->sprites.clear();
 
-	/* Clear pending staged data — will be re-uploaded from stored_pixels on demand. */
+	/* Re-stage all previously uploaded sprites from stored_pixels.
+	 * - Sprites that were staged-but-not-uploaded just before context loss are
+	 *   already in staged (we don't clear it) and take priority (checked first).
+	 * - All other sprites (the majority) are only in stored_pixels; copying them
+	 *   to staged lets LookupOrUpload re-upload them exactly as in normal flow,
+	 *   without requiring a sprite cache flush. */
 	{
 		std::lock_guard<std::mutex> lock(this->staged_mutex);
-		this->staged.clear();
+		for (const auto &[key, sp] : this->stored_pixels) {
+			/* Don't overwrite sprites already in staged (just-encoded data is newer). */
+			if (this->staged.find(key) == this->staged.end()) {
+				this->staged[key] = sp;
+			}
+		}
 	}
 
 	/* Re-apply pixel store setting required for correct GL_LUMINANCE uploads. */
@@ -71,7 +81,7 @@ void GLESSpriteAtlas::ResetGPU()
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
 	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
 
-	Debug(driver, 0, "GLES: Atlas ResetGPU: cleared, stored_pixels={}", this->stored_pixels.size());
+	Debug(driver, 0, "GLES: Atlas ResetGPU: staged={} stored={}", this->staged.size(), this->stored_pixels.size());
 }
 
 GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance)
