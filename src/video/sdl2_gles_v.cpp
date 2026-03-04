@@ -178,7 +178,34 @@ void VideoDriver_SDL_GLES::Paint()
 {
 	PerformanceMeasurer framerate(PFE_VIDEO);
 
+	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET).
+	 * Must run at the top of Paint() — we're on the GL thread with the new context current. */
+	if (_gles_context_lost && GLESBackend::Get() != nullptr) {
+		_gles_context_lost = false;
+		Debug(driver, 0, "GLES: Paint: recovering from context loss");
+		GLESBackend::Get()->RecoverGPUState();
+		/* Force full palette re-upload into the new palette texture. */
+		CopyPalette(this->local_palette, true);
+		/* Force a full-screen dirty so the viewport redraws next frame. */
+		this->MakeDirty(0, 0, _screen.width, _screen.height);
+		return; /* Skip this frame; draw_queue was cleared, FBO is black anyway. */
+	}
+
+	/* Log EGL context state every 60 frames to detect context loss. */
 	static int paint_count = 0;
+	paint_count++;
+	if (paint_count % 60 == 1) {
+		EGLContext ctx = eglGetCurrentContext();
+		EGLDisplay dpy = eglGetCurrentDisplay();
+		EGLSurface srf = eglGetCurrentSurface(EGL_DRAW);
+		EGLint err = eglGetError();
+		Debug(driver, 0, "GLES ctx: frame={} context={} display={} surface={} egl_err=0x{:04X}",
+			paint_count, (void *)ctx, (void *)dpy, (void *)srf, err);
+		if (ctx == EGL_NO_CONTEXT) {
+			Debug(driver, 0, "GLES ctx: WARNING - EGL_NO_CONTEXT! Context has been lost.");
+		}
+	}
+
 	static int fps_frames = 0;
 	static auto fps_last = std::chrono::steady_clock::now();
 	fps_frames++;
@@ -206,7 +233,6 @@ void VideoDriver_SDL_GLES::Paint()
 		fps_frames = 0;
 		fps_last = fps_now;
 	}
-	paint_count++;
 
 	if (this->local_palette.count_dirty != 0) {
 		GLESBackend::Get()->UpdatePalette(this->local_palette.palette,

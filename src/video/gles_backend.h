@@ -138,6 +138,12 @@ public:
 	/** Flush all queued draw commands as batched GL draw calls. */
 	void Paint();
 
+	/** Recover all GPU state after EGL context loss (SDL_RENDER_DEVICE_RESET).
+	 *  Old GL handles are silently abandoned (freed by OS when context is destroyed).
+	 *  New objects are created in the replacement context. Sprite pixel data is
+	 *  preserved in the atlas's stored_pixels map for on-demand re-upload. */
+	void RecoverGPUState();
+
 	/** Clear the draw queue without rendering. */
 	void ClearQueue() { draw_queue.clear(); }
 

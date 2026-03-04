@@ -509,7 +509,25 @@ bool VideoDriver_SDL_Base::PollEvent()
 			}
 			break;
 		}
+		case SDL_APP_DIDENTERBACKGROUND:
+			Debug(driver, 0, "SDL: APP_DIDENTERBACKGROUND (app going to background)");
+			break;
+
+		case SDL_APP_WILLENTERFOREGROUND:
+			Debug(driver, 0, "SDL: APP_WILLENTERFOREGROUND (app returning to foreground)");
+			break;
+
+		case SDL_APP_DIDENTERFOREGROUND:
+			Debug(driver, 0, "SDL: APP_DIDENTERFOREGROUND");
+			break;
+
+		case SDL_RENDER_DEVICE_RESET:
+			Debug(driver, 0, "SDL: SDL_RENDER_DEVICE_RESET (GL context lost!)");
+			_gles_context_lost = true;
+			break;
+
 		case SDL_WINDOWEVENT: {
+			Debug(driver, 0, "SDL: WINDOWEVENT event={}", ev.window.event);
 			if (ev.window.event == SDL_WINDOWEVENT_EXPOSED) {
 				/* Force a redraw of the entire screen. */
 				this->MakeDirty(0, 0, _screen.width, _screen.height);

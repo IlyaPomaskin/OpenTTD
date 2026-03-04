@@ -47,6 +47,7 @@ DrawPixelInfo _screen;
 bool _screen_disable_anim = false;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
 bool _gles_gpu_sprites = false;      ///< When true, queue GPU draw commands instead of CPU blitting.
 bool _gles_video_active = false;     ///< When true, GLES video driver is active (enables dirty block coalescing).
+bool _gles_context_lost = false;     ///< Set on SDL_RENDER_DEVICE_RESET; consumed by GLES Paint() to trigger GPU rebuild.
 GLESPerfCounters _gles_perf;         ///< Per-frame rendering performance counters.
 SpriteID _gles_encoding_sprite_id = 0; ///< SpriteID currently being encoded (set before Encode(), read by GLES blitter).
 std::atomic<bool> _exit_game;

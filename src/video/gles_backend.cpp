@@ -244,6 +244,71 @@ void GLESBackend::Destroy()
 	GLESBackend::instance = nullptr;
 }
 
+void GLESBackend::RecoverGPUState()
+{
+	Debug(driver, 0, "GLES: RecoverGPUState: rebuilding GPU objects after context loss");
+
+	/* All old GL handles belong to the dead EGL context.  Zero them out so that
+	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
+	 * do NOT call glDelete* on them — that would inject errors into the new context. */
+	this->prog_normal = 0; this->prog_remap = 0; this->prog_transparent = 0;
+	this->prog_palette = 0; this->prog_solid = 0; this->prog_bgra = 0;
+	this->palette_tex = 0;
+	this->remap_table_tex[0] = 0; this->remap_table_tex[1] = 0;
+	this->vbo = 0;
+	this->cpu_framebuf_tex = 0; this->cpu_tex_allocated = false;
+	this->fbo = 0; this->fbo_tex = 0;
+	this->last_remap_ptr = nullptr;
+	this->remap_table_idx = 0;
+
+	/* Recompile and link all shader programs in the new context. */
+	if (!this->InitShaders()) {
+		Debug(driver, 0, "GLES: RecoverGPUState: FAILED to reinitialize shaders!");
+		return;
+	}
+
+	/* Create palette texture. */
+	glGenTextures(1, &this->palette_tex);
+	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+	/* Create remap table textures. */
+	glGenTextures(2, this->remap_table_tex);
+	for (int i = 0; i < 2; i++) {
+		glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[i]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+	}
+
+	/* Create VBO. */
+	glGenBuffers(1, &this->vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
+
+	/* Reset atlas GPU state.  Atlas page layouts are cleared; stored_pixels is
+	 * preserved so that LookupOrUpload() can re-upload sprites on demand. */
+	this->sprite_atlas.ResetGPU();
+
+	/* Recreate FBO and cpu_framebuf_tex via Resize() (handles are already 0). */
+	if (this->screen_width > 0 && this->screen_height > 0) {
+		this->Resize(this->screen_width, this->screen_height);
+	}
+
+	/* Discard stale queued state from before context loss. */
+	this->draw_queue.clear();
+	this->dirty_rects.clear();
+
+	Debug(driver, 0, "GLES: RecoverGPUState: done, stored_sprites={}",
+	      this->sprite_atlas.GetStoredSpriteCount());
+}
+
 void GLESBackend::Resize(int w, int h)
 {
 	this->screen_width = w;

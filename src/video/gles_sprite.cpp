@@ -40,6 +40,38 @@ void GLESSpriteAtlas::Destroy()
 	this->colour_pages.clear();
 	this->remap_pages.clear();
 	this->sprites.clear();
+	this->stored_pixels.clear();
+}
+
+void GLESSpriteAtlas::ResetGPU()
+{
+	/* Atlas textures belong to the dead EGL context — zeroing the handles is
+	 * sufficient; the OS reclaims resources when the old context is destroyed. */
+	for (auto &page : this->colour_pages) page.texture = 0;
+	for (auto &page : this->remap_pages)  page.texture = 0;
+
+	/* Clear atlas layout — will be repacked as sprites are re-uploaded. */
+	this->colour_pages.clear();
+	this->remap_pages.clear();
+
+	/* Invalidate GPU sprite entries (texture handles no longer valid). */
+	this->sprites.clear();
+
+	/* Clear pending staged data — will be re-uploaded from stored_pixels on demand. */
+	{
+		std::lock_guard<std::mutex> lock(this->staged_mutex);
+		this->staged.clear();
+	}
+
+	/* Re-apply pixel store setting required for correct GL_LUMINANCE uploads. */
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+	/* Re-query atlas size limit from the new context. */
+	GLint max_size = 2048;
+	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
+	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
+
+	Debug(driver, 0, "GLES: Atlas ResetGPU: cleared, stored_pixels={}", this->stored_pixels.size());
 }
 
 GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance)
@@ -157,6 +189,8 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 {
 	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
 
+	size_t npixels = static_cast<size_t>(width) * height;
+
 	/* Check for existing entry. */
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) {
@@ -164,7 +198,6 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 		if (existing.colour.w == width && existing.colour.h == height &&
 		    existing.has_remap == has_remap) {
 			/* Same dimensions — re-upload texture data in-place. */
-			size_t npixels = static_cast<size_t>(width) * height;
 			this->upload_rgba_buf.resize(npixels * 4);
 			for (size_t i = 0; i < npixels; i++) {
 				this->upload_rgba_buf[i * 4 + 0] = pixels[i].r;
@@ -188,6 +221,13 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 			existing.palette_only = has_remap && !has_rgb;
 			_gles_perf.gpu_sprites_reuploaded++;
+
+			/* Update stored pixels with latest data. */
+			GLESStagedPixels &stored = this->stored_pixels[key];
+			stored.pixels.assign(pixels, pixels + npixels);
+			stored.width = width; stored.height = height;
+			stored.has_rgb = has_rgb; stored.has_remap = has_remap;
+
 			return key;
 		}
 		/* Different dimensions or remap status changed — discard old entry, re-pack below. */
@@ -200,7 +240,6 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 	/* Upload RGBA data. */
 	{
-		size_t npixels = static_cast<size_t>(width) * height;
 		this->upload_rgba_buf.resize(npixels * 4);
 		for (size_t i = 0; i < npixels; i++) {
 			this->upload_rgba_buf[i * 4 + 0] = pixels[i].r;
@@ -220,7 +259,6 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 	/* Upload M (remap) channel. */
 	if (has_remap) {
-		size_t npixels = static_cast<size_t>(width) * height;
 		this->upload_m_buf.resize(npixels);
 		for (size_t i = 0; i < npixels; i++) {
 			this->upload_m_buf[i] = pixels[i].m;
@@ -239,6 +277,12 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 	}
 
 	this->sprites[key] = entry;
+
+	/* Store pixel data permanently so it can be re-uploaded after GL context loss. */
+	GLESStagedPixels &stored = this->stored_pixels[key];
+	stored.pixels.assign(pixels, pixels + npixels);
+	stored.width = width; stored.height = height;
+	stored.has_rgb = has_rgb; stored.has_remap = has_remap;
 
 	return key;
 }
@@ -269,14 +313,25 @@ const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) return &it->second;
 
-	/* Check staged data. */
+	/* Check staged data (written by game thread via Stage()). */
 	GLESStagedPixels sp;
+	bool found = false;
 	{
 		std::lock_guard<std::mutex> lock(this->staged_mutex);
 		auto sit = this->staged.find(key);
-		if (sit == this->staged.end()) return nullptr;
-		sp = std::move(sit->second);
-		this->staged.erase(sit);
+		if (sit != this->staged.end()) {
+			sp = std::move(sit->second);
+			this->staged.erase(sit);
+			found = true;
+		}
+	}
+
+	if (!found) {
+		/* Fallback: re-upload from permanent store after GL context loss.
+		 * stored_pixels is only accessed from the GL thread — no lock needed. */
+		auto pit = this->stored_pixels.find(key);
+		if (pit == this->stored_pixels.end()) return nullptr;
+		sp = pit->second; /* copy, not move — keep stored_pixels intact for future recoveries */
 	}
 
 	/* Upload to GPU (we're on the GL thread). */
