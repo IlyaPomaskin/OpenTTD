@@ -71,4 +71,16 @@ static constexpr std::array<GlesWaypoint, 12> kDefaultWaypoints = {{
 	{ 0.65f, 0.60f, -1, 5000, true  },
 }};
 
+/**
+ * A scored point of interest found by scanning the current map.
+ * Built dynamically from stations and towns; sorted by score descending.
+ */
+struct GlesPOI {
+	float    map_fx;     ///< Fractional X across map width  (0..1)
+	float    map_fy;     ///< Fractional Y across map height (0..1)
+	int      score;      ///< Aggregate interest score (higher = more interesting)
+	int      zoom_adjust;///< Zoom delta relative to GUI zoom
+	uint32_t delay_ms;   ///< Time to hold position before moving to next POI
+};
+
 #endif /* GLES_WAYPOINTS_H */
