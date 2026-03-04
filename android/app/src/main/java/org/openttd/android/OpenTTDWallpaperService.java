@@ -78,6 +78,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
         @Override
         public void onSurfaceCreated(SurfaceHolder holder) {
+            Log.i(TAG, "onSurfaceCreated: holder=" + holder + " surface=" + holder.getSurface());
             super.onSurfaceCreated(holder);
             if (!sLibrariesLoaded) return;
 
@@ -100,16 +101,21 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 sSDLInitialized = true;
             }
 
+            Log.i(TAG, "onSurfaceCreated: sSDLInitialized=" + sSDLInitialized
+                + " sOverrideSurface=" + SDLActivity.sOverrideSurface);
             if (SDLActivity.sOverrideSurface != null) {
+                Log.i(TAG, "onSurfaceCreated: destroying old surface before creating new one");
                 SDLActivity.onNativeSurfaceDestroyed();
             }
             mEngineSurface = holder.getSurface();
             SDLActivity.sOverrideSurface = mEngineSurface;
+            Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
         }
 
         @Override
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            Log.i(TAG, "onSurfaceChanged: " + width + "x" + height + " format=" + format);
             super.onSurfaceChanged(holder, format, width, height);
             if (!sSDLInitialized) return;
             mSurfaceWidth = Math.max(width, 1);
@@ -123,12 +129,16 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
         @Override
         public void onSurfaceDestroyed(SurfaceHolder holder) {
+            Log.i(TAG, "onSurfaceDestroyed: mEngineSurface=" + mEngineSurface
+                + " sOverrideSurface=" + SDLActivity.sOverrideSurface);
             mHandler.removeCallbacks(mDeferredPause);
             if (SDLActivity.sOverrideSurface == mEngineSurface) {
+                Log.i(TAG, "onSurfaceDestroyed: calling onNativeSurfaceDestroyed");
                 SDLActivity.sOverrideSurface = null;
                 SDLActivity.onNativeSurfaceDestroyed();
             }
             mEngineSurface = null;
+            Log.i(TAG, "onSurfaceDestroyed: setting state=PAUSED");
             SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
             SDLActivity.handleNativeState();
             super.onSurfaceDestroyed(holder);
@@ -136,14 +146,21 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
         @Override
         public void onVisibilityChanged(boolean visible) {
+            Log.i(TAG, "onVisibilityChanged: visible=" + visible
+                + " sOverrideSurface=" + SDLActivity.sOverrideSurface
+                + " mCurrentNativeState=" + SDLActivity.mCurrentNativeState
+                + " mNextNativeState=" + SDLActivity.mNextNativeState);
             super.onVisibilityChanged(visible);
             if (!sSDLInitialized) return;
             if (visible) {
                 mHandler.removeCallbacks(mDeferredPause);
                 // Re-inject surface if lost during engine transition
                 Surface currentSurface = getSurfaceHolder().getSurface();
+                Log.i(TAG, "onVisibilityChanged visible: currentSurface=" + currentSurface
+                    + " isValid=" + (currentSurface != null && currentSurface.isValid()));
                 if (SDLActivity.sOverrideSurface == null
                         && currentSurface != null && currentSurface.isValid()) {
+                    Log.i(TAG, "onVisibilityChanged: re-injecting lost surface");
                     mEngineSurface = currentSurface;
                     SDLActivity.sOverrideSurface = mEngineSurface;
                     SDLActivity.onNativeSurfaceCreated();
@@ -154,10 +171,11 @@ public class OpenTTDWallpaperService extends WallpaperService {
                     SDLActivity.onNativeResize();
                     SDLActivity.onNativeSurfaceChanged();
                 }
+                Log.i(TAG, "onVisibilityChanged: setting state=RESUMED");
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                // Delay pause to let the rendering loop finish current frame
+                Log.i(TAG, "onVisibilityChanged: scheduling deferred pause in " + PAUSE_DELAY_MS + "ms");
                 mHandler.removeCallbacks(mDeferredPause);
                 mHandler.postDelayed(mDeferredPause, PAUSE_DELAY_MS);
             }

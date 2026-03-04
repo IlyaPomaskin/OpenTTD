@@ -705,6 +705,8 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
     /* Transition to next state */
     public static void handleNativeState() {
+        Log.i("SDL", "handleNativeState: " + mCurrentNativeState + " -> " + mNextNativeState
+            + " sOverrideSurface=" + sOverrideSurface + " mSDLThread=" + mSDLThread);
 
         if (mNextNativeState == mCurrentNativeState) {
             // Already in same state, discard.
@@ -720,6 +722,7 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
         // Try a transition to paused state
         if (mNextNativeState == NativeState.PAUSED) {
+            Log.i("SDL", "handleNativeState: transitioning to PAUSED, calling nativePause");
             if (mSDLThread != null) {
                 nativePause();
             }
@@ -738,6 +741,8 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             } else {
                 canResume = (mSurface != null && mSurface.mIsSurfaceReady && mHasFocus && mIsResumedCalled);
             }
+            Log.i("SDL", "handleNativeState: RESUMED canResume=" + canResume
+                + " sServiceMode=" + sServiceMode + " mSDLThread=" + mSDLThread);
             if (canResume) {
                 if (mSDLThread == null) {
                     // This is the entry point to the C app.
