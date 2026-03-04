@@ -32,6 +32,7 @@
 #include "../../gfx_func.h"
 #include "../../window_func.h"
 #include "../../window_gui.h"
+#include "../../viewport_func.h"
 #include "../../spritecache.h"
 #include "../../textbuf_type.h"
 #include "../../toolbar_gui.h"
@@ -41,6 +42,7 @@
 
 /* Table data for key mapping. */
 #include "cocoa_keys.h"
+#include "../gles_poi.h"
 
 /** Structure to store information about single touch bar button. */
 struct TouchBarButton {
@@ -848,6 +850,26 @@ void CocoaDialog(std::string_view title, std::string_view message, std::string_v
 		case QZ_f:
 			if (down && (modifiers & NSEventModifierFlagCommand)) {
 				VideoDriver::GetInstance()->ToggleFullscreen(!_fullscreen);
+			} else if (down && keycode == QZ_RETURN &&
+					!(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl |
+					               NSEventModifierFlagOption  | NSEventModifierFlagShift))) {
+				/* Plain Enter: advance camera to next POI. */
+				PrepareBackground();
+				return NO;
+			}
+			break;
+
+		case QZ_EQUALS: /* = / + key */
+			if (down && !(modifiers & (NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+				DoZoomInOutWindow(ZOOM_IN, GetMainWindow());
+				return NO;
+			}
+			break;
+
+		case QZ_MINUS:
+			if (down && !(modifiers & (NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+				DoZoomInOutWindow(ZOOM_OUT, GetMainWindow());
+				return NO;
 			}
 			break;
 

@@ -2840,11 +2840,10 @@ const std::chrono::milliseconds TIME_BETWEEN_DOUBLE_CLICK{500}; ///< Time betwee
 
 static void ScrollMainViewport(int x, int y)
 {
-	if (_game_mode != GM_MENU && _game_mode != GM_BOOTSTRAP) {
-		Window *w = GetMainWindow();
-		w->viewport->dest_scrollpos_x += ScaleByZoom(x, w->viewport->zoom);
-		w->viewport->dest_scrollpos_y += ScaleByZoom(y, w->viewport->zoom);
-	}
+	if (_game_mode == GM_BOOTSTRAP) return;
+	Window *w = GetMainWindow();
+	w->viewport->dest_scrollpos_x += ScaleByZoom(x, w->viewport->zoom);
+	w->viewport->dest_scrollpos_y += ScaleByZoom(y, w->viewport->zoom);
 }
 
 /**
@@ -2925,8 +2924,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	/* Don't allow any action in a viewport if we have a modal progress window.
 	 * In menu mode, skip viewport-specific handling but still dispatch to OnClick. */
 	if (vp != nullptr && HasModalProgress()) { Debug(misc, 0, "MouseLoop: blocked by modal progress"); return; }
-	if (vp != nullptr && _game_mode == GM_MENU /*&& !_gles_gpu_sprites*/) {
-		Debug(misc, 0, "MouseLoop: menu mode, bypassing viewport to dispatch OnClick");
+	if (vp != nullptr && _game_mode == GM_MENU && !_gles_gpu_sprites) {
 		vp = nullptr;
 	}
 

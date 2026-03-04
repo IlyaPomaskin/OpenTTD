@@ -20,6 +20,7 @@
 #include "../framerate_type.h"
 #include "../window_func.h"
 #include "sdl2_v.h"
+#include "gles_poi.h"
 #include <SDL.h>
 #ifdef __EMSCRIPTEN__
 #	include <emscripten.h>
@@ -471,6 +472,10 @@ bool VideoDriver_SDL_Base::PollEvent()
 			if ((ev.key.keysym.mod & (KMOD_ALT | KMOD_GUI)) &&
 					(ev.key.keysym.sym == SDLK_RETURN || ev.key.keysym.sym == SDLK_f)) {
 				if (ev.key.repeat == 0) ToggleFullScreen(!_fullscreen);
+			} else if (ev.key.keysym.sym == SDLK_RETURN && ev.key.repeat == 0 &&
+					!(ev.key.keysym.mod & (KMOD_ALT | KMOD_GUI | KMOD_CTRL | KMOD_SHIFT))) {
+				/* Plain Enter: advance camera to next POI. */
+				PrepareBackground();
 			} else {
 				char32_t character;
 
