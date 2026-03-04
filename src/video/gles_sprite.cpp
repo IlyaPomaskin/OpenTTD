@@ -241,7 +241,11 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 			return key;
 		}
 		/* Different dimensions or remap status changed — discard old entry, re-pack below. */
+		Debug(driver, 2, "GLES: Atlas repack sprite={} zoom={} old={}x{} new={}x{}",
+		      sprite_id, static_cast<int>(zoom),
+		      existing.colour.w, existing.colour.h, width, height);
 		this->sprites.erase(it);
+		_gles_perf.gpu_sprites_repacked++;
 	}
 
 	GLESSpriteEntry entry;
@@ -287,6 +291,10 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 	}
 
 	this->sprites[key] = entry;
+	_gles_perf.gpu_sprites_new++;
+	Debug(driver, 3, "GLES: Atlas pack sprite={} zoom={} {}x{} cpage={} rpage={} total={}",
+	      sprite_id, static_cast<int>(zoom), width, height,
+	      entry.colour.atlas_idx, entry.remap.atlas_idx, this->sprites.size());
 
 	/* Store pixel data permanently so it can be re-uploaded after GL context loss. */
 	GLESStagedPixels &stored = this->stored_pixels[key];

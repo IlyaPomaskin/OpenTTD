@@ -104,6 +104,8 @@ struct GLESPerfCounters {
 	int gpu_draw_cmds = 0;         ///< GPU draw commands queued.
 	int gpu_batches = 0;           ///< GPU draw batches (actual glDrawArrays calls).
 	int gpu_sprites_missing = 0;   ///< Sprites not found in atlas (silently skipped).
+	int gpu_sprites_new = 0;       ///< New sprites packed into atlas this period.
+	int gpu_sprites_repacked = 0;  ///< Sprites evicted and repacked (dimension change).
 	int gpu_sprites_reuploaded = 0;///< Sprites re-uploaded due to cache key collision.
 	int gpu_dim_mismatches = 0;   ///< Sprites where computed dims != atlas entry dims.
 	int gpu_skip_offscreen = 0;   ///< Draws skipped: dst outside screen buffer.

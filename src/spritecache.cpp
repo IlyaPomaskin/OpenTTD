@@ -206,6 +206,15 @@ SpriteID GetMaxSpriteID()
 	return static_cast<SpriteID>(_spritecache.size());
 }
 
+SpriteID GetRegisteredSpriteCount()
+{
+	SpriteID count = 0;
+	for (const SpriteCache &sc : _spritecache) {
+		if (sc.file != nullptr) count++;
+	}
+	return count;
+}
+
 static bool ResizeSpriteIn(SpriteLoader::SpriteCollection &sprite, ZoomLevel src, ZoomLevel tgt)
 {
 	uint8_t scaled_1 = AdjustByZoom(1, src - tgt);

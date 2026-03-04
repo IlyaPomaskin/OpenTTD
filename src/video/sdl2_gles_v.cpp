@@ -10,6 +10,7 @@
 #include "../stdafx.h"
 #include "../openttd.h"
 #include "../gfx_func.h"
+#include "../spritecache.h"
 #include "../blitter/factory.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
@@ -216,14 +217,16 @@ void VideoDriver_SDL_GLES::Paint()
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} sprites={}",
+		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} gpu={} stored={} reg={} new={} repacked={}",
 			fps, p.frames,
 			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
 			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
 			p.gpu_zoom_counts[0], p.gpu_zoom_counts[1], p.gpu_zoom_counts[2], p.gpu_zoom_counts[3], p.gpu_zoom_counts[4], p.gpu_zoom_counts[5],
 			p.gpu_paint_us / n, p.swap_us / n,
 			p.encode_total, p.encode_uploaded, p.encode_all_transparent,
-			atlas.GetColourPageCount(), atlas.GetRemapPageCount(), atlas.GetSpriteCount());
+			atlas.GetColourPageCount(), atlas.GetRemapPageCount(),
+			atlas.GetSpriteCount(), atlas.GetStoredSpriteCount(), GetRegisteredSpriteCount(),
+			p.gpu_sprites_new, p.gpu_sprites_repacked);
 		Debug(driver, 0, "  VP land={}us vehi={}us signs={}us sort={}us draw={}us updwin={}us | tiles={} parents={} children={} calls={} area={}x{}",
 			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
 			p.vp_sort_us / n, p.vp_draw_us / n, p.update_windows_us / n,
