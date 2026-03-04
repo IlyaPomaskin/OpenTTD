@@ -15,6 +15,7 @@
 #include "../table/gles_shader.h"
 #include <GLES2/gl2.h>
 #include <algorithm>
+#include <unordered_set>
 
 #include "../safeguards.h"
 
@@ -504,9 +505,28 @@ void GLESBackend::Paint()
 	size_t batch_start = 0;
 	bool first = true;
 
+	/* Track unique sprite IDs and zoom for GPU scaling verification. */
+	static ZoomLevel last_logged_zoom = ZoomLevel::End;
+	std::unordered_set<SpriteID> unique_base_sprites;
+	std::unordered_set<GLESSpriteID> unique_keys_used;
+	ZoomLevel frame_zoom = ZoomLevel::End;
+
 	for (const GLESDrawCommand &cmd : this->draw_queue) {
+		/* All sprites are stored at base zoom; cmd.sprite_key already uses kGPUScaleBaseZoom. */
 		const GLESSpriteEntry *entry = this->sprite_atlas.LookupOrUpload(cmd.sprite_key);
 		if (entry == nullptr) continue;
+		bool gpu_scaled = (cmd.zoom != kGPUScaleBaseZoom);
+
+		if (gpu_scaled) {
+			_gles_perf.gpu_scaled_hits++;
+		} else {
+			_gles_perf.gpu_scaled_fallbacks++;
+		}
+
+		SpriteID sid = static_cast<SpriteID>(cmd.sprite_key >> 4);
+		unique_base_sprites.insert(sid);
+		unique_keys_used.insert(cmd.sprite_key);
+		if (frame_zoom == ZoomLevel::End) frame_zoom = cmd.zoom;
 
 		/* Track dimension mismatches for diagnostics. */
 		if (cmd.sprite_width != entry->colour.w || cmd.sprite_height != entry->colour.h) {
@@ -557,11 +577,15 @@ void GLESBackend::Paint()
 		float cp = static_cast<float>(entry->colour.atlas_idx);
 		float rp = entry->has_remap ? static_cast<float>(entry->remap.atlas_idx) : 0.0f;
 
-		/* Generate 6 vertices (2 triangles) for this sprite. */
-		float x0 = static_cast<float>(cmd.screen_x);
-		float y0 = static_cast<float>(cmd.screen_y);
-		float x1 = x0 + static_cast<float>(cmd.width);
-		float y1 = y0 + static_cast<float>(cmd.height);
+		/* Generate 6 vertices (2 triangles) for this sprite.
+		 * When GPU-scaling from a lower-resolution atlas sprite, expand quads
+		 * by half a pixel in each direction to eliminate seams between adjacent
+		 * tiles caused by coarser diamond edges in the base-zoom texture. */
+		float pad = 0.0f;
+		float x0 = static_cast<float>(cmd.screen_x) - pad;
+		float y0 = static_cast<float>(cmd.screen_y) - pad;
+		float x1 = static_cast<float>(cmd.screen_x) + static_cast<float>(cmd.width) + pad;
+		float y1 = static_cast<float>(cmd.screen_y) + static_cast<float>(cmd.height) + pad;
 
 		/* Use actual atlas entry dimensions for UV computation.
 		 * cmd.sprite_width is derived from root sprite width via integer
@@ -571,10 +595,33 @@ void GLESBackend::Paint()
 		float sprite_w = static_cast<float>(entry->colour.w);
 		float sprite_h = static_cast<float>(entry->colour.h);
 
-		float uv_skip_l = static_cast<float>(cmd.skip_left) / sprite_w;
-		float uv_skip_t = static_cast<float>(cmd.skip_top) / sprite_h;
-		float uv_w = static_cast<float>(cmd.width) / sprite_w;
-		float uv_h = static_cast<float>(cmd.height) / sprite_h;
+		float uv_skip_l, uv_skip_t, uv_w, uv_h;
+
+		bool full_sprite = (cmd.skip_left == 0 && cmd.skip_top == 0 &&
+		                    cmd.width == cmd.sprite_width && cmd.height == cmd.sprite_height);
+
+		if (full_sprite) {
+			/* Full sprite — exact UV avoids integer-rounding gaps between tiles. */
+			uv_skip_l = 0.0f;
+			uv_skip_t = 0.0f;
+			uv_w = 1.0f;
+			uv_h = 1.0f;
+		} else {
+			/* Clipped sprite — scale screen coords to atlas coords via zoom ratio. */
+			float zoom_scale = gpu_scaled
+				? static_cast<float>(1 << to_underlying(cmd.zoom)) /
+				  static_cast<float>(1 << to_underlying(kGPUScaleBaseZoom))
+				: 1.0f;
+
+			uv_skip_l = (static_cast<float>(cmd.skip_left) * zoom_scale) / sprite_w;
+			uv_skip_t = (static_cast<float>(cmd.skip_top)  * zoom_scale) / sprite_h;
+			uv_w      = (static_cast<float>(cmd.width)     * zoom_scale) / sprite_w;
+			uv_h      = (static_cast<float>(cmd.height)    * zoom_scale) / sprite_h;
+
+			/* Clamp UV to [0,1] — integer rounding across zoom levels can overshoot. */
+			if (uv_skip_l + uv_w > 1.0f) uv_w = 1.0f - uv_skip_l;
+			if (uv_skip_t + uv_h > 1.0f) uv_h = 1.0f - uv_skip_t;
+		}
 
 		/* Detect UV overflow: skip + visible exceeds atlas sprite dimensions. */
 		{
@@ -617,6 +664,15 @@ void GLESBackend::Paint()
 	/* Record final batch. */
 	if (this->vertex_buf.size() > batch_start) {
 		batches.push_back({batch_start, this->vertex_buf.size() - batch_start, cur_type, cur_remap});
+	}
+
+	/* Log unique sprite set on zoom change to verify GPU scaling reuses same atlas entries. */
+	if (frame_zoom != ZoomLevel::End && frame_zoom != last_logged_zoom) {
+		Debug(driver, 0, "GLES SCALE: zoom={} cmds={} unique_sprites={} unique_keys={} scaled={} fallback={}",
+		      to_underlying(frame_zoom), this->draw_queue.size(),
+		      unique_base_sprites.size(), unique_keys_used.size(),
+		      _gles_perf.gpu_scaled_hits, _gles_perf.gpu_scaled_fallbacks);
+		last_logged_zoom = frame_zoom;
 	}
 
 	/* === Single upload of ALL vertices === */

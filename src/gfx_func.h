@@ -110,6 +110,8 @@ struct GLESPerfCounters {
 	int gpu_dim_mismatches = 0;   ///< Sprites where computed dims != atlas entry dims.
 	int gpu_skip_offscreen = 0;   ///< Draws skipped: dst outside screen buffer.
 	int gpu_zoom_counts[8] = {};  ///< Draw calls per zoom level.
+	int gpu_scaled_hits = 0;      ///< Draws using base-zoom atlas entry (GPU-scaled).
+	int gpu_scaled_fallbacks = 0; ///< Draws where base-zoom not found, used original zoom.
 
 	/* Encode/Upload lifecycle */
 	int encode_total = 0;          ///< Total Encode() calls this period.

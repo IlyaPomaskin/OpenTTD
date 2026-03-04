@@ -12,6 +12,8 @@
 #include "../map_func.h"
 #include "../tile_type.h"
 #include "../viewport_func.h"
+#include "../viewport_type.h"
+#include "../zoom_func.h"
 #include "../window_func.h"
 #include "../station_base.h"
 #include "../town.h"
@@ -147,5 +149,15 @@ void PrepareBackground()
 	int world_y = (int)(fy * Map::SizeY() * TILE_SIZE);
 	ScrollMainWindowTo(world_x, world_y, -1, true);
 	FixTitleGameZoom(zoom_adjust);
+
+	/* Ensure zoom stays within Normal..Out2x range for GPU scaling. */
+	Window *w = GetMainWindow();
+	if (w != nullptr && w->viewport != nullptr && w->viewport->zoom < ZoomLevel::In4x) {
+		ViewportData &vp = *w->viewport;
+		vp.virtual_width = ScaleByZoom(vp.width, ZoomLevel::In4x);
+		vp.virtual_height = ScaleByZoom(vp.height, ZoomLevel::In4x);
+		vp.zoom = ZoomLevel::In4x;
+	}
+
 	MarkWholeScreenDirty();
 }

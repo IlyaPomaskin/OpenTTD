@@ -21,10 +21,14 @@
 /** Unique key for a sprite at a specific zoom level. */
 using GLESSpriteID = uint64_t;
 
-/** Make a sprite key from SpriteID and zoom level. */
-inline GLESSpriteID MakeGLESSpriteKey(SpriteID sprite_id, ZoomLevel zoom)
+/** Base zoom level used for GPU-scaled rendering.
+ *  Paint() looks up this zoom variant and scales UV coordinates for other zoom levels. */
+static constexpr ZoomLevel kGPUScaleBaseZoom = ZoomLevel::In4x;
+
+/** Make a sprite key from SpriteID. Zoom is always base zoom (GPU scaling). */
+inline GLESSpriteID MakeGLESSpriteKey(SpriteID sprite_id, [[maybe_unused]] ZoomLevel zoom)
 {
-	return (static_cast<uint64_t>(sprite_id) << 4) | static_cast<uint64_t>(zoom);
+	return (static_cast<uint64_t>(sprite_id) << 4) | static_cast<uint64_t>(kGPUScaleBaseZoom);
 }
 
 /** A region within a texture atlas. */

@@ -14,6 +14,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
     /** Jump camera to a random map waypoint and mark the area dirty for asset pre-loading. */
     private static native void nativePrepareBackground();
+    /** Cycle zoom level In2x → Normal → Out2x → In2x. */
+    private static native void nativeCycleZoom();
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -50,25 +52,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         @Override
         public void onTouchEvent(MotionEvent event) {
             if (!sSDLInitialized) return;
-            int action = event.getActionMasked();
-            float x = event.getX() / mSurfaceWidth;
-            float y = event.getY() / mSurfaceHeight;
-            Log.i(TAG, "onTouchEvent action=" + action + " x=" + event.getX() + " y=" + event.getY());
-            int sdlAction;
-            switch (action) {
-                case MotionEvent.ACTION_DOWN:
-                    sdlAction = 0; // SDL_FINGERDOWN
-                    break;
-                case MotionEvent.ACTION_UP:
-                    sdlAction = 1; // SDL_FINGERUP
-                    break;
-                case MotionEvent.ACTION_MOVE:
-                    sdlAction = 2; // SDL_FINGERMOTION
-                    break;
-                default:
-                    return;
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                Log.i(TAG, "onTouchEvent: cycling zoom");
+                nativeCycleZoom();
             }
-            SDLActivity.onNativeTouch(0, 0, sdlAction, x, y, event.getPressure());
         }
 
         @Override

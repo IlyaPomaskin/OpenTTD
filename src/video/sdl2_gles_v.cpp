@@ -14,6 +14,9 @@
 #include "../blitter/factory.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
+#include "../window_func.h"
+#include "../viewport_type.h"
+#include "../zoom_func.h"
 #include "sdl2_gles_v.h"
 #include "gles_backend.h"
 #include "gles_poi.h"
@@ -30,12 +33,20 @@
 
 /** Set to true from Java before pause; processed in Paint() to advance camera to next POI. */
 static std::atomic<bool> _gles_jump_waypoint{false};
+/** Set to true from Java on tap; processed in Paint() to cycle zoom level. */
+static std::atomic<bool> _gles_cycle_zoom{false};
 
 #ifdef __ANDROID__
 extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
 {
 	_gles_jump_waypoint = true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeCycleZoom(JNIEnv *, jclass)
+{
+	_gles_cycle_zoom = true;
 }
 #endif
 
@@ -211,6 +222,50 @@ void VideoDriver_SDL_GLES::Paint()
 	/* Jump to a random waypoint before pause (requested from Java onVisibilityChanged). */
 	if (_gles_jump_waypoint.exchange(false)) PrepareBackground();
 
+	/* Clamp zoom to Normal minimum for GPU scaling (title screen starts at In4x). */
+	if (_game_mode == GM_MENU) {
+		Window *w = GetMainWindow();
+		if (w != nullptr && w->viewport != nullptr && w->viewport->zoom < ZoomLevel::In4x) {
+			ViewportData &vp = *w->viewport;
+			vp.virtual_width = ScaleByZoom(vp.width, ZoomLevel::In4x);
+			vp.virtual_height = ScaleByZoom(vp.height, ZoomLevel::In4x);
+			vp.zoom = ZoomLevel::In4x;
+			MarkWholeScreenDirty();
+		}
+	}
+
+	/* Cycle zoom on tap (requested from Java onTouchEvent). */
+	if (_gles_cycle_zoom.exchange(false) && _game_mode == GM_MENU) {
+		Window *w = GetMainWindow();
+		ViewportData &vp = *w->viewport;
+		ZoomLevel cur = vp.zoom;
+		ZoomLevel next;
+		switch (cur) {
+			case ZoomLevel::In4x: next = ZoomLevel::In2x;  break;
+			default:              next = ZoomLevel::In4x;   break;
+		}
+		Debug(driver, 0, "GLES ZOOM: {} -> {} vw={}x{} scroll=({},{}) width={}",
+		      to_underlying(cur), to_underlying(next),
+		      vp.virtual_width, vp.virtual_height,
+		      vp.scrollpos_x, vp.scrollpos_y, vp.width);
+		int old_vw = ScaleByZoom(vp.width, cur);
+		int old_vh = ScaleByZoom(vp.height, cur);
+		vp.virtual_width = ScaleByZoom(vp.width, next);
+		vp.virtual_height = ScaleByZoom(vp.height, next);
+		int dx = (vp.virtual_width - old_vw) / 2;
+		int dy = (vp.virtual_height - old_vh) / 2;
+		vp.scrollpos_x -= dx;
+		vp.scrollpos_y -= dy;
+		vp.dest_scrollpos_x = vp.scrollpos_x;
+		vp.dest_scrollpos_y = vp.scrollpos_y;
+		vp.zoom = next;
+		w->InvalidateData();
+		MarkWholeScreenDirty();
+		Debug(driver, 0, "GLES ZOOM: done vw={}x{} scroll=({},{})",
+		      vp.virtual_width, vp.virtual_height,
+		      vp.scrollpos_x, vp.scrollpos_y);
+	}
+
 	/* Log EGL context state every 60 frames to detect context loss. */
 	static int paint_count = 0;
 	paint_count++;
@@ -236,11 +291,12 @@ void VideoDriver_SDL_GLES::Paint()
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} gpu={} stored={} reg={} new={} repacked={}",
+		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] scale={}/{} paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} gpu={} stored={} reg={} new={} repacked={}",
 			fps, p.frames,
 			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
 			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
 			p.gpu_zoom_counts[0], p.gpu_zoom_counts[1], p.gpu_zoom_counts[2], p.gpu_zoom_counts[3], p.gpu_zoom_counts[4], p.gpu_zoom_counts[5],
+			p.gpu_scaled_hits, p.gpu_scaled_fallbacks,
 			p.gpu_paint_us / n, p.swap_us / n,
 			p.encode_total, p.encode_uploaded, p.encode_all_transparent,
 			atlas.GetColourPageCount(), atlas.GetRemapPageCount(),

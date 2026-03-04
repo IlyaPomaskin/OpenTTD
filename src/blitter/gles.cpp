@@ -96,21 +96,30 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		return dest_sprite;
 	}
 
+	/* Upload only the single best (largest) zoom variant for GPU scaling.
+	 * Prefer base zoom, then search toward more detail,
+	 * then toward less detail. */
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-	int zooms_uploaded = 0;
-	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
-		ZoomLevel zoom = static_cast<ZoomLevel>(z);
-		const SpriteLoader::Sprite &src = sprite[zoom];
-		if (src.data == nullptr || src.width == 0 || src.height == 0) continue;
+	const SpriteLoader::Sprite *best = nullptr;
+	int best_zoom = -1;
 
-		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
-		bool has_remap = src.colours.Test(SpriteComponent::Palette);
-
-		atlas.Stage(_gles_encoding_sprite_id, zoom, src.data,
-		            src.width, src.height, has_rgb, has_remap);
-		zooms_uploaded++;
+	for (int z = to_underlying(kGPUScaleBaseZoom); z >= to_underlying(ZoomLevel::Begin); z--) {
+		const auto &s = sprite[static_cast<ZoomLevel>(z)];
+		if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; best_zoom = z; break; }
 	}
-	if (zooms_uploaded > 0) _gles_perf.encode_uploaded++;
+	if (best == nullptr) {
+		for (int z = to_underlying(kGPUScaleBaseZoom) + 1; z < to_underlying(ZoomLevel::End); z++) {
+			const auto &s = sprite[static_cast<ZoomLevel>(z)];
+			if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; best_zoom = z; break; }
+		}
+	}
+	if (best != nullptr) {
+		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
+		bool has_remap = best->colours.Test(SpriteComponent::Palette);
+		atlas.Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
+		            best->width, best->height, has_rgb, has_remap);
+		_gles_perf.encode_uploaded++;
+	}
 
 	return dest_sprite;
 }
@@ -128,16 +137,22 @@ Sprite *Blitter_GLES::EncodeCpuFallback(SpriteType sprite_type, const SpriteLoad
 	if (backend == nullptr) return dest_sprite;
 
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-	for (int z = to_underlying(ZoomLevel::Begin); z < to_underlying(ZoomLevel::End); z++) {
-		ZoomLevel zoom = static_cast<ZoomLevel>(z);
-		const SpriteLoader::Sprite &src = sprite[zoom];
-		if (src.data == nullptr || src.width == 0 || src.height == 0) continue;
-
-		bool has_rgb = src.colours.Test(SpriteComponent::RGB) || src.colours.Test(SpriteComponent::Alpha);
-		bool has_remap = src.colours.Test(SpriteComponent::Palette);
-
-		atlas.Upload(_gles_encoding_sprite_id, zoom, src.data,
-		             src.width, src.height, has_rgb, has_remap);
+	const SpriteLoader::Sprite *best = nullptr;
+	for (int z = to_underlying(kGPUScaleBaseZoom); z >= to_underlying(ZoomLevel::Begin); z--) {
+		const auto &s = sprite[static_cast<ZoomLevel>(z)];
+		if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
+	}
+	if (best == nullptr) {
+		for (int z = to_underlying(kGPUScaleBaseZoom) + 1; z < to_underlying(ZoomLevel::End); z++) {
+			const auto &s = sprite[static_cast<ZoomLevel>(z)];
+			if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
+		}
+	}
+	if (best != nullptr) {
+		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
+		bool has_remap = best->colours.Test(SpriteComponent::Palette);
+		atlas.Upload(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
+		             best->width, best->height, has_rgb, has_remap);
 	}
 
 	return dest_sprite;
