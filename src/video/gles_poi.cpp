@@ -262,18 +262,23 @@ static void ScanStationPOIs(std::vector<GlesPOI> &candidates)
 }
 
 /** Scan lighthouses and emit POI candidates (5% chance each). */
+/** Pick one random lighthouse from the map (if any exist). */
 static void ScanLighthousePOIs(std::vector<GlesPOI> &candidates)
 {
+	std::vector<std::pair<uint, uint>> lighthouses;
 	for (uint y = 1; y < Map::SizeY() - 1; y++) {
 		for (uint x = 1; x < Map::SizeX() - 1; x++) {
-			TileIndex tile = TileXY(x, y);
-			if (!IsObjectTypeTile(tile, OBJECT_LIGHTHOUSE)) continue;
-			if ((std::rand() % 100) >= 5) continue;
-			float fx = (float)x / Map::SizeX();
-			float fy = (float)y / Map::SizeY();
-			candidates.push_back({fx, fy, 100, 0, 5000, "lighthouse", {}});
+			if (IsObjectTypeTile(TileXY(x, y), OBJECT_LIGHTHOUSE)) {
+				lighthouses.push_back({x, y});
+			}
 		}
 	}
+	if (lighthouses.empty() || (std::rand() % 100) >= 5) return;
+
+	auto &[x, y] = lighthouses[std::rand() % lighthouses.size()];
+	float fx = (float)x / Map::SizeX();
+	float fy = (float)y / Map::SizeY();
+	candidates.push_back({fx, fy, 100, 0, 5000, "lighthouse", {}});
 }
 
 /** Scan rail junctions, BFS-cluster them, and emit POI candidates. */

@@ -1908,7 +1908,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		vp.overlay->Draw(&dp);
 	}
 
-	if (_game_mode == GM_MENU) {
+	if (_game_mode == GM_MENU || _game_mode == GM_WALLPAPER) {
 		dp.left = x;
 		dp.top = y;
 		DrawPOIMarkers(vp);

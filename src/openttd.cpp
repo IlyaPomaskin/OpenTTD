@@ -369,9 +369,15 @@ bool CanRotateTitleMap()
 
 void RequestNextTitleMap()
 {
+	RotateTitleMap(1);
+}
+
+void RotateTitleMap(int delta)
+{
 	if (!CanRotateTitleMap()) return;
-	_title_file_idx = (_title_file_idx + 1) % _title_files.size();
-	_switch_mode = SM_MENU;
+	int n = (int)_title_files.size();
+	_title_file_idx = ((_title_file_idx + delta) % n + n) % n;
+	_switch_mode = (_game_mode == GM_WALLPAPER) ? SM_WALLPAPER : SM_MENU;
 }
 
 /**
@@ -420,6 +426,47 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	CheckForMissingGlyphs();
 
 	/* Sound & music disabled. */
+}
+
+/**
+ * Load a title map in wallpaper mode.
+ *
+ * Minimal initialization: reset windows, load a title savegame,
+ * scan POIs and position the camera.  No NewGRF reload, no network,
+ * no sound/music.
+ */
+void LoadWallpaperGame()
+{
+	_game_mode = GM_WALLPAPER;
+	InvalidatePOIs();
+
+	ResetWindowSystem();
+	SetupColoursAndInitialWindow();
+
+	if (_title_files.empty()) BuildTitleFileList();
+
+	SaveOrLoadResult result = SL_ERROR;
+	size_t attempts = _title_files.size();
+	for (size_t i = 0; i < attempts; i++) {
+		size_t idx = (_title_file_idx + i) % _title_files.size();
+		const auto &[file, subdir] = _title_files[idx];
+		result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
+		Debug(misc, 0, "LoadWallpaperGame: [{}] {} result={}", idx, file, static_cast<int>(result));
+		if (result == SL_OK) {
+			_title_file_idx = idx;
+			break;
+		}
+	}
+
+	if (result != SL_OK) {
+		GenerateWorld(GWM_EMPTY, 64, 64);
+	}
+
+	SetLocalCompany(COMPANY_SPECTATOR);
+	_pause_mode = {};
+	_cursor.fix_at = false;
+
+	PrepareBackground();
 }
 
 void MakeNewgameSettingsLive()
@@ -1043,8 +1090,9 @@ bool SafeLoad(const std::string &filename, SaveLoadOperation fop, DetailedFileTy
 
 	switch (ogm) {
 		default:
-		case GM_MENU:   LoadIntroGame();      break;
-		case GM_EDITOR: MakeNewEditorWorld(); break;
+		case GM_MENU:      LoadIntroGame();      break;
+		case GM_WALLPAPER: LoadWallpaperGame();   break;
+		case GM_EDITOR:    MakeNewEditorWorld();  break;
 	}
 	return false;
 }
@@ -1067,6 +1115,9 @@ static void UpdateSocialIntegration(GameMode game_mode)
 
 		case GM_EDITOR:
 			SocialIntegration::EventEnterScenarioEditor(Map::SizeX(), Map::SizeY());
+			break;
+
+		case GM_WALLPAPER:
 			break;
 	}
 }
@@ -1211,6 +1262,10 @@ void SwitchToMode(SwitchMode new_mode)
 			NetworkClientJoinGame();
 
 			SocialIntegration::EventJoiningMultiplayer();
+			break;
+
+		case SM_WALLPAPER: // Switch to wallpaper mode
+			LoadWallpaperGame();
 			break;
 
 		case SM_MENU: // Switch to game intro menu

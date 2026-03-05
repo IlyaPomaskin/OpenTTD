@@ -562,6 +562,7 @@ void SetupColoursAndInitialWindow()
 	switch (_game_mode) {
 		default: NOT_REACHED();
 		case GM_MENU:
+		case GM_WALLPAPER:
 			break;
 
 		case GM_NORMAL:

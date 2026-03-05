@@ -19,7 +19,8 @@ enum GameMode : uint8_t {
 	GM_MENU,
 	GM_NORMAL,
 	GM_EDITOR,
-	GM_BOOTSTRAP
+	GM_BOOTSTRAP,
+	GM_WALLPAPER
 };
 
 /** Mode which defines what mode we're switching to. */
@@ -39,6 +40,7 @@ enum SwitchMode : uint8_t {
 	SM_LOAD_HEIGHTMAP,    ///< Load heightmap from scenario editor.
 	SM_RESTART_HEIGHTMAP, ///< Load a heightmap and start a new game from it with current settings.
 	SM_JOIN_GAME,         ///< Join a network game.
+	SM_WALLPAPER,         ///< Switch to wallpaper mode (load title map, generate POIs).
 };
 
 /** Display Options */
@@ -88,6 +90,7 @@ void StateGameLoop();
 void HandleExitGameRequest();
 
 void SwitchToMode(SwitchMode new_mode);
+void LoadWallpaperGame();
 
 bool RequestNewGRFScan(struct NewGRFScanCallback *callback = nullptr);
 void GenerateSavegameId();
@@ -97,5 +100,6 @@ void ChangeAutosaveFrequency(bool reset);
 
 bool CanRotateTitleMap();
 void RequestNextTitleMap();
+void RotateTitleMap(int delta);
 
 #endif /* OPENTTD_H */
