@@ -90,16 +90,11 @@ void StateGameLoop();
 void HandleExitGameRequest();
 
 void SwitchToMode(SwitchMode new_mode);
-void LoadWallpaperGame();
 
 bool RequestNewGRFScan(struct NewGRFScanCallback *callback = nullptr);
 void GenerateSavegameId();
 
 void OpenBrowser(const std::string &url);
 void ChangeAutosaveFrequency(bool reset);
-
-bool CanRotateTitleMap();
-void RequestNextTitleMap();
-void RotateTitleMap(int delta);
 
 #endif /* OPENTTD_H */

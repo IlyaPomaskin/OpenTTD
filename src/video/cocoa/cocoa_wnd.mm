@@ -24,6 +24,7 @@
 
 #include "../../os/macosx/macos_objective_c.h"
 #include "../../openttd.h"
+#include "../../wallpaper.h"
 #include "../../debug.h"
 #include "cocoa_v.h"
 #include "cocoa_wnd.h"

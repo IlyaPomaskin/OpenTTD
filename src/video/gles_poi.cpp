@@ -25,6 +25,7 @@
 #include "../object_map.h"
 #include "../object_type.h"
 #include "../openttd.h"
+#include "../wallpaper.h"
 #include "../landscape.h"
 #include "../gfx_func.h"
 #include "../palette_func.h"

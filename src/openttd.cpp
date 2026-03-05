@@ -14,6 +14,7 @@
 #include "music/music_driver.hpp"
 #include "video/video_driver.hpp"
 #include "video/gles_poi.h"
+#include "wallpaper.h"
 #include "mixer.h"
 
 #include "fontcache.h"
@@ -316,70 +317,6 @@ static void ShutdownGame()
 	FontCache::UninitializeFontCaches();
 }
 
-/** All available title files for rotation: {filename, subdir}. */
-static std::vector<std::pair<std::string, Subdirectory>> _title_files;
-static size_t _title_file_idx = 0;
-
-/**
- * Build the list of all available title map files (called once).
- * Collects opntitle.dat and title/*.sav from search paths.
- */
-static void BuildTitleFileList()
-{
-	_title_files.clear();
-
-	/* 1. Default baseset title screen. */
-	_title_files.push_back({"opntitle.dat", BASESET_DIR});
-
-	/* 2. title/*.sav files from search paths. */
-	static const char *title_savs[] = {
-		"title/2TallTyler-Title15.sav",
-		"title/EratoTitle15.sav",
-		"title/title_15.sav",
-	};
-
-	for (const char *rel : title_savs) {
-		auto data_env = GetEnv("OPENTTD_DATA_PATH");
-		if (data_env.has_value()) {
-			std::string full = std::string(*data_env) + PATHSEP + rel;
-			if (FioCheckFileExists(full, NO_DIRECTORY)) {
-				_title_files.push_back({full, NO_DIRECTORY});
-				continue;
-			}
-		}
-		for (Searchpath sp : _valid_searchpaths) {
-			std::string full = FioGetDirectory(sp, BASE_DIR) + rel;
-			if (FioCheckFileExists(full, NO_DIRECTORY)) {
-				_title_files.push_back({full, NO_DIRECTORY});
-				break;
-			}
-		}
-	}
-
-	Debug(misc, 0, "BuildTitleFileList: {} title files", _title_files.size());
-	for (size_t i = 0; i < _title_files.size(); i++) {
-		Debug(misc, 0, "  [{}] {}", i, _title_files[i].first);
-	}
-}
-
-bool CanRotateTitleMap()
-{
-	return _title_files.size() > 1;
-}
-
-void RequestNextTitleMap()
-{
-	RotateTitleMap(1);
-}
-
-void RotateTitleMap(int delta)
-{
-	if (!CanRotateTitleMap()) return;
-	int n = (int)_title_files.size();
-	_title_file_idx = ((_title_file_idx + delta) % n + n) % n;
-	_switch_mode = (_game_mode == GM_WALLPAPER) ? SM_WALLPAPER : SM_MENU;
-}
-
 /**
  * Load the introduction game.
  * @param load_newgrfs Whether to load the NewGRFs or not.
@@ -395,24 +332,7 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	ResetWindowSystem();
 	SetupColoursAndInitialWindow();
 
-	/* Build file list on first call. */
-	if (_title_files.empty()) BuildTitleFileList();
-
-	/* Try loading title files starting from current index, with wrap-around. */
-	SaveOrLoadResult title_result = SL_ERROR;
-	size_t attempts = _title_files.size();
-	for (size_t i = 0; i < attempts; i++) {
-		size_t idx = (_title_file_idx + i) % _title_files.size();
-		const auto &[file, subdir] = _title_files[idx];
-		title_result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
-		Debug(misc, 0, "LoadIntroGame: [{}] {} result={}", idx, file, static_cast<int>(title_result));
-		if (title_result == SL_OK) {
-			_title_file_idx = idx;
-			break;
-		}
-	}
-
-	if (title_result != SL_OK) {
+	if (!LoadNextTitleMap()) {
 		GenerateWorld(GWM_EMPTY, 64, 64);
 		SetLocalCompany(COMPANY_SPECTATOR);
 		FixTitleGameZoom(-1);
@@ -424,49 +344,6 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	_cursor.fix_at = false;
 
 	CheckForMissingGlyphs();
-
-	/* Sound & music disabled. */
-}
-
-/**
- * Load a title map in wallpaper mode.
- *
- * Minimal initialization: reset windows, load a title savegame,
- * scan POIs and position the camera.  No NewGRF reload, no network,
- * no sound/music.
- */
-void LoadWallpaperGame()
-{
-	_game_mode = GM_WALLPAPER;
-	InvalidatePOIs();
-
-	ResetWindowSystem();
-	SetupColoursAndInitialWindow();
-
-	if (_title_files.empty()) BuildTitleFileList();
-
-	SaveOrLoadResult result = SL_ERROR;
-	size_t attempts = _title_files.size();
-	for (size_t i = 0; i < attempts; i++) {
-		size_t idx = (_title_file_idx + i) % _title_files.size();
-		const auto &[file, subdir] = _title_files[idx];
-		result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
-		Debug(misc, 0, "LoadWallpaperGame: [{}] {} result={}", idx, file, static_cast<int>(result));
-		if (result == SL_OK) {
-			_title_file_idx = idx;
-			break;
-		}
-	}
-
-	if (result != SL_OK) {
-		GenerateWorld(GWM_EMPTY, 64, 64);
-	}
-
-	SetLocalCompany(COMPANY_SPECTATOR);
-	_pause_mode = {};
-	_cursor.fix_at = false;
-
-	PrepareBackground();
 }
 
 void MakeNewgameSettingsLive()
