@@ -140,8 +140,8 @@ public:
 
 	/** Recover all GPU state after EGL context loss (SDL_RENDER_DEVICE_RESET).
 	 *  Old GL handles are silently abandoned (freed by OS when context is destroyed).
-	 *  New objects are created in the replacement context. Sprite pixel data is
-	 *  preserved in the atlas's stored_pixels map for on-demand re-upload. */
+	 *  New objects are created in the replacement context. Sprites are reloaded
+	 *  from scratch via a map reload triggered by _switch_mode. */
 	void RecoverGPUState();
 
 	/** Clear the draw queue without rendering. */

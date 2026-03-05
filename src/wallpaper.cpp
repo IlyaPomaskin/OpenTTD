@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "string_func.h"
 #include "video/gles_poi.h"
+#include <chrono>
 #include "video/gles_backend.h"
 
 #include "safeguards.h"
@@ -101,8 +102,11 @@ bool LoadNextTitleMap()
 	for (size_t i = 0; i < attempts; i++) {
 		size_t idx = (_title_file_idx + i) % _title_files.size();
 		const auto &[file, subdir] = _title_files[idx];
+		auto t0 = std::chrono::steady_clock::now();
 		SaveOrLoadResult result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
-		Debug(misc, 0, "LoadNextTitleMap: [{}] {} result={}", idx, file, static_cast<int>(result));
+		auto t1 = std::chrono::steady_clock::now();
+		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+		Debug(misc, 0, "LoadNextTitleMap: [{}] {} result={} time={}ms", idx, file, static_cast<int>(result), ms);
 		if (result == SL_OK) {
 			_title_file_idx = idx;
 			return true;

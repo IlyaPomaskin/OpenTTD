@@ -324,6 +324,7 @@ static void ShutdownGame()
  */
 static void LoadIntroGame(bool load_newgrfs = true)
 {
+	auto intro_t0 = std::chrono::steady_clock::now();
 	_game_mode = GM_MENU;
 	InvalidatePOIs();
 
@@ -350,6 +351,9 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	_cursor.fix_at = false;
 
 	CheckForMissingGlyphs();
+	auto intro_t1 = std::chrono::steady_clock::now();
+	Debug(misc, 0, "LoadIntroGame: total={}ms",
+	      std::chrono::duration_cast<std::chrono::milliseconds>(intro_t1 - intro_t0).count());
 }
 
 void MakeNewgameSettingsLive()

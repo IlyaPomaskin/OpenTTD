@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <atomic>
+#include <chrono>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
@@ -78,10 +79,6 @@ private:
 	std::mutex staged_mutex;
 	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
 
-	/** Permanent CPU copy of pixel data for re-upload after GL context loss.
-	 *  Only accessed from the GL thread, so no mutex needed. */
-	std::unordered_map<GLESSpriteID, GLESStagedPixels> stored_pixels;
-
 	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
 	std::vector<uint8_t> upload_m_buf;    ///< Reusable buffer for M channel extraction.
 
@@ -93,10 +90,6 @@ public:
 	void Init();
 	void Destroy();
 
-	/** Reset GPU state after context loss. Zeroes invalid handles, clears atlas layout
-	 *  and sprites map. stored_pixels is preserved for on-demand re-upload. */
-	void ResetGPU();
-
 	/** Request atlas clear (thread-safe, deferred to GL thread). */
 	void RequestClear() { this->clear_pending.store(true); }
 
@@ -105,6 +98,9 @@ public:
 
 private:
 	std::atomic<bool> clear_pending{false};
+	std::chrono::steady_clock::time_point clear_time{};
+	size_t sprites_after_clear = 0;
+	bool measuring_reload = false;
 	void ClearSprites();
 
 public:
@@ -136,7 +132,6 @@ public:
 	size_t GetColourPageCount() const { return colour_pages.size(); }
 	size_t GetRemapPageCount() const { return remap_pages.size(); }
 	size_t GetSpriteCount() const { return sprites.size(); }
-	size_t GetStoredSpriteCount() const { return stored_pixels.size(); }
 };
 
 #endif /* VIDEO_GLES_SPRITE_H */

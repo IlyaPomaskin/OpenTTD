@@ -40,52 +40,19 @@ void GLESSpriteAtlas::Destroy()
 	this->colour_pages.clear();
 	this->remap_pages.clear();
 	this->sprites.clear();
-	this->stored_pixels.clear();
-}
-
-void GLESSpriteAtlas::ResetGPU()
-{
-	/* Atlas textures belong to the dead EGL context — zeroing the handles is
-	 * sufficient; the OS reclaims resources when the old context is destroyed. */
-	for (auto &page : this->colour_pages) page.texture = 0;
-	for (auto &page : this->remap_pages)  page.texture = 0;
-
-	/* Clear atlas layout — will be repacked as sprites are re-uploaded. */
-	this->colour_pages.clear();
-	this->remap_pages.clear();
-
-	/* Invalidate GPU sprite entries (texture handles no longer valid). */
-	this->sprites.clear();
-
-	/* Re-stage all previously uploaded sprites from stored_pixels.
-	 * - Sprites that were staged-but-not-uploaded just before context loss are
-	 *   already in staged (we don't clear it) and take priority (checked first).
-	 * - All other sprites (the majority) are only in stored_pixels; copying them
-	 *   to staged lets LookupOrUpload re-upload them exactly as in normal flow,
-	 *   without requiring a sprite cache flush. */
-	{
-		std::lock_guard<std::mutex> lock(this->staged_mutex);
-		for (const auto &[key, sp] : this->stored_pixels) {
-			/* Don't overwrite sprites already in staged (just-encoded data is newer). */
-			if (this->staged.find(key) == this->staged.end()) {
-				this->staged[key] = sp;
-			}
-		}
-	}
-
-	/* Re-apply pixel store setting required for correct GL_LUMINANCE uploads. */
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-
-	/* Re-query atlas size limit from the new context. */
-	GLint max_size = 2048;
-	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
-	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
-
-	Debug(driver, 0, "GLES: Atlas ResetGPU: staged={} stored={}", this->staged.size(), this->stored_pixels.size());
 }
 
 void GLESSpriteAtlas::ProcessPendingClear()
 {
+	/* Check if sprite reload measurement is complete (no new sprites since last check). */
+	if (this->measuring_reload && _gles_perf.gpu_sprites_new == 0 && this->sprites_after_clear > 0) {
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - this->clear_time).count();
+		Debug(driver, 0, "GLES: Reload complete: {} sprites in {}ms",
+		      this->sprites_after_clear, elapsed);
+		this->measuring_reload = false;
+	}
+
 	if (!this->clear_pending.exchange(false)) return;
 	this->ClearSprites();
 }
@@ -110,8 +77,11 @@ void GLESSpriteAtlas::ClearSprites()
 	this->remap_pages.clear();
 	this->sprites.clear();
 
-	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, kept {} stored, {} staged",
-	      old_pages, old_sprites, this->stored_pixels.size(), this->staged.size());
+	this->clear_time = std::chrono::steady_clock::now();
+	this->sprites_after_clear = 0;
+	this->measuring_reload = true;
+	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, {} staged",
+	      old_pages, old_sprites, this->staged.size());
 }
 
 GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance)
@@ -264,12 +234,6 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 			// Debug(driver, 0, "GLES: Atlas REUPLOAD sprite={} zoom={} key=0x{:x} {}x{}",
 			//       sprite_id, static_cast<int>(zoom), key, width, height);
 
-			/* Update stored pixels with latest data. */
-			GLESStagedPixels &stored = this->stored_pixels[key];
-			stored.pixels.assign(pixels, pixels + npixels);
-			stored.width = width; stored.height = height;
-			stored.has_rgb = has_rgb; stored.has_remap = has_remap;
-
 			return key;
 		}
 		/* Different dimensions or remap status changed — discard old entry, re-pack below. */
@@ -324,15 +288,17 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 	this->sprites[key] = entry;
 	_gles_perf.gpu_sprites_new++;
-	// Debug(driver, 0, "GLES: Atlas ADD sprite={} zoom={} key=0x{:x} {}x{} cpage={} rpage={} total_sprites={} total_stored={}",
-	//       sprite_id, static_cast<int>(zoom), key, width, height,
-	//       entry.colour.atlas_idx, entry.remap.atlas_idx, this->sprites.size(), this->stored_pixels.size());
 
-	/* Store pixel data permanently so it can be re-uploaded after GL context loss. */
-	GLESStagedPixels &stored = this->stored_pixels[key];
-	stored.pixels.assign(pixels, pixels + npixels);
-	stored.width = width; stored.height = height;
-	stored.has_rgb = has_rgb; stored.has_remap = has_remap;
+	if (this->measuring_reload) {
+		this->sprites_after_clear++;
+		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - this->clear_time).count();
+		/* Log every 100 sprites and when reload settles. */
+		if (this->sprites_after_clear % 100 == 0) {
+			Debug(driver, 0, "GLES: Reload progress: {} sprites uploaded in {}ms",
+			      this->sprites_after_clear, elapsed);
+		}
+	}
 
 	return key;
 }
@@ -379,17 +345,7 @@ const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 	}
 
 	if (!found) {
-		/* Fallback: re-upload from permanent store after GL context loss.
-		 * stored_pixels is only accessed from the GL thread — no lock needed. */
-		auto pit = this->stored_pixels.find(key);
-		if (pit == this->stored_pixels.end()) {
-			// Debug(driver, 0, "GLES: Atlas MISS key=0x{:x} (not in sprites/staged/stored)", key);
-			return nullptr;
-		}
-		sp = pit->second; /* copy, not move — keep stored_pixels intact for future recoveries */
-		// Debug(driver, 0, "GLES: Atlas UPLOAD-FROM-STORED key=0x{:x} {}x{}", key, sp.width, sp.height);
-	} else {
-		// Debug(driver, 0, "GLES: Atlas UPLOAD-FROM-STAGED key=0x{:x} {}x{}", key, sp.width, sp.height);
+		return nullptr;
 	}
 
 	/* Upload to GPU (we're on the GL thread). */

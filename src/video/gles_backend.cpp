@@ -293,9 +293,11 @@ void GLESBackend::RecoverGPUState()
 	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
 	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
 
-	/* Reset atlas GPU state.  Atlas page layouts are cleared; stored_pixels is
-	 * preserved so that LookupOrUpload() can re-upload sprites on demand. */
-	this->sprite_atlas.ResetGPU();
+	/* Re-initialize atlas (GL settings for the new context). */
+	this->sprite_atlas.Init();
+
+	/* Request deferred atlas clear — old textures belong to dead context. */
+	this->sprite_atlas.RequestClear();
 
 	/* Recreate FBO and cpu_framebuf_tex via Resize() (handles are already 0). */
 	if (this->screen_width > 0 && this->screen_height > 0) {
@@ -306,8 +308,7 @@ void GLESBackend::RecoverGPUState()
 	this->draw_queue.clear();
 	this->dirty_rects.clear();
 
-	Debug(driver, 0, "GLES: RecoverGPUState: done, stored_sprites={}",
-	      this->sprite_atlas.GetStoredSpriteCount());
+	Debug(driver, 0, "GLES: RecoverGPUState: done, triggering map reload");
 }
 
 void GLESBackend::Resize(int w, int h)
