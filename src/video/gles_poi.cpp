@@ -382,8 +382,21 @@ static void ScanMapPOIs()
 	std::sort(candidates.begin(), candidates.end(),
 		[](const GlesPOI &a, const GlesPOI &b) { return a.score > b.score; });
 
-	int n = std::min(10, (int)candidates.size());
-	_gles_poi_list.assign(candidates.begin(), candidates.begin() + n);
+	/* Pick top candidates, skipping any within 10 tiles of an already selected POI. */
+	for (const auto &c : candidates) {
+		if ((int)_gles_poi_list.size() >= 10) break;
+		TileIndex ct = TileXY(
+			(uint)(c.map_fx * Map::SizeX()),
+			(uint)(c.map_fy * Map::SizeY()));
+		bool too_close = false;
+		for (const auto &sel : _gles_poi_list) {
+			TileIndex st = TileXY(
+				(uint)(sel.map_fx * Map::SizeX()),
+				(uint)(sel.map_fy * Map::SizeY()));
+			if (DistanceManhattan(ct, st) < 10) { too_close = true; break; }
+		}
+		if (!too_close) _gles_poi_list.push_back(c);
+	}
 	_gles_poi_idx = 0;
 
 	Debug(driver, 0, "GLES ScanMapPOIs: {} POIs (map {}x{})",

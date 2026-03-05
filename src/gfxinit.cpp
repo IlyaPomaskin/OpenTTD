@@ -294,9 +294,6 @@ static bool SwitchNewGRFBlitter()
 #ifdef WITH_SSE
 		{ "32bpp-sse2-anim", 1,  8, 32,  8, 32 },
 #endif
-#ifdef WITH_NEON
-		{ "32bpp-neon-anim", 1,  8, 32,  8, 32 },
-#endif
 		{ "32bpp-anim",      1,  8, 32,  8, 32 },
 	};
 
