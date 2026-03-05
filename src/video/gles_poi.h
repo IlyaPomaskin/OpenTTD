@@ -23,6 +23,7 @@
  */
 void PrepareBackground();
 void NavigatePOI(int delta);
+void InvalidatePOIs();
 void DrawPOIMarkers(const struct Viewport &vp);
 
 #endif /* GLES_POI_H */

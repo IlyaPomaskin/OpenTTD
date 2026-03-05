@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <array>
 #include <string>
+#include <vector>
+#include <utility>
 
 /**
  * A camera waypoint for the wallpaper camera tour.
@@ -80,9 +82,10 @@ struct GlesPOI {
 	float    map_fx;     ///< Fractional X across map width  (0..1)
 	float    map_fy;     ///< Fractional Y across map height (0..1)
 	int      score;      ///< Aggregate interest score (higher = more interesting)
-	int      zoom_adjust;///< Zoom delta relative to GUI zoom
+	int      zoom;       ///< ZoomLevel value: 0 = In4x, 1 = In2x
 	uint32_t delay_ms;   ///< Time to hold position before moving to next POI
 	std::string reason;  ///< Why this POI was selected
+	std::vector<std::pair<float, float>> influences; ///< Map positions of objects that contributed to score
 };
 
 #endif /* GLES_WAYPOINTS_H */

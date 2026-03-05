@@ -35,8 +35,10 @@ Build directory: `/tmp/openttd`
 
 ```sh
 cmake -B /tmp/openttd -S ~/work/OpenTTD
-cmake --build /tmp/openttd -j$(sysctl -n hw.ncpu)
+cmake --build /tmp/openttd -j4
 ```
+
+**Important:** Always use `-j4` for macOS builds — do not use `$(sysctl -n hw.ncpu)` or other dynamic core detection.
 
 ### Running app
 

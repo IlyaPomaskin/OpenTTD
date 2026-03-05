@@ -381,6 +381,7 @@ void RequestNextTitleMap()
 static void LoadIntroGame(bool load_newgrfs = true)
 {
 	_game_mode = GM_MENU;
+	InvalidatePOIs();
 
 	if (load_newgrfs) ResetGRFConfig(false);
 
