@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <array>
+#include <string>
 
 /**
  * A camera waypoint for the wallpaper camera tour.
@@ -81,6 +82,7 @@ struct GlesPOI {
 	int      score;      ///< Aggregate interest score (higher = more interesting)
 	int      zoom_adjust;///< Zoom delta relative to GUI zoom
 	uint32_t delay_ms;   ///< Time to hold position before moving to next POI
+	std::string reason;  ///< Why this POI was selected
 };
 
 #endif /* GLES_WAYPOINTS_H */

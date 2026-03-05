@@ -22,5 +22,6 @@
  * game / GL thread).  No-op when the map is empty.
  */
 void PrepareBackground();
+void NavigatePOI(int delta);
 
 #endif /* GLES_POI_H */

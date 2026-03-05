@@ -95,4 +95,7 @@ void GenerateSavegameId();
 void OpenBrowser(const std::string &url);
 void ChangeAutosaveFrequency(bool reset);
 
+bool CanRotateTitleMap();
+void RequestNextTitleMap();
+
 #endif /* OPENTTD_H */

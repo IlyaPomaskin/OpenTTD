@@ -873,6 +873,20 @@ void CocoaDialog(std::string_view title, std::string_view message, std::string_v
 			}
 			break;
 
+		case QZ_LEFTBRACKET:
+			if (down && !(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+				NavigatePOI(-1);
+				return NO;
+			}
+			break;
+
+		case QZ_RIGHTBRACKET:
+			if (down && !(modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption))) {
+				NavigatePOI(1);
+				return NO;
+			}
+			break;
+
 		case QZ_v:
 			if (down && EditBoxInGlobalFocus() && (modifiers & (NSEventModifierFlagCommand | NSEventModifierFlagControl))) {
 				HandleKeypress(WKC_CTRL | 'V', unicode);

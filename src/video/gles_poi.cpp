@@ -17,6 +17,9 @@
 #include "../window_func.h"
 #include "../station_base.h"
 #include "../town.h"
+#include "../airport.h"
+#include "../rail_map.h"
+#include "../openttd.h"
 #include "gles_poi.h"
 #include "gles_waypoints.h"
 #include <algorithm>
@@ -56,26 +59,93 @@ static void ScanMapPOIs()
 		if (st->xy == INVALID_TILE) continue;
 
 		int score = 0;
-		if (st->facilities.Test(StationFacility::Airport))   score += 4;
-		if (st->facilities.Test(StationFacility::Train))     score += 3;
-		if (st->facilities.Test(StationFacility::Dock))      score += 2;
-		if (st->facilities.Test(StationFacility::BusStop))   score += 1;
-		if (st->facilities.Test(StationFacility::TruckStop)) score += 1;
+		std::string reason;
+		if (st->facilities.Test(StationFacility::Train))   { score += 5; reason += "train+5 "; }
+		if (st->facilities.Test(StationFacility::Airport)) {
+			uint8_t at = st->airport.type;
+			if (at != AT_HELIPORT && at != AT_HELIDEPOT && at != AT_HELISTATION) {
+				score += 3; reason += "airport+3 ";
+			}
+		}
+		if (st->facilities.Test(StationFacility::Dock))      { score += 2; reason += "dock+2 "; }
+		if (st->facilities.Test(StationFacility::BusStop))   { score += 1; reason += "bus+1 "; }
+		if (st->facilities.Test(StationFacility::TruckStop)) { score += 1; reason += "truck+1 "; }
 		if (score == 0) continue;
 
 		/* Bonus from nearest large town within 50 tiles. */
 		for (Town *t : Town::Iterate()) {
 			if (t->xy == INVALID_TILE) continue;
 			if (DistanceManhattan(st->xy, t->xy) < 50) {
-				score += std::min(5, (int)(t->cache.population / 500));
-				break; /* one bonus per station */
+				int town_bonus = std::min(5, (int)(t->cache.population / 500));
+				score += town_bonus;
+				if (town_bonus > 0) reason += fmt::format("town(pop={})+" "{} ", t->cache.population, town_bonus);
+				break;
+			}
+		}
+
+		/* Cluster: if another train station or real airport within 10 tiles, zoom out. */
+		bool cluster = false;
+		if (st->facilities.Test(StationFacility::Train)) {
+			for (Station *other : Station::Iterate()) {
+				if (other == st || other->xy == INVALID_TILE) continue;
+				if (DistanceManhattan(st->xy, other->xy) > 10) continue;
+				bool other_train = other->facilities.Test(StationFacility::Train);
+				bool other_airport = other->facilities.Test(StationFacility::Airport) &&
+					other->airport.type != AT_HELIPORT &&
+					other->airport.type != AT_HELIDEPOT &&
+					other->airport.type != AT_HELISTATION;
+				if (other_train || other_airport) { cluster = true; break; }
 			}
 		}
 
 		float fx = (float)TileX(st->xy) / Map::SizeX();
 		float fy = (float)TileY(st->xy) / Map::SizeY();
-		int   zoom = (score >= 8) ? 1 : (score >= 5 ? 0 : -1);
-		candidates.push_back({fx, fy, score, zoom, 5000});
+		int   zoom = cluster ? -1 : ((score >= 8) ? 1 : (score >= 5 ? 0 : -1));
+		if (cluster) { score += 3; reason += "cluster+3 "; }
+		candidates.push_back({fx, fy, score, zoom, 5000, fmt::format("station: {}", reason)});
+	}
+
+	/* --- Rail junctions -------------------------------------------------- */
+	/* Find tiles with 3+ track bits (junctions), cluster nearby ones. */
+	struct Junction { uint x; uint y; };
+	std::vector<Junction> junctions;
+	for (uint y = 1; y < Map::SizeY() - 1; y++) {
+		for (uint x = 1; x < Map::SizeX() - 1; x++) {
+			TileIndex tile = TileXY(x, y);
+			if (!IsPlainRailTile(tile)) continue;
+			if (CountBits(GetTrackBits(tile)) >= 3) {
+				junctions.push_back({x, y});
+			}
+		}
+	}
+
+	/* Cluster nearby junctions (within 15 tiles) and emit center of each cluster. */
+	std::vector<bool> visited(junctions.size(), false);
+	for (size_t i = 0; i < junctions.size(); i++) {
+		if (visited[i]) continue;
+		visited[i] = true;
+
+		uint sum_x = junctions[i].x, sum_y = junctions[i].y;
+		int count = 1;
+
+		for (size_t j = i + 1; j < junctions.size(); j++) {
+			if (visited[j]) continue;
+			uint dx = (junctions[j].x > sum_x / count) ? junctions[j].x - sum_x / count : sum_x / count - junctions[j].x;
+			uint dy = (junctions[j].y > sum_y / count) ? junctions[j].y - sum_y / count : sum_y / count - junctions[j].y;
+			if (dx + dy <= 15) {
+				visited[j] = true;
+				sum_x += junctions[j].x;
+				sum_y += junctions[j].y;
+				count++;
+			}
+		}
+
+		int score = (count >= 3) ? 8 : (count >= 2) ? 5 : 3;
+		float fx = (float)(sum_x / count) / Map::SizeX();
+		float fy = (float)(sum_y / count) / Map::SizeY();
+		int zoom = (count >= 3) ? -1 : 0;
+		candidates.push_back({fx, fy, score, zoom, 5000,
+			fmt::format("rail junction: {} junctions in cluster, score={}", count, score)});
 	}
 
 	/* --- Towns not already covered by a nearby station ------------------- */
@@ -95,7 +165,8 @@ static void ScanMapPOIs()
 		int score = std::min(5, (int)(t->cache.population / 500));
 		float fx  = (float)TileX(t->xy) / Map::SizeX();
 		float fy  = (float)TileY(t->xy) / Map::SizeY();
-		candidates.push_back({fx, fy, score, 0, 5000});
+		candidates.push_back({fx, fy, score, 0, 5000,
+			fmt::format("town: pop={}, score={}", t->cache.population, score)});
 	}
 
 	/* Sort by score descending, keep top 10. */
@@ -110,35 +181,27 @@ static void ScanMapPOIs()
 		(int)_gles_poi_list.size(), Map::SizeX(), Map::SizeY());
 	for (int i = 0; i < (int)_gles_poi_list.size(); i++) {
 		const GlesPOI &p = _gles_poi_list[i];
-		Debug(driver, 0, "  POI[{}] score={} fx={:.2f} fy={:.2f} zoom={}", i, p.score, p.map_fx, p.map_fy, p.zoom_adjust);
+		Debug(driver, 0, "  POI[{}] score={} fx={:.2f} fy={:.2f} zoom={} — {}", i, p.score, p.map_fx, p.map_fy, p.zoom_adjust, p.reason);
 	}
 }
 
-void PrepareBackground()
+/** Whether user is manually browsing POIs (disables auto map rotation). */
+static bool _poi_manual_browse = false;
+
+/** Move camera to the current POI. */
+static void ShowCurrentPOI()
 {
-	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;
-
-	/* Rescan if map changed or not yet scanned. */
-	if (_gles_poi_list.empty() || Map::SizeX() * Map::SizeY() != _gles_poi_map_tiles) {
-		ScanMapPOIs();
-	}
-
 	float fx, fy;
 	int zoom_adjust;
 
 	if (!_gles_poi_list.empty()) {
-		/* Cycle through POIs in score order. */
 		const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
 		fx          = poi.map_fx;
 		fy          = poi.map_fy;
 		zoom_adjust = poi.zoom_adjust;
-		_gles_poi_idx = (_gles_poi_idx + 1) % (int)_gles_poi_list.size();
-		Debug(driver, 0, "GLES PrepareBackground: POI[{}] score={} fx={:.2f} fy={:.2f}",
-			_gles_poi_idx == 0 ? (int)_gles_poi_list.size() - 1 : _gles_poi_idx - 1,
-			_gles_poi_list[_gles_poi_idx == 0 ? (int)_gles_poi_list.size() - 1 : _gles_poi_idx - 1].score,
-			fx, fy);
+		Debug(driver, 0, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} — {}",
+			_gles_poi_idx, poi.score, fx, fy, poi.reason);
 	} else {
-		/* Fallback: random static waypoint. */
 		int idx = std::rand() % (int)kDefaultWaypoints.size();
 		fx          = kDefaultWaypoints[idx].map_fx;
 		fy          = kDefaultWaypoints[idx].map_fy;
@@ -150,7 +213,6 @@ void PrepareBackground()
 	ScrollMainWindowTo(world_x, world_y, -1, true);
 	FixTitleGameZoom(zoom_adjust);
 
-	/* Ensure zoom stays within Normal..Out2x range for GPU scaling. */
 	Window *w = GetMainWindow();
 	if (w != nullptr && w->viewport != nullptr && w->viewport->zoom < ZoomLevel::In4x) {
 		ViewportData &vp = *w->viewport;
@@ -160,4 +222,52 @@ void PrepareBackground()
 	}
 
 	MarkWholeScreenDirty();
+}
+
+void NavigatePOI(int delta)
+{
+	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;
+
+	if (_gles_poi_list.empty() || Map::SizeX() * Map::SizeY() != _gles_poi_map_tiles) {
+		ScanMapPOIs();
+	}
+	if (_gles_poi_list.empty()) return;
+
+	_poi_manual_browse = true;
+	int n = (int)_gles_poi_list.size();
+	_gles_poi_idx = ((_gles_poi_idx + delta) % n + n) % n;
+	ShowCurrentPOI();
+}
+
+void PrepareBackground()
+{
+	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;
+
+	/* Rescan if map changed or not yet scanned. */
+	bool fresh_scan = false;
+	if (_gles_poi_list.empty() || Map::SizeX() * Map::SizeY() != _gles_poi_map_tiles) {
+		ScanMapPOIs();
+		fresh_scan = true;
+	}
+
+	if (fresh_scan) {
+		/* First call after loading a new map — show POI[0] immediately. */
+		ShowCurrentPOI();
+		return;
+	}
+
+	/* After cycling through all POIs on this map, rotate to next title map.
+	 * Skip rotation if user is manually browsing with hotkeys. */
+	if (!_poi_manual_browse && _gles_poi_idx == 0 && !_gles_poi_list.empty() &&
+			_switch_mode == SM_NONE && CanRotateTitleMap()) {
+		Debug(driver, 0, "GLES PrepareBackground: all POIs shown, rotating to next title map");
+		RequestNextTitleMap();
+		return;
+	}
+	_poi_manual_browse = false;
+
+	if (!_gles_poi_list.empty()) {
+		_gles_poi_idx = (_gles_poi_idx + 1) % (int)_gles_poi_list.size();
+	}
+	ShowCurrentPOI();
 }

@@ -506,6 +506,12 @@ bool VideoDriver_SDL_Base::PollEvent()
 					!(ev.key.keysym.mod & (KMOD_ALT | KMOD_GUI | KMOD_CTRL | KMOD_SHIFT))) {
 				/* Plain Enter: advance camera to next POI. */
 				PrepareBackground();
+			} else if (ev.key.keysym.sym == SDLK_LEFTBRACKET && ev.key.repeat == 0 &&
+					!(ev.key.keysym.mod & (KMOD_ALT | KMOD_GUI | KMOD_CTRL | KMOD_SHIFT))) {
+				NavigatePOI(-1);
+			} else if (ev.key.keysym.sym == SDLK_RIGHTBRACKET && ev.key.repeat == 0 &&
+					!(ev.key.keysym.mod & (KMOD_ALT | KMOD_GUI | KMOD_CTRL | KMOD_SHIFT))) {
+				NavigatePOI(1);
 			} else {
 				char32_t character;
 
