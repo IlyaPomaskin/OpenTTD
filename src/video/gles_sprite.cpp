@@ -331,15 +331,16 @@ const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) return &it->second;
 
-	/* Check staged data (written by game thread via Stage()). */
+	/* Check staged data (written by game thread via Stage()).
+	 * Copy instead of move — keep staged data so it survives ClearSprites()
+	 * and can be re-uploaded if the atlas is cleared during map switches. */
 	GLESStagedPixels sp;
 	bool found = false;
 	{
 		std::lock_guard<std::mutex> lock(this->staged_mutex);
 		auto sit = this->staged.find(key);
 		if (sit != this->staged.end()) {
-			sp = std::move(sit->second);
-			this->staged.erase(sit);
+			sp = sit->second;
 			found = true;
 		}
 	}
