@@ -17,56 +17,8 @@
 #include "../debug.h"
 
 #include <unordered_set>
-#include <fstream>
-#include <iomanip>
-#include <sstream>
 
 #include "../safeguards.h"
-
-/** Write sprite pixel data as PPM file (RGB, transparent pixels as magenta). */
-static void DumpSpritePPM(SpriteID id, int zoom, const SpriteLoader::CommonPixel *pixels,
-                          int w, int h, bool has_rgb, bool has_remap)
-{
-	const char *flags = (has_rgb && has_remap) ? "both" :
-	                    has_rgb ? "rgb" :
-	                    has_remap ? "pal" : "none";
-
-	/* Write RGB image. */
-	{
-		std::ostringstream ss;
-		ss << "/data/data/org.openttd.android/files/sprites/" << std::setfill('0') << std::setw(6) << id
-		   << "_z" << zoom << "_" << w << "x" << h << "_" << flags << ".ppm";
-		std::ofstream f(ss.str(), std::ios::binary);
-		if (!f) return;
-		f << "P6\n" << w << " " << h << "\n255\n";
-		for (int i = 0; i < w * h; i++) {
-			uint8_t rgb[3];
-			if (pixels[i].a > 0) {
-				rgb[0] = pixels[i].r;
-				rgb[1] = pixels[i].g;
-				rgb[2] = pixels[i].b;
-			} else {
-				rgb[0] = 255; rgb[1] = 0; rgb[2] = 255; /* magenta = transparent */
-			}
-			f.write(reinterpret_cast<char *>(rgb), 3);
-		}
-	}
-
-	/* Also write M channel if remap data exists. */
-	if (has_remap) {
-		std::ostringstream ss;
-		ss << "/data/data/org.openttd.android/files/sprites/" << std::setfill('0') << std::setw(6) << id
-		   << "_z" << zoom << "_" << w << "x" << h << "_M.ppm";
-		std::ofstream f(ss.str(), std::ios::binary);
-		if (!f) return;
-		f << "P6\n" << w << " " << h << "\n255\n";
-		for (int i = 0; i < w * h; i++) {
-			uint8_t v = pixels[i].m;
-			uint8_t rgb[3] = {v, v, v};
-			f.write(reinterpret_cast<char *>(rgb), 3);
-		}
-	}
-}
 
 static FBlitter_GLES iFBlitter_GLES;
 
@@ -115,40 +67,6 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		atlas.Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
 		            best->width, best->height, has_rgb, has_remap);
 		_gles_perf.encode_uploaded++;
-	}
-
-	return dest_sprite;
-}
-
-/**
- * Encode with CPU fallback.
- * Not used. May be needed in the future for CPU-side font glyph rendering.
- * Calls parent 32bpp RLE encoder (for CPU Draw path) + GPU atlas upload.
- */
-Sprite *Blitter_GLES::EncodeCpuFallback(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
-{
-	Sprite *dest_sprite = Blitter_32bppOptimized::Encode(sprite_type, sprite, allocator);
-
-	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) return dest_sprite;
-
-	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-	const SpriteLoader::Sprite *best = nullptr;
-	for (int z = to_underlying(kGPUScaleBaseZoom); z >= to_underlying(ZoomLevel::Begin); z--) {
-		const auto &s = sprite[static_cast<ZoomLevel>(z)];
-		if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
-	}
-	if (best == nullptr) {
-		for (int z = to_underlying(kGPUScaleBaseZoom) + 1; z < to_underlying(ZoomLevel::End); z++) {
-			const auto &s = sprite[static_cast<ZoomLevel>(z)];
-			if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
-		}
-	}
-	if (best != nullptr) {
-		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
-		bool has_remap = best->colours.Test(SpriteComponent::Palette);
-		atlas.Upload(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
-		             best->width, best->height, has_rgb, has_remap);
 	}
 
 	return dest_sprite;

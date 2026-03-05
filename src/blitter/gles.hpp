@@ -20,10 +20,6 @@ public:
 	void DrawRect(void *video, int width, int height, PixelColour colour) override;
 	Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator) override;
 
-	/* Not used. May be needed for CPU-side font glyph rendering in the future.
-	 * Calls parent 32bpp RLE encoder + GPU atlas upload. */
-	Sprite *EncodeCpuFallback(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator);
-
 	std::string_view GetName() override { return "gles"; }
 
 	bool Is32BppSupported() override { return true; }
