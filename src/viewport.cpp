@@ -91,6 +91,7 @@
 #include "framerate_type.h"
 #include "gfx_func.h"
 #include "viewport_cmd.h"
+#include "video/gles_poi.h"
 
 #include <forward_list>
 #include <stack>
@@ -1905,6 +1906,12 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		dp.left = x;
 		dp.top = y;
 		vp.overlay->Draw(&dp);
+	}
+
+	if (_game_mode == GM_MENU) {
+		dp.left = x;
+		dp.top = y;
+		DrawPOIMarkers(vp);
 	}
 
 	if (!_gles_gpu_sprites && !_vd.string_sprites_to_draw.empty()) {

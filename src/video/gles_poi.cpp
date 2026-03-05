@@ -19,7 +19,11 @@
 #include "../town.h"
 #include "../airport.h"
 #include "../rail_map.h"
+#include "../station_map.h"
 #include "../openttd.h"
+#include "../landscape.h"
+#include "../gfx_func.h"
+#include "../palette_func.h"
 #include "gles_poi.h"
 #include "gles_waypoints.h"
 #include <algorithm>
@@ -59,17 +63,62 @@ static void ScanMapPOIs()
 		if (st->xy == INVALID_TILE) continue;
 
 		int score = 0;
+		int transport_facilities = 0;
 		std::string reason;
-		if (st->facilities.Test(StationFacility::Train))   { score += 5; reason += "train+5 "; }
+		bool has_train = st->facilities.Test(StationFacility::Train);
+		if (has_train) {
+			int platform_len = std::max(st->train_station.w, st->train_station.h);
+			if (platform_len < 3) {
+				/* Small station: only include if town within 3 tiles AND
+				 * (another train station nearby OR different rail type nearby). */
+				bool town_near = false;
+				for (Town *t : Town::Iterate()) {
+					if (t->xy != INVALID_TILE && DistanceManhattan(st->xy, t->xy) <= 3) {
+						town_near = true;
+						break;
+					}
+				}
+				if (!town_near) has_train = false;
+
+				if (has_train) {
+					bool rail_interest = false;
+					/* Check for another train station within 10 tiles. */
+					for (Station *other : Station::Iterate()) {
+						if (other == st || other->xy == INVALID_TILE) continue;
+						if (other->facilities.Test(StationFacility::Train) && DistanceManhattan(st->xy, other->xy) <= 10) {
+							rail_interest = true;
+							break;
+						}
+					}
+					/* Check for different rail type within 5 tiles. */
+					if (!rail_interest && st->train_station.tile != INVALID_TILE) {
+						RailType st_rt = GetRailType(st->train_station.tile);
+						uint cx = TileX(st->xy), cy = TileY(st->xy);
+						for (uint dy = (cy > 5 ? cy - 5 : 0); !rail_interest && dy <= std::min(cy + 5, Map::SizeY() - 1); dy++) {
+							for (uint dx = (cx > 5 ? cx - 5 : 0); dx <= std::min(cx + 5, Map::SizeX() - 1); dx++) {
+								TileIndex t = TileXY(dx, dy);
+								if (IsPlainRailTile(t) && GetRailType(t) != st_rt) {
+									rail_interest = true;
+									reason += "mixed-rail ";
+									break;
+								}
+							}
+						}
+					}
+					if (!rail_interest) has_train = false;
+				}
+			}
+		}
+		if (has_train) { score += 5; transport_facilities++; reason += "train+5 "; }
 		if (st->facilities.Test(StationFacility::Airport)) {
 			uint8_t at = st->airport.type;
 			if (at != AT_HELIPORT && at != AT_HELIDEPOT && at != AT_HELISTATION) {
-				score += 3; reason += "airport+3 ";
+				score += 3; transport_facilities++; reason += "airport+3 ";
 			}
 		}
-		if (st->facilities.Test(StationFacility::Dock))      { score += 2; reason += "dock+2 "; }
+		if (st->facilities.Test(StationFacility::Dock))      { score += 2; transport_facilities++; reason += "dock+2 "; }
 		if (st->facilities.Test(StationFacility::BusStop))   { score += 1; reason += "bus+1 "; }
-		if (st->facilities.Test(StationFacility::TruckStop)) { score += 1; reason += "truck+1 "; }
+		if (st->facilities.Test(StationFacility::TruckStop) && transport_facilities >= 2) { score += 1; reason += "truck+1 "; }
 		if (score == 0) continue;
 
 		/* Bonus from nearest large town within 50 tiles. */
@@ -83,12 +132,12 @@ static void ScanMapPOIs()
 			}
 		}
 
-		/* Cluster: if another train station or real airport within 10 tiles, zoom out. */
+		/* Cluster: if another train station or real airport within 5 tiles, zoom out. */
 		bool cluster = false;
 		if (st->facilities.Test(StationFacility::Train)) {
 			for (Station *other : Station::Iterate()) {
 				if (other == st || other->xy == INVALID_TILE) continue;
-				if (DistanceManhattan(st->xy, other->xy) > 10) continue;
+				if (DistanceManhattan(st->xy, other->xy) > 5) continue;
 				bool other_train = other->facilities.Test(StationFacility::Train);
 				bool other_airport = other->facilities.Test(StationFacility::Airport) &&
 					other->airport.type != AT_HELIPORT &&
@@ -98,8 +147,21 @@ static void ScanMapPOIs()
 			}
 		}
 
-		float fx = (float)TileX(st->xy) / Map::SizeX();
-		float fy = (float)TileY(st->xy) / Map::SizeY();
+		/* Pick POI tile from the highest-scoring facility (same priority as scoring). */
+		TileIndex poi_tile = st->xy;
+		if (st->facilities.Test(StationFacility::Train) && st->train_station.tile != INVALID_TILE) {
+			poi_tile = st->train_station.GetCenterTile();
+		} else if (st->facilities.Test(StationFacility::Airport) && st->airport.tile != INVALID_TILE) {
+			poi_tile = st->airport.GetCenterTile();
+		} else if (st->facilities.Test(StationFacility::Dock) && st->docking_station.tile != INVALID_TILE) {
+			poi_tile = st->docking_station.GetCenterTile();
+		} else if (st->facilities.Test(StationFacility::BusStop) && st->bus_station.tile != INVALID_TILE) {
+			poi_tile = st->bus_station.GetCenterTile();
+		} else if (st->facilities.Test(StationFacility::TruckStop) && st->truck_station.tile != INVALID_TILE) {
+			poi_tile = st->truck_station.GetCenterTile();
+		}
+		float fx = (float)TileX(poi_tile) / Map::SizeX();
+		float fy = (float)TileY(poi_tile) / Map::SizeY();
 		int   zoom = cluster ? -1 : ((score >= 8) ? 1 : (score >= 5 ? 0 : -1));
 		if (cluster) { score += 3; reason += "cluster+3 "; }
 		candidates.push_back({fx, fy, score, zoom, 5000, fmt::format("station: {}", reason)});
@@ -119,7 +181,7 @@ static void ScanMapPOIs()
 		}
 	}
 
-	/* Cluster nearby junctions (within 15 tiles) and emit center of each cluster. */
+	/* Cluster nearby junctions (within 5 tiles) and emit center of each cluster. */
 	std::vector<bool> visited(junctions.size(), false);
 	for (size_t i = 0; i < junctions.size(); i++) {
 		if (visited[i]) continue;
@@ -132,7 +194,7 @@ static void ScanMapPOIs()
 			if (visited[j]) continue;
 			uint dx = (junctions[j].x > sum_x / count) ? junctions[j].x - sum_x / count : sum_x / count - junctions[j].x;
 			uint dy = (junctions[j].y > sum_y / count) ? junctions[j].y - sum_y / count : sum_y / count - junctions[j].y;
-			if (dx + dy <= 15) {
+			if (dx + dy <= 5) {
 				visited[j] = true;
 				sum_x += junctions[j].x;
 				sum_y += junctions[j].y;
@@ -208,18 +270,21 @@ static void ShowCurrentPOI()
 		zoom_adjust = kDefaultWaypoints[idx].zoom_adjust;
 	}
 
-	int world_x = (int)(fx * Map::SizeX() * TILE_SIZE);
-	int world_y = (int)(fy * Map::SizeY() * TILE_SIZE);
-	ScrollMainWindowTo(world_x, world_y, -1, true);
+	/* Set zoom BEFORE scrolling — ScrollMainWindowTo uses virtual_width/height
+	 * to compute the center offset, so zoom must be correct first. */
 	FixTitleGameZoom(zoom_adjust);
 
 	Window *w = GetMainWindow();
 	if (w != nullptr && w->viewport != nullptr && w->viewport->zoom < ZoomLevel::In4x) {
 		ViewportData &vp = *w->viewport;
-		vp.virtual_width = ScaleByZoom(vp.width, ZoomLevel::In4x);
-		vp.virtual_height = ScaleByZoom(vp.height, ZoomLevel::In4x);
 		vp.zoom = ZoomLevel::In4x;
+		vp.virtual_width = ScaleByZoom(vp.width, vp.zoom);
+		vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);
 	}
+
+	int world_x = (int)(fx * Map::SizeX() * TILE_SIZE);
+	int world_y = (int)(fy * Map::SizeY() * TILE_SIZE);
+	ScrollMainWindowTo(world_x, world_y, -1, true);
 
 	MarkWholeScreenDirty();
 }
@@ -270,4 +335,37 @@ void PrepareBackground()
 		_gles_poi_idx = (_gles_poi_idx + 1) % (int)_gles_poi_list.size();
 	}
 	ShowCurrentPOI();
+}
+
+void DrawPOIMarkers(const Viewport &vp)
+{
+	if (_gles_poi_list.empty()) return;
+
+	const DrawPixelInfo *dpi = _cur_dpi;
+	int half = 5;
+
+	for (int i = 0; i < (int)_gles_poi_list.size(); i++) {
+		const GlesPOI &poi = _gles_poi_list[i];
+
+		/* Same world coords as ShowCurrentPOI / ScrollMainWindowTo uses. */
+		int wx = (int)(poi.map_fx * Map::SizeX() * TILE_SIZE);
+		int wy = (int)(poi.map_fy * Map::SizeY() * TILE_SIZE);
+		int wz = GetSlopePixelZ(
+			Clamp(wx, 0, (int)Map::SizeX() * TILE_SIZE - 1),
+			Clamp(wy, 0, (int)Map::SizeY() * TILE_SIZE - 1));
+		Point p = RemapCoords(wx, wy, wz);
+
+		int sx = UnScaleByZoom(p.x - vp.virtual_left, vp.zoom) + vp.left;
+		int sy = UnScaleByZoom(p.y - vp.virtual_top,  vp.zoom) + vp.top;
+
+		/* Clip to dpi bounds. */
+		if (sx + half < dpi->left || sx - half >= dpi->left + dpi->width) continue;
+		if (sy + half < dpi->top  || sy - half >= dpi->top  + dpi->height) continue;
+
+		int h2 = half + 2;
+		GfxFillRect(sx - h2, sy - h2, sx + h2, sy + h2, PC_RED);
+		if (i == _gles_poi_idx) {
+			GfxFillRect(sx - half, sy - half, sx + half, sy + half, PC_WHITE);
+		}
+	}
 }
