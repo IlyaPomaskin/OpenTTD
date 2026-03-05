@@ -84,139 +84,166 @@ static std::vector<GlesPOI> _gles_poi_list;
 static int _gles_poi_idx = 0;
 static uint _gles_poi_map_tiles = 0; ///< Map::SizeX()*SizeY() at last scan; triggers rescan on change.
 
-/**
- * Score and collect all interesting locations on the current map.
- *
- * Scoring:
- *  Airport          +4
- *  Rail station     +3
- *  Dock             +2
- *  Bus/truck stop   +1 each
- *  Nearby town pop  +1 per 500 people (up to +5, within 50 tiles)
- *
- * Stations dominate; large uncovered towns are added as fallback.
- * Results are sorted by score descending, top 10 kept.
- */
-static void ScanMapPOIs()
+/** Convert a tile to fractional map coordinates. */
+static std::pair<float, float> TileToFxy(TileIndex t)
 {
-	_gles_poi_list.clear();
-	_gles_poi_map_tiles = Map::SizeX() * Map::SizeY();
+	return {(float)TileX(t) / Map::SizeX(), (float)TileY(t) / Map::SizeY()};
+}
 
-	std::vector<GlesPOI> candidates;
-	candidates.reserve(64);
+/** Check if a non-heliport airport exists at this station. */
+static bool IsRealAirport(const Station *st)
+{
+	if (!st->facilities.Test(StationFacility::Airport)) return false;
+	uint8_t at = st->airport.type;
+	return at != AT_HELIPORT && at != AT_HELIDEPOT && at != AT_HELISTATION;
+}
 
-	/* --- Stations -------------------------------------------------------- */
+/** Check if a small train station (<3 tiles) is interesting enough to include. */
+static bool IsSmallStationInteresting(const Station *st, std::string &reason)
+{
+	if (CountTownBuildings(st->xy, 3, nullptr) < 4) return false;
+
+	/* Another train station within 10 tiles. */
+	for (Station *other : Station::Iterate()) {
+		if (other == st || other->xy == INVALID_TILE) continue;
+		if (other->facilities.Test(StationFacility::Train) && DistanceManhattan(st->xy, other->xy) <= 10) {
+			return true;
+		}
+	}
+
+	/* Different rail type within 5 tiles. */
+	if (st->train_station.tile != INVALID_TILE) {
+		RailType st_rt = GetRailType(st->train_station.tile);
+		uint cx = TileX(st->xy), cy = TileY(st->xy);
+		for (uint dy = (cy > 5 ? cy - 5 : 0); dy <= std::min(cy + 5, Map::SizeY() - 1); dy++) {
+			for (uint dx = (cx > 5 ? cx - 5 : 0); dx <= std::min(cx + 5, Map::SizeX() - 1); dx++) {
+				TileIndex t = TileXY(dx, dy);
+				if (IsPlainRailTile(t) && GetRailType(t) != st_rt) {
+					reason += "mixed-rail ";
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+/** Check if dock is interesting: adjacent road + 5+ buildings, or train station within 3 tiles. */
+static bool IsDockInteresting(TileIndex dock_tile)
+{
+	/* Adjacent road tile. */
+	bool road_adj = false;
+	static const int ddx[] = {0, 1, 0, -1};
+	static const int ddy[] = {-1, 0, 1, 0};
+	for (int d = 0; d < 4 && !road_adj; d++) {
+		uint nx = TileX(dock_tile) + ddx[d], ny = TileY(dock_tile) + ddy[d];
+		if (nx < Map::SizeX() && ny < Map::SizeY() && IsTileType(TileXY(nx, ny), TileType::Road)) road_adj = true;
+	}
+
+	/* Train station within 3 tiles. */
+	for (Station *other : Station::Iterate()) {
+		if (other->xy == INVALID_TILE) continue;
+		if (other->facilities.Test(StationFacility::Train) && DistanceManhattan(dock_tile, other->xy) <= 3) {
+			return true;
+		}
+	}
+
+	return road_adj && CountTownBuildings(dock_tile, 3, nullptr) > 5;
+}
+
+/** Check if station forms a cluster with another train station or airport within 5 tiles. */
+static bool IsStationCluster(const Station *st)
+{
+	if (!st->facilities.Test(StationFacility::Train)) return false;
+	for (Station *other : Station::Iterate()) {
+		if (other == st || other->xy == INVALID_TILE) continue;
+		if (DistanceManhattan(st->xy, other->xy) > 5) continue;
+		if (other->facilities.Test(StationFacility::Train) || IsRealAirport(other)) return true;
+	}
+	return false;
+}
+
+/** Pick the best tile to represent this station as a POI. */
+static TileIndex PickStationPOITile(const Station *st, bool has_train)
+{
+	if (has_train && st->train_station.tile != INVALID_TILE) return st->train_station.GetCenterTile();
+	if (st->facilities.Test(StationFacility::Airport) && st->airport.tile != INVALID_TILE) return st->airport.GetCenterTile();
+	if (st->facilities.Test(StationFacility::Dock) && st->docking_station.tile != INVALID_TILE) return st->docking_station.GetCenterTile();
+	if (st->facilities.Test(StationFacility::BusStop) && st->bus_station.tile != INVALID_TILE) return st->bus_station.GetCenterTile();
+	if (st->facilities.Test(StationFacility::TruckStop) && st->truck_station.tile != INVALID_TILE) return st->truck_station.GetCenterTile();
+	return st->xy;
+}
+
+/** Collect influence points from all scored facilities of a station. */
+static std::vector<std::pair<float, float>> CollectStationInfluences(
+	const Station *st, bool has_train, bool cluster, Town *bonus_town, int building_count)
+{
+	std::vector<std::pair<float, float>> infl;
+	if (has_train && st->train_station.tile != INVALID_TILE)
+		infl.push_back(TileToFxy(st->train_station.GetCenterTile()));
+	if (st->facilities.Test(StationFacility::Airport) && st->airport.tile != INVALID_TILE)
+		infl.push_back(TileToFxy(st->airport.GetCenterTile()));
+	if (st->facilities.Test(StationFacility::Dock) && st->docking_station.tile != INVALID_TILE)
+		infl.push_back(TileToFxy(st->docking_station.GetCenterTile()));
+	if (st->facilities.Test(StationFacility::BusStop) && st->bus_station.tile != INVALID_TILE)
+		infl.push_back(TileToFxy(st->bus_station.GetCenterTile()));
+	if (st->facilities.Test(StationFacility::TruckStop) && st->truck_station.tile != INVALID_TILE)
+		infl.push_back(TileToFxy(st->truck_station.GetCenterTile()));
+	if (bonus_town != nullptr && building_count >= 4)
+		infl.push_back(TileToFxy(bonus_town->xy));
+	if (cluster) {
+		for (Station *other : Station::Iterate()) {
+			if (other == st || other->xy == INVALID_TILE) continue;
+			if (DistanceManhattan(st->xy, other->xy) > 5) continue;
+			if (other->facilities.Test(StationFacility::Train) || IsRealAirport(other)) {
+				infl.push_back(TileToFxy(other->xy));
+				break;
+			}
+		}
+	}
+	return infl;
+}
+
+/** Scan stations and emit POI candidates. */
+static void ScanStationPOIs(std::vector<GlesPOI> &candidates)
+{
 	for (Station *st : Station::Iterate()) {
 		if (st->xy == INVALID_TILE) continue;
 
 		int score = 0;
 		int transport_facilities = 0;
 		std::string reason;
+
 		bool has_train = st->facilities.Test(StationFacility::Train);
 		if (has_train) {
 			int platform_len = std::max(st->train_station.w, st->train_station.h);
-			if (platform_len < 3) {
-				/* Small station: only include if surrounded by at least 4 buildings
-				 * from a town AND (another train station nearby OR different rail type nearby). */
-				bool town_near = CountTownBuildings(st->xy, 3, nullptr) >= 4;
-				if (!town_near) has_train = false;
-
-				if (has_train) {
-					bool rail_interest = false;
-					/* Check for another train station within 10 tiles. */
-					for (Station *other : Station::Iterate()) {
-						if (other == st || other->xy == INVALID_TILE) continue;
-						if (other->facilities.Test(StationFacility::Train) && DistanceManhattan(st->xy, other->xy) <= 10) {
-							rail_interest = true;
-							break;
-						}
-					}
-					/* Check for different rail type within 5 tiles. */
-					if (!rail_interest && st->train_station.tile != INVALID_TILE) {
-						RailType st_rt = GetRailType(st->train_station.tile);
-						uint cx = TileX(st->xy), cy = TileY(st->xy);
-						for (uint dy = (cy > 5 ? cy - 5 : 0); !rail_interest && dy <= std::min(cy + 5, Map::SizeY() - 1); dy++) {
-							for (uint dx = (cx > 5 ? cx - 5 : 0); dx <= std::min(cx + 5, Map::SizeX() - 1); dx++) {
-								TileIndex t = TileXY(dx, dy);
-								if (IsPlainRailTile(t) && GetRailType(t) != st_rt) {
-									rail_interest = true;
-									reason += "mixed-rail ";
-									break;
-								}
-							}
-						}
-					}
-					if (!rail_interest) has_train = false;
-				}
+			if (platform_len < 3 && !IsSmallStationInteresting(st, reason)) {
+				has_train = false;
 			}
 		}
 		if (has_train) { score += 5; transport_facilities++; reason += "train+5 "; }
-		if (st->facilities.Test(StationFacility::Airport)) {
-			uint8_t at = st->airport.type;
-			if (at != AT_HELIPORT && at != AT_HELIDEPOT && at != AT_HELISTATION) {
-				TileIndex ap_tile = st->airport.tile != INVALID_TILE ? st->airport.GetCenterTile() : st->xy;
-				if (CountTownBuildings(ap_tile, 5, nullptr) >= 10) {
-					score += 3; transport_facilities++; reason += "airport+3 ";
-				}
+
+		if (IsRealAirport(st)) {
+			TileIndex ap_tile = st->airport.tile != INVALID_TILE ? st->airport.GetCenterTile() : st->xy;
+			if (CountTownBuildings(ap_tile, 5, nullptr) >= 10) {
+				score += 3; transport_facilities++; reason += "airport+3 ";
 			}
 		}
+
 		if (st->facilities.Test(StationFacility::Dock)) {
 			TileIndex dock_tile = st->docking_station.tile != INVALID_TILE ? st->docking_station.GetCenterTile() : st->xy;
-			/* Check for adjacent road tile. */
-			bool road_adj = false;
-			for (int d = 0; d < 4 && !road_adj; d++) {
-				static const int dx[] = {0, 1, 0, -1};
-				static const int dy[] = {-1, 0, 1, 0};
-				uint nx = TileX(dock_tile) + dx[d], ny = TileY(dock_tile) + dy[d];
-				if (nx < Map::SizeX() && ny < Map::SizeY() && IsTileType(TileXY(nx, ny), TileType::Road)) road_adj = true;
-			}
-			/* Check for train station within 3 tiles. */
-			bool train_near = false;
-			for (Station *other : Station::Iterate()) {
-				if (other->xy == INVALID_TILE) continue;
-				if (other->facilities.Test(StationFacility::Train) && DistanceManhattan(dock_tile, other->xy) <= 3) {
-					train_near = true;
-					break;
-				}
-			}
-			if ((road_adj && CountTownBuildings(dock_tile, 3, nullptr) > 5) || train_near) {
+			if (IsDockInteresting(dock_tile)) {
 				score += 2; transport_facilities++; reason += "dock+2 ";
 			}
 		}
+
 		if (st->facilities.Test(StationFacility::BusStop))   { score += 1; reason += "bus+1 "; }
 		if (st->facilities.Test(StationFacility::TruckStop) && transport_facilities >= 2) { score += 1; reason += "truck+1 "; }
 		if (score == 0) continue;
 
-		/* Cluster: if another train station or real airport within 5 tiles, zoom out. */
-		bool cluster = false;
-		if (st->facilities.Test(StationFacility::Train)) {
-			for (Station *other : Station::Iterate()) {
-				if (other == st || other->xy == INVALID_TILE) continue;
-				if (DistanceManhattan(st->xy, other->xy) > 5) continue;
-				bool other_train = other->facilities.Test(StationFacility::Train);
-				bool other_airport = other->facilities.Test(StationFacility::Airport) &&
-					other->airport.type != AT_HELIPORT &&
-					other->airport.type != AT_HELIDEPOT &&
-					other->airport.type != AT_HELISTATION;
-				if (other_train || other_airport) { cluster = true; break; }
-			}
-		}
+		bool cluster = IsStationCluster(st);
+		TileIndex poi_tile = PickStationPOITile(st, has_train);
 
-		/* Pick POI tile from the highest-scoring facility (same priority as scoring). */
-		TileIndex poi_tile = st->xy;
-		if (has_train && st->train_station.tile != INVALID_TILE) {
-			poi_tile = st->train_station.GetCenterTile();
-		} else if (st->facilities.Test(StationFacility::Airport) && st->airport.tile != INVALID_TILE) {
-			poi_tile = st->airport.GetCenterTile();
-		} else if (st->facilities.Test(StationFacility::Dock) && st->docking_station.tile != INVALID_TILE) {
-			poi_tile = st->docking_station.GetCenterTile();
-		} else if (st->facilities.Test(StationFacility::BusStop) && st->bus_station.tile != INVALID_TILE) {
-			poi_tile = st->bus_station.GetCenterTile();
-		} else if (st->facilities.Test(StationFacility::TruckStop) && st->truck_station.tile != INVALID_TILE) {
-			poi_tile = st->truck_station.GetCenterTile();
-		}
-
-		/* Bonus from town with at least 4 buildings within 5 tiles of poi_tile. */
 		Town *bonus_town = nullptr;
 		int building_count = CountTownBuildings(poi_tile, 5, &bonus_town);
 		if (building_count >= 4 && bonus_town != nullptr) {
@@ -225,48 +252,18 @@ static void ScanMapPOIs()
 			if (town_bonus > 0) reason += fmt::format("town(pop={},bld={})+" "{} ", bonus_town->cache.population, building_count, town_bonus);
 		}
 
-		float fx = (float)TileX(poi_tile) / Map::SizeX();
-		float fy = (float)TileY(poi_tile) / Map::SizeY();
-		int   zoom = cluster ? 1 : 0; // cluster → In2x, otherwise In4x
+		auto [fx, fy] = TileToFxy(poi_tile);
+		int zoom = cluster ? 1 : 0;
 		if (cluster) { score += 3; reason += "cluster+3 "; }
 
-		/* Collect influence points — facilities that contributed to the score. */
-		std::vector<std::pair<float, float>> infl;
-		auto tile_to_fxy = [](TileIndex t) -> std::pair<float, float> {
-			return {(float)TileX(t) / Map::SizeX(), (float)TileY(t) / Map::SizeY()};
-		};
-		if (has_train && st->train_station.tile != INVALID_TILE)
-			infl.push_back(tile_to_fxy(st->train_station.GetCenterTile()));
-		if (st->facilities.Test(StationFacility::Airport) && st->airport.tile != INVALID_TILE)
-			infl.push_back(tile_to_fxy(st->airport.GetCenterTile()));
-		if (st->facilities.Test(StationFacility::Dock) && st->docking_station.tile != INVALID_TILE)
-			infl.push_back(tile_to_fxy(st->docking_station.GetCenterTile()));
-		if (st->facilities.Test(StationFacility::BusStop) && st->bus_station.tile != INVALID_TILE)
-			infl.push_back(tile_to_fxy(st->bus_station.GetCenterTile()));
-		if (st->facilities.Test(StationFacility::TruckStop) && st->truck_station.tile != INVALID_TILE)
-			infl.push_back(tile_to_fxy(st->truck_station.GetCenterTile()));
-		/* Town that gave bonus. */
-		if (bonus_town != nullptr && building_count >= 4) {
-			infl.push_back(tile_to_fxy(bonus_town->xy));
-		}
-		/* Cluster partner. */
-		if (cluster) {
-			for (Station *other : Station::Iterate()) {
-				if (other == st || other->xy == INVALID_TILE) continue;
-				if (DistanceManhattan(st->xy, other->xy) > 5) continue;
-				if (other->facilities.Test(StationFacility::Train) ||
-						(other->facilities.Test(StationFacility::Airport) &&
-						 other->airport.type != AT_HELIPORT && other->airport.type != AT_HELIDEPOT && other->airport.type != AT_HELISTATION)) {
-					infl.push_back(tile_to_fxy(other->xy));
-					break;
-				}
-			}
-		}
-
+		auto infl = CollectStationInfluences(st, has_train, cluster, bonus_town, building_count);
 		candidates.push_back({fx, fy, score, zoom, 5000, fmt::format("station: {}", reason), std::move(infl)});
 	}
+}
 
-	/* --- Lighthouses (5% chance each) ------------------------------------ */
+/** Scan lighthouses and emit POI candidates (5% chance each). */
+static void ScanLighthousePOIs(std::vector<GlesPOI> &candidates)
+{
 	for (uint y = 1; y < Map::SizeY() - 1; y++) {
 		for (uint x = 1; x < Map::SizeX() - 1; x++) {
 			TileIndex tile = TileXY(x, y);
@@ -277,9 +274,11 @@ static void ScanMapPOIs()
 			candidates.push_back({fx, fy, 100, 0, 5000, "lighthouse", {}});
 		}
 	}
+}
 
-	/* --- Rail junctions -------------------------------------------------- */
-	/* Find tiles with 3+ track bits (junctions), cluster nearby ones. */
+/** Scan rail junctions, BFS-cluster them, and emit POI candidates. */
+static void ScanJunctionPOIs(std::vector<GlesPOI> &candidates)
+{
 	struct Junction { uint x; uint y; };
 	std::vector<Junction> junctions;
 	for (uint y = 1; y < Map::SizeY() - 1; y++) {
@@ -292,13 +291,10 @@ static void ScanMapPOIs()
 		}
 	}
 
-	/* BFS clustering: from each junction, expand through neighbours within 5 tiles,
-	 * up to 5 hops. Only keep clusters with 5+ junctions. */
 	std::vector<bool> visited(junctions.size(), false);
 	for (size_t i = 0; i < junctions.size(); i++) {
 		if (visited[i]) continue;
 
-		/* BFS with depth limit of 5. */
 		struct BFSEntry { size_t idx; int depth; };
 		std::vector<BFSEntry> queue;
 		std::vector<size_t> cluster;
@@ -336,16 +332,18 @@ static void ScanMapPOIs()
 		int score = (count >= 8) ? 8 : 5;
 		float fx = (float)(sum_x / count) / Map::SizeX();
 		float fy = (float)(sum_y / count) / Map::SizeY();
-		int zoom = (count >= 8) ? 1 : 0; // large cluster → In2x, otherwise In4x
+		int zoom = (count >= 8) ? 1 : 0;
 		candidates.push_back({fx, fy, score, zoom, 5000,
 			fmt::format("rail junction: {} junctions in cluster, score={}", count, score), std::move(infl)});
 	}
+}
 
-	/* --- Towns not already covered by a nearby station ------------------- */
+/** Scan towns not already covered by a nearby station POI. */
+static void ScanTownPOIs(std::vector<GlesPOI> &candidates)
+{
 	for (Town *t : Town::Iterate()) {
 		if (t->xy == INVALID_TILE || t->cache.population < 500) continue;
 
-		/* Skip if a station POI already represents this town (within 30 tiles). */
 		bool covered = false;
 		for (const GlesPOI &poi : candidates) {
 			TileIndex poi_tile = TileXY(
@@ -356,13 +354,26 @@ static void ScanMapPOIs()
 		if (covered) continue;
 
 		int score = std::min(5, (int)(t->cache.population / 500));
-		float fx  = (float)TileX(t->xy) / Map::SizeX();
-		float fy  = (float)TileY(t->xy) / Map::SizeY();
+		auto [fx, fy] = TileToFxy(t->xy);
 		candidates.push_back({fx, fy, score, 0, 5000,
 			fmt::format("town: pop={}, score={}", t->cache.population, score)});
 	}
+}
 
-	/* Sort by score descending, keep top 10. */
+/** Scan all POI types, sort by score, keep top 10. */
+static void ScanMapPOIs()
+{
+	_gles_poi_list.clear();
+	_gles_poi_map_tiles = Map::SizeX() * Map::SizeY();
+
+	std::vector<GlesPOI> candidates;
+	candidates.reserve(64);
+
+	ScanStationPOIs(candidates);
+	ScanLighthousePOIs(candidates);
+	ScanJunctionPOIs(candidates);
+	ScanTownPOIs(candidates);
+
 	std::sort(candidates.begin(), candidates.end(),
 		[](const GlesPOI &a, const GlesPOI &b) { return a.score > b.score; });
 
