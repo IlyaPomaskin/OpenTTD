@@ -51,7 +51,6 @@ private:
 	GLuint prog_transparent = 0; ///< Shader program for transparent sprites.
 	GLuint prog_palette = 0;     ///< Shader program for palette-only sprites (M → palette lookup).
 	GLuint prog_solid = 0;       ///< Shader program for debug solid colour.
-	GLuint prog_bgra = 0;        ///< Shader program for CPU framebuffer (BGRA→RGBA swizzle).
 
 	/* Normal program uniforms. */
 	GLint normal_screen_loc = -1;
@@ -82,17 +81,11 @@ private:
 	GLint solid_screen_loc = -1;
 	GLint solid_colour_loc = -1;
 
-	/* BGRA program uniforms (for CPU framebuffer). */
-	GLint bgra_screen_loc = -1;
-	GLint bgra_colour_tex_loc = -1;
-
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
 	GLuint remap_table_tex[2] = {0, 0}; ///< Double-buffered 256x1 remap table textures.
 	int remap_table_idx = 0;            ///< Current remap table texture index (0 or 1).
 	const uint8_t *last_remap_ptr = nullptr; ///< Last uploaded remap table pointer (cache).
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
-	GLuint cpu_framebuf_tex = 0; ///< Texture for CPU-rendered content (video buffer upload).
-	bool cpu_tex_allocated = false; ///< True once cpu_framebuf_tex has been allocated at current size.
 
 	GLuint fbo = 0;              ///< Persistent framebuffer object for accumulation.
 	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO.
@@ -120,11 +113,6 @@ public:
 
 	void Resize(int w, int h);
 	void UpdatePalette(const Colour *pal, uint first, uint length);
-
-	/** Upload CPU-rendered video buffer as background before GPU sprites.
-	 * @param dirty Dirty rectangle; only rows in [top, bottom) are uploaded.
-	 *              Pass empty rect ({}) to force full upload. */
-	void UploadVideoBuffer(const void *buffer, int w, int h, const Rect &dirty);
 
 	/** Get the sprite atlas for encoding sprites. */
 	GLESSpriteAtlas &GetSpriteAtlas() { return sprite_atlas; }

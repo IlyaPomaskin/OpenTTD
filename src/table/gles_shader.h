@@ -120,19 +120,6 @@ static const char *_gles_frag_shader_palette =
 	"  gl_FragColor = vec4(col.rgb, 1.0);\n"
 	"}\n";
 
-/** Fragment shader for CPU framebuffer rendering.
- *  The CPU video buffer stores pixels as BGRA (ColourBGRA on little-endian),
- *  but glTexImage2D with GL_RGBA reads them as RGBA. This shader swizzles
- *  the R and B channels back to correct order. */
-static const char *_gles_frag_shader_bgra =
-	"precision mediump float;\n"
-	"uniform sampler2D colour_tex;\n"
-	"varying vec2 v_colour_uv;\n"
-	"void main() {\n"
-	"  vec4 c = texture2D(colour_tex, v_colour_uv);\n"
-	"  gl_FragColor = vec4(c.b, c.g, c.r, c.a);\n"
-	"}\n";
-
 /** Fragment shader for debug: outputs a solid colour (no texture). */
 static const char *_gles_frag_shader_solid =
 	"precision mediump float;\n"

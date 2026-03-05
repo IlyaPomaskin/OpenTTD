@@ -34,10 +34,8 @@ GLESBackend::~GLESBackend()
 	if (this->prog_transparent != 0) glDeleteProgram(this->prog_transparent);
 	if (this->prog_palette != 0) glDeleteProgram(this->prog_palette);
 	if (this->prog_solid != 0) glDeleteProgram(this->prog_solid);
-	if (this->prog_bgra != 0) glDeleteProgram(this->prog_bgra);
 	if (this->palette_tex != 0) glDeleteTextures(1, &this->palette_tex);
 	glDeleteTextures(2, this->remap_table_tex);
-	if (this->cpu_framebuf_tex != 0) glDeleteTextures(1, &this->cpu_framebuf_tex);
 	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 	if (this->vbo != 0) glDeleteBuffers(1, &this->vbo);
@@ -165,18 +163,6 @@ bool GLESBackend::InitShaders()
 		this->solid_colour_loc = glGetUniformLocation(this->prog_solid, "u_colour");
 	}
 
-	/* BGRA swizzle fragment shader (for CPU framebuffer upload). */
-	{
-		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_bgra);
-		if (fs == 0) { glDeleteShader(vs); return false; }
-		this->prog_bgra = LinkProgram(vs, fs);
-		glDeleteShader(fs);
-		if (this->prog_bgra == 0) { glDeleteShader(vs); return false; }
-
-		this->bgra_screen_loc = glGetUniformLocation(this->prog_bgra, "screen");
-		this->bgra_colour_tex_loc = glGetUniformLocation(this->prog_bgra, "colour_tex");
-	}
-
 	glDeleteShader(vs);
 
 	Debug(driver, 1, "GLES: All shaders compiled and linked successfully");
@@ -202,14 +188,6 @@ bool GLESBackend::Create()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-	/* Create CPU framebuffer texture for CPU-rendered content. */
-	glGenTextures(1, &backend->cpu_framebuf_tex);
-	glBindTexture(GL_TEXTURE_2D, backend->cpu_framebuf_tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
 	/* Create double-buffered 256x1 remap table textures (luminance). */
 	glGenTextures(2, backend->remap_table_tex);
@@ -253,11 +231,10 @@ void GLESBackend::RecoverGPUState()
 	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
 	 * do NOT call glDelete* on them — that would inject errors into the new context. */
 	this->prog_normal = 0; this->prog_remap = 0; this->prog_transparent = 0;
-	this->prog_palette = 0; this->prog_solid = 0; this->prog_bgra = 0;
+	this->prog_palette = 0; this->prog_solid = 0;
 	this->palette_tex = 0;
 	this->remap_table_tex[0] = 0; this->remap_table_tex[1] = 0;
 	this->vbo = 0;
-	this->cpu_framebuf_tex = 0; this->cpu_tex_allocated = false;
 	this->fbo = 0; this->fbo_tex = 0;
 	this->last_remap_ptr = nullptr;
 	this->remap_table_idx = 0;
@@ -336,18 +313,6 @@ void GLESBackend::Resize(int w, int h)
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	/* Pre-allocate CPU framebuffer texture at the new size.
-	 * This allows UploadVideoBuffer() to use glTexSubImage2D for
-	 * partial row uploads instead of full glTexImage2D every frame. */
-	if (this->cpu_framebuf_tex == 0) glGenTextures(1, &this->cpu_framebuf_tex);
-	glBindTexture(GL_TEXTURE_2D, this->cpu_framebuf_tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-	this->cpu_tex_allocated = true;
-
 	/* Bind back to default framebuffer. */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, w, h);
@@ -368,29 +333,6 @@ void GLESBackend::UpdatePalette(const Colour *pal, uint first, uint length)
 
 	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, first, 0, length, 1, GL_RGBA, GL_UNSIGNED_BYTE, rgba.data());
-}
-
-void GLESBackend::UploadVideoBuffer(const void *buffer, int w, int h, const Rect &dirty)
-{
-	if (buffer == nullptr || w <= 0 || h <= 0) return;
-
-	glBindTexture(GL_TEXTURE_2D, this->cpu_framebuf_tex);
-
-	if (!this->cpu_tex_allocated || w != this->screen_width || h != this->screen_height) {
-		/* Texture not yet allocated or size mismatch — full upload. */
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
-		this->cpu_tex_allocated = true;
-		return;
-	}
-
-	/* Partial upload: only the dirty row range. */
-	int top = std::max(0, dirty.top);
-	int bottom = std::min(h, dirty.bottom);
-	if (top >= bottom) return; /* Nothing dirty — skip upload entirely. */
-
-	int row_height = bottom - top;
-	const uint8_t *src = static_cast<const uint8_t *>(buffer) + static_cast<size_t>(top) * w * 4;
-	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, top, w, row_height, GL_RGBA, GL_UNSIGNED_BYTE, src);
 }
 
 void GLESBackend::AddDirtyRect(int left, int top, int right, int bottom)
@@ -422,65 +364,17 @@ void GLESBackend::Paint()
 	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
 	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
 
-	/* Clear dirty regions then draw background layer. */
-	if (_gles_gpu_sprites) {
-		/* GPU sprites mode: clear dirty regions, skip CPU buffer entirely.
-		 * GPU sprites render directly into the FBO. */
-		if (!this->dirty_rects.empty()) {
-			glEnable(GL_SCISSOR_TEST);
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			for (const Rect &r : this->dirty_rects) {
-				int gl_y = this->screen_height - r.bottom;
-				glScissor(r.left, gl_y, r.right - r.left, r.bottom - r.top);
-				glClear(GL_COLOR_BUFFER_BIT);
-			}
-			glDisable(GL_SCISSOR_TEST);
-			this->dirty_rects.clear();
+	/* Clear dirty regions in the FBO before drawing. */
+	if (!this->dirty_rects.empty()) {
+		glEnable(GL_SCISSOR_TEST);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		for (const Rect &r : this->dirty_rects) {
+			int gl_y = this->screen_height - r.bottom;
+			glScissor(r.left, gl_y, r.right - r.left, r.bottom - r.top);
+			glClear(GL_COLOR_BUFFER_BIT);
 		}
-	} else {
-		/* CPU mode: clear dirty regions, then upload CPU buffer as fullscreen background. */
-		if (!this->dirty_rects.empty()) {
-			glEnable(GL_SCISSOR_TEST);
-			glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-			for (const Rect &r : this->dirty_rects) {
-				int gl_y = this->screen_height - r.bottom;
-				glScissor(r.left, gl_y, r.right - r.left, r.bottom - r.top);
-				glClear(GL_COLOR_BUFFER_BIT);
-			}
-			glDisable(GL_SCISSOR_TEST);
-			this->dirty_rects.clear();
-		}
-
-		if (this->cpu_framebuf_tex != 0 && this->screen_width > 0 && this->screen_height > 0) {
-			glDisable(GL_BLEND);
-			glUseProgram(this->prog_bgra);
-			glUniform2f(this->bgra_screen_loc,
-				static_cast<float>(this->screen_width), static_cast<float>(this->screen_height));
-
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, this->cpu_framebuf_tex);
-			glUniform1i(this->bgra_colour_tex_loc, 0);
-
-			float bw = static_cast<float>(this->screen_width);
-			float bh = static_cast<float>(this->screen_height);
-			GLESVertex quad[6] = {
-				{0, 0, 0, 0, 0, 0, 0, 0}, {bw, 0, 1, 0, 0, 0, 0, 0}, {0, bh, 0, 1, 0, 0, 0, 0},
-				{bw, 0, 1, 0, 0, 0, 0, 0}, {bw, bh, 1, 1, 0, 0, 0, 0}, {0, bh, 0, 1, 0, 0, 0, 0},
-			};
-
-			glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
-			glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
-
-			glEnableVertexAttribArray(0);
-			glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
-			                      reinterpret_cast<void *>(offsetof(GLESVertex, x)));
-			glEnableVertexAttribArray(1);
-			glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
-			                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
-			glDrawArrays(GL_TRIANGLES, 0, 6);
-			glDisableVertexAttribArray(0);
-			glDisableVertexAttribArray(1);
-		}
+		glDisable(GL_SCISSOR_TEST);
+		this->dirty_rects.clear();
 	}
 
 	if (!this->draw_queue.empty()) {

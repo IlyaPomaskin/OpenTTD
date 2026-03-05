@@ -332,18 +332,10 @@ void VideoDriver_SDL_GLES::Paint()
 			this->dirty_rect.right, this->dirty_rect.bottom);
 	}
 
-	auto t_upload0 = std::chrono::steady_clock::now();
-
-	if (!_gles_gpu_sprites) {
-		/* CPU mode: upload dirty rows of CPU buffer to GPU texture. */
-		Rect upload_dirty = this->dirty_rect;
-		GLESBackend::Get()->UploadVideoBuffer(this->video_buffer.data(),
-			_screen.width, _screen.height, upload_dirty);
-	}
-	/* GPU sprites mode: no CPU buffer upload needed. */
-
 	this->dirty_rect = {};
-	auto t_upload1 = std::chrono::steady_clock::now();
+
+	auto t_upload0 = std::chrono::steady_clock::now();
+	auto t_upload1 = t_upload0;
 
 	_gles_perf.gpu_draw_cmds += static_cast<int>(GLESBackend::Get()->GetDrawQueueSize());
 	GLESBackend::Get()->Paint();
