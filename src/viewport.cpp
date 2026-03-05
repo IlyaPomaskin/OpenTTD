@@ -278,42 +278,38 @@ static Point _vp_move_offs;
 
 static void DoSetViewportPosition(Window::IteratorToFront it, int left, int top, int width, int height)
 {
-	/* GPU sprites mode: no UI windows render, so skip the overlap logic
-	 * that would leave black holes behind invisible windows. */
-	if (!_gles_gpu_sprites) {
-		for (; !it.IsEnd(); ++it) {
-			const Window *w = *it;
-			if (left + width > w->left &&
-					w->left + w->width > left &&
-					top + height > w->top &&
-					w->top + w->height > top) {
+	for (; !it.IsEnd(); ++it) {
+		const Window *w = *it;
+		if (left + width > w->left &&
+				w->left + w->width > left &&
+				top + height > w->top &&
+				w->top + w->height > top) {
 
-				if (left < w->left) {
-					DoSetViewportPosition(it, left, top, w->left - left, height);
-					DoSetViewportPosition(it, left + (w->left - left), top, width - (w->left - left), height);
-					return;
-				}
-
-				if (left + width > w->left + w->width) {
-					DoSetViewportPosition(it, left, top, (w->left + w->width - left), height);
-					DoSetViewportPosition(it, left + (w->left + w->width - left), top, width - (w->left + w->width - left), height);
-					return;
-				}
-
-				if (top < w->top) {
-					DoSetViewportPosition(it, left, top, width, (w->top - top));
-					DoSetViewportPosition(it, left, top + (w->top - top), width, height - (w->top - top));
-					return;
-				}
-
-				if (top + height > w->top + w->height) {
-					DoSetViewportPosition(it, left, top, width, (w->top + w->height - top));
-					DoSetViewportPosition(it, left, top + (w->top + w->height - top), width, height - (w->top + w->height - top));
-					return;
-				}
-
+			if (left < w->left) {
+				DoSetViewportPosition(it, left, top, w->left - left, height);
+				DoSetViewportPosition(it, left + (w->left - left), top, width - (w->left - left), height);
 				return;
 			}
+
+			if (left + width > w->left + w->width) {
+				DoSetViewportPosition(it, left, top, (w->left + w->width - left), height);
+				DoSetViewportPosition(it, left + (w->left + w->width - left), top, width - (w->left + w->width - left), height);
+				return;
+			}
+
+			if (top < w->top) {
+				DoSetViewportPosition(it, left, top, width, (w->top - top));
+				DoSetViewportPosition(it, left, top + (w->top - top), width, height - (w->top - top));
+				return;
+			}
+
+			if (top + height > w->top + w->height) {
+				DoSetViewportPosition(it, left, top, width, (w->top + w->height - top));
+				DoSetViewportPosition(it, left, top + (w->top + w->height - top), width, height - (w->top + w->height - top));
+				return;
+			}
+
+			return;
 		}
 	}
 
@@ -323,14 +319,6 @@ static void DoSetViewportPosition(Window::IteratorToFront it, int left, int top,
 
 		if (abs(xo) >= width || abs(yo) >= height) {
 			/* fully_outside */
-			RedrawScreenRect(left, top, left + width, top + height);
-			return;
-		}
-
-		if (_gles_gpu_sprites) {
-			/* GPU sprites: no CPU buffer to scroll, just redraw the whole
-			 * viewport region.  Skip GfxScroll (which would call MakeDirty
-			 * and clear the FBO to black without matching sprite coverage). */
 			RedrawScreenRect(left, top, left + width, top + height);
 			return;
 		}
@@ -404,9 +392,14 @@ static void SetViewportPosition(Window *w, int x, int y)
 		if (i >= 0) height -= i;
 
 		if (height > 0) {
-			Window::IteratorToFront it(w);
-			++it;
-			DoSetViewportPosition(it, left, top, width, height);
+			if (_gles_gpu_sprites) {
+				/* GPU sprites: no CPU buffer to scroll, just redraw the whole region. */
+				RedrawScreenRect(left, top, left + width, top + height);
+			} else {
+				Window::IteratorToFront it(w);
+				++it;
+				DoSetViewportPosition(it, left, top, width, height);
+			}
 		}
 	}
 }
