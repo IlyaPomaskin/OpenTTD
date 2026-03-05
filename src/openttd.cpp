@@ -342,7 +342,7 @@ static void LoadIntroGame(bool load_newgrfs = true)
 
 	CheckForMissingGlyphs();
 
-	MusicLoop(); // ensure music is correct
+	/* Sound & music disabled. */
 }
 
 void MakeNewgameSettingsLive()
@@ -770,29 +770,10 @@ int openttd_main(std::span<std::string_view> arguments)
 
 	VideoDriver::GetInstance()->ClaimMousePointer();
 
-	BaseSounds::FindSets();
-	if (sounds_set.empty() && !BaseSounds::ini_set.empty()) sounds_set = BaseSounds::ini_set;
-	if (!BaseSounds::SetSetByName(sounds_set)) {
-		if (sounds_set.empty() || !BaseSounds::SetSet({})) {
-			UserError("Failed to find a sounds set. Please acquire a sounds set for OpenTTD. See section 1.4 of README.md.");
-		} else {
-			ErrorMessageData msg(GetEncodedString(STR_CONFIG_ERROR), GetEncodedString(STR_CONFIG_ERROR_INVALID_BASE_SOUNDS_NOT_FOUND, sounds_set));
-			ScheduleErrorMessage(msg);
-		}
-	}
+	/* Sound & music disabled — skip scanning, use null drivers. */
+	sounddriver = "null";
+	musicdriver = "null";
 
-	BaseMusic::FindSets();
-	if (music_set.empty() && !BaseMusic::ini_set.empty()) music_set = BaseMusic::ini_set;
-	if (!BaseMusic::SetSetByName(music_set)) {
-		if (music_set.empty() || !BaseMusic::SetSet({})) {
-			UserError("Failed to find a music set. Please acquire a music set for OpenTTD. See section 1.4 of README.md.");
-		} else {
-			ErrorMessageData msg(GetEncodedString(STR_CONFIG_ERROR), GetEncodedString(STR_CONFIG_ERROR_INVALID_BASE_MUSIC_NOT_FOUND, music_set));
-			ScheduleErrorMessage(msg);
-		}
-	}
-
-	if (sounddriver.empty() && !_ini_sounddriver.empty()) sounddriver = _ini_sounddriver;
 	DriverFactoryBase::SelectDriver(sounddriver, Driver::Type::Sound);
 
 	if (musicdriver.empty() && !_ini_musicdriver.empty()) musicdriver = _ini_musicdriver;
@@ -1157,9 +1138,6 @@ void SwitchToMode(SwitchMode new_mode)
 
 		case SM_MENU: // Switch to game intro menu
 			LoadIntroGame();
-			if (BaseSounds::ini_set.empty() && BaseSounds::GetUsedSet()->fallback) {
-				BaseSounds::ini_set = BaseSounds::GetUsedSet()->name;
-			}
 			UpdateSocialIntegration(GM_MENU);
 			// {
 			// 	extern void ShowFramerateWindow();
@@ -1382,7 +1360,6 @@ void GameLoop()
 
 	if (_pause_mode.None() && HasBit(_display_opt, DO_FULL_ANIMATION)) DoPaletteAnimations();
 
-	SoundDriver::GetInstance()->MainLoop();
-	MusicLoop();
+	/* Sound & music disabled. */
 	SocialIntegration::RunCallbacks();
 }

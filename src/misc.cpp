@@ -132,8 +132,7 @@ void InitializeGame(uint size_x, uint size_y, bool reset_date, bool reset_settin
 
 	ResetPersistentNewGRFData();
 
-	InitializeSound();
-	InitializeMusic();
+	/* Sound & music disabled. */
 
 	InitializeVehicles();
 
