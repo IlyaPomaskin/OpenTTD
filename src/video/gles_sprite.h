@@ -14,6 +14,7 @@
 #include <vector>
 #include <unordered_map>
 #include <mutex>
+#include <atomic>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
@@ -96,6 +97,17 @@ public:
 	 *  and sprites map. stored_pixels is preserved for on-demand re-upload. */
 	void ResetGPU();
 
+	/** Request atlas clear (thread-safe, deferred to GL thread). */
+	void RequestClear() { this->clear_pending.store(true); }
+
+	/** Process deferred clear. Must be called from GL thread (e.g. in Paint). */
+	void ProcessPendingClear();
+
+private:
+	std::atomic<bool> clear_pending{false};
+	void ClearSprites();
+
+public:
 	/** Upload a sprite to the atlas. Must be called from the GL thread. */
 	GLESSpriteID Upload(SpriteID sprite_id, ZoomLevel zoom,
 	                    const SpriteLoader::CommonPixel *pixels,

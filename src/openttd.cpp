@@ -14,6 +14,7 @@
 #include "music/music_driver.hpp"
 #include "video/video_driver.hpp"
 #include "video/gles_poi.h"
+#include "video/gles_backend.h"
 #include "wallpaper.h"
 #include "mixer.h"
 
@@ -325,6 +326,11 @@ static void LoadIntroGame(bool load_newgrfs = true)
 {
 	_game_mode = GM_MENU;
 	InvalidatePOIs();
+
+	/* Request GLES sprite atlas clear (deferred to GL thread). */
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->GetSpriteAtlas().RequestClear();
+	}
 
 	if (load_newgrfs) ResetGRFConfig(false);
 

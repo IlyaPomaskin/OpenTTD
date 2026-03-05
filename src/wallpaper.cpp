@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "string_func.h"
 #include "video/gles_poi.h"
+#include "video/gles_backend.h"
 
 #include "safeguards.h"
 
@@ -119,8 +120,14 @@ bool LoadNextTitleMap()
  */
 void LoadWallpaperGame()
 {
+	// Debug(misc, 0, "LoadWallpaperGame: entering, GLESBackend={}", GLESBackend::Get() != nullptr ? "present" : "null");
 	_game_mode = GM_WALLPAPER;
 	InvalidatePOIs();
+
+	/* Request GLES sprite atlas clear (deferred to GL thread). */
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->GetSpriteAtlas().RequestClear();
+	}
 
 	ResetWindowSystem();
 	SetupColoursAndInitialWindow();

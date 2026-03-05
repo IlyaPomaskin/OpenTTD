@@ -51,11 +51,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
         @Override
         public void onTouchEvent(MotionEvent event) {
-            if (!sSDLInitialized) return;
-            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-                Log.i(TAG, "onTouchEvent: cycling zoom");
-                nativeCycleZoom();
-            }
+            /* Zoom cycling on tap disabled. */
         }
 
         @Override
