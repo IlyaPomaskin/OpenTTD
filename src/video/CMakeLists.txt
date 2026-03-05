@@ -24,7 +24,6 @@ if(NOT OPTION_DEDICATED)
     add_files(
         gles_poi.cpp
         gles_poi.h
-        gles_waypoints.h
     )
 
     add_files(

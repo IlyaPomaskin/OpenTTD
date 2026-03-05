@@ -10,16 +10,34 @@
 #ifndef GLES_POI_H
 #define GLES_POI_H
 
+#include <cstdint>
+#include <string>
+#include <vector>
+#include <utility>
+
+/**
+ * A scored point of interest found by scanning the current map.
+ * Built dynamically from stations and towns; sorted by score descending.
+ */
+struct GlesPOI {
+	float    map_fx;     ///< Fractional X across map width  (0..1)
+	float    map_fy;     ///< Fractional Y across map height (0..1)
+	int      score;      ///< Aggregate interest score (higher = more interesting)
+	int      zoom;       ///< ZoomLevel value: 0 = In4x, 1 = In2x
+	uint32_t delay_ms;   ///< Time to hold position before moving to next POI
+	std::string reason;  ///< Why this POI was selected
+	std::vector<std::pair<float, float>> influences; ///< Map positions of objects that contributed to score
+};
+
 /**
  * Advance the camera to the next scored POI on the current map.
  *
  * Scans all stations and towns on first call (or when the map changes),
  * scores them by transport facilities and nearby population, keeps the
- * top 10, and cycles through them in score order.  Falls back to the
- * static kDefaultWaypoints array when the map has no stations or towns.
+ * top 10, and cycles through them in score order.
  *
  * Safe to call from any thread that holds the game state (i.e. the main
- * game / GL thread).  No-op when the map is empty.
+ * game / GL thread).  No-op when the map has no POIs.
  */
 void PrepareBackground();
 void NavigatePOI(int delta);

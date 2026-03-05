@@ -30,7 +30,6 @@
 #include "../gfx_func.h"
 #include "../palette_func.h"
 #include "gles_poi.h"
-#include "gles_waypoints.h"
 #include <algorithm>
 #include <cstdlib>
 #include <map>
@@ -425,18 +424,14 @@ static void ShowCurrentPOI()
 	float fx, fy;
 	ZoomLevel zoom = ZoomLevel::In4x;
 
-	if (!_gles_poi_list.empty()) {
-		const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
-		fx   = poi.map_fx;
-		fy   = poi.map_fy;
-		zoom = static_cast<ZoomLevel>(poi.zoom);
-		Debug(driver, 0, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} zoom={} — {}",
-			_gles_poi_idx, poi.score, fx, fy, poi.zoom, poi.reason);
-	} else {
-		int idx = std::rand() % (int)kDefaultWaypoints.size();
-		fx = kDefaultWaypoints[idx].map_fx;
-		fy = kDefaultWaypoints[idx].map_fy;
-	}
+	if (_gles_poi_list.empty()) return;
+
+	const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
+	fx   = poi.map_fx;
+	fy   = poi.map_fy;
+	zoom = static_cast<ZoomLevel>(poi.zoom);
+	Debug(driver, 0, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} zoom={} — {}",
+		_gles_poi_idx, poi.score, fx, fy, poi.zoom, poi.reason);
 
 	/* Set zoom BEFORE scrolling — ScrollMainWindowTo uses virtual_width/height
 	 * to compute the center offset, so zoom must be correct first. */
