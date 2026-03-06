@@ -66,8 +66,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
         mToastReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                String msg = intent.getStringExtra("msg");
-                if (msg == null) msg = "";
+                final String msg = intent.getStringExtra("msg") != null
+                    ? intent.getStringExtra("msg") : "";
                 Log.i(TAG, "TOAST broadcast: " + msg);
                 new Handler(Looper.getMainLooper()).post(() ->
                     Toast.makeText(context, msg, Toast.LENGTH_SHORT).show());

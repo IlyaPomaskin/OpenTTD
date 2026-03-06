@@ -15,6 +15,7 @@
 #include "../table/gles_shader.h"
 #include <GLES3/gl3.h>
 #include <algorithm>
+#include <chrono>
 #include <unordered_set>
 
 #include "../safeguards.h"
@@ -728,10 +729,12 @@ void GLESBackend::Paint()
 	if (did_full_render) {
 		this->fbo_has_content = true;
 		this->palette_dirty = false;
+		_gles_perf.full_renders++;
 	} else if (this->palette_dirty && this->fbo_has_content) {
 		/* === Phase 1.5: Palette resolve pass ===
 		 * Camera is static, only palette changed. Read palette index from
 		 * attachment 1, look up updated palette, write to attachment 0. */
+		auto t_resolve0 = std::chrono::steady_clock::now();
 		glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 		glViewport(0, 0, this->screen_width, this->screen_height);
 
@@ -787,7 +790,12 @@ void GLESBackend::Paint()
 		glDrawBuffers(2, mrt_bufs);
 
 		this->palette_dirty = false;
-		_gles_perf.gpu_batches++; /* Count resolve as a batch for diagnostics. */
+		_gles_perf.gpu_batches++;
+		_gles_perf.resolve_passes++;
+		_gles_perf.resolve_us += std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - t_resolve0).count();
+	} else {
+		_gles_perf.idle_blits++;
 	}
 
 	/* === Phase 2: Blit FBO to the actual screen. === */

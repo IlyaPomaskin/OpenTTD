@@ -119,6 +119,12 @@ struct GLESPerfCounters {
 	int encode_uploaded = 0;       ///< Encode() calls that uploaded to atlas.
 	int encode_all_transparent = 0;///< Sprites uploaded with all alpha=0.
 
+	/* MRT palette resolve */
+	int full_renders = 0;          ///< Frames with full sprite render (draw_queue non-empty).
+	int resolve_passes = 0;        ///< Frames with palette resolve pass (palette-only update).
+	int idle_blits = 0;            ///< Frames with only FBO blit (nothing changed).
+	int64_t resolve_us = 0;        ///< Total time in resolve passes.
+
 	int64_t update_windows_us = 0; ///< Total UpdateWindows time.
 	int frames = 0;                ///< Frames in this measurement period.
 };
