@@ -1466,41 +1466,6 @@ void RedrawScreenRect(int left, int top, int right, int bottom)
  */
 void DrawDirtyBlocks()
 {
-	/* When the GLES video driver is active, coalesce all dirty blocks into
-	 * a single bounding rectangle.  This issues one ViewportDoDraw call
-	 * instead of many, eliminating redundant per-call overhead (sorting,
-	 * ViewportAddLandscape, etc.) that causes FPS drops with many animated
-	 * elements on screen. */
-	if (_gles_gpu_sprites || _gles_video_active) {
-		int left = _screen.width, top = _screen.height, right = 0, bottom = 0;
-		auto block = _dirty_blocks.begin();
-		for (size_t x = 0; x < _dirty_blocks_per_row; ++x) {
-			for (size_t y = 0; y < _dirty_blocks_per_column; ++y, ++block) {
-				if (*block == 0) continue;
-				*block = 0;
-				int bx = static_cast<int>(x * DIRTY_BLOCK_WIDTH);
-				int by = static_cast<int>(y * DIRTY_BLOCK_HEIGHT);
-				left   = std::min(left, bx);
-				top    = std::min(top, by);
-				right  = std::max(right, bx + static_cast<int>(DIRTY_BLOCK_WIDTH));
-				bottom = std::max(bottom, by + static_cast<int>(DIRTY_BLOCK_HEIGHT));
-			}
-		}
-		left   = std::max(_invalid_rect.left, left);
-		top    = std::max(_invalid_rect.top, top);
-		right  = std::min(_invalid_rect.right, right);
-		bottom = std::min(_invalid_rect.bottom, bottom);
-		if (left < right && top < bottom) {
-			RedrawScreenRect(left, top, right, bottom);
-		}
-		++_dirty_block_colour;
-		_invalid_rect.left = _screen.width;
-		_invalid_rect.top = _screen.height;
-		_invalid_rect.right = 0;
-		_invalid_rect.bottom = 0;
-		return;
-	}
-
 	auto is_dirty = [](auto block) -> bool { return block != 0; };
 	auto block = _dirty_blocks.begin();
 

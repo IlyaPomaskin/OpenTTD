@@ -107,9 +107,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 		Debug(driver, 0, "GLES: SDL_Base::Start failed: {}", *error);
 		return error;
 	}
-	/* Threaded mode: Encode() stages pixel data (no GL calls), Draw()
-	 * lazily uploads to GPU on first use from the GL thread. */
-	this->is_game_threaded = true;
+	/* Single-threaded mode: GameLoop + Draw run sequentially in one thread.
+	 * Avoids mutex contention which wastes CPU time at low clock speeds. */
+	this->is_game_threaded = false;
 
 	Debug(driver, 0, "GLES: SDL_Base::Start OK, window={}", (void *)this->sdl_window);
 

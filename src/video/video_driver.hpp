@@ -332,6 +332,10 @@ protected:
 	{
 		TicToc::Tick("DrawTick");
 
+		/* Match draw rate to game tick rate — no point drawing faster
+		 * than game state updates (~37 Hz). */
+		if (_gles_gpu_sprites) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
+
 		/* If vsync, draw interval is decided by the display driver */
 		if (_video_vsync && this->uses_hardware_acceleration) return std::chrono::microseconds(0);
 		return std::chrono::microseconds(1000000 / _settings_client.gui.refresh_rate);

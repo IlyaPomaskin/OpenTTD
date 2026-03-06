@@ -27,6 +27,8 @@ public:
 
 	std::string_view GetName() const override { return "sdl-gles"; }
 
+	void MakeDirty(int left, int top, int width, int height) override;
+
 protected:
 	bool AllocateBackingStore(int w, int h, bool force = false) override;
 	void *GetVideoPointer() override;
@@ -38,6 +40,7 @@ protected:
 private:
 	void *gl_context = nullptr;
 	std::vector<uint32_t> video_buffer; ///< CPU-side video buffer for non-GPU drawing (text, UI).
+	std::vector<Rect> gles_dirty_rects; ///< Individual dirty rects for GLES (not coalesced).
 
 	std::optional<std::string_view> AllocateContext();
 	void DestroyContext();

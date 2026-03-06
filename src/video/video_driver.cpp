@@ -129,47 +129,36 @@ void VideoDriver::Tick()
 
 		auto t_lock_video = std::chrono::steady_clock::now();
 
-		/* Try to acquire the game state lock without blocking.
-		 * If the game thread is busy, skip UpdateWindows and
-		 * just repaint the previous frame. */
+		/* Block until the game thread releases the lock.
+		 * Every frame gets UpdateWindows for smooth vehicle movement. */
 		{
-			std::unique_lock<std::mutex> lock_wait(this->game_thread_wait_mutex, std::try_to_lock);
-			std::unique_lock<std::mutex> lock_state(this->game_state_mutex, std::defer_lock);
+			std::lock_guard<std::mutex> lock_wait(this->game_thread_wait_mutex);
+			std::lock_guard<std::mutex> lock_state(this->game_state_mutex);
 
 			auto t_mutex = std::chrono::steady_clock::now();
 
-			if (lock_wait.owns_lock()) lock_state.try_lock();
+			InteractiveRandom();
+			this->DrainCommandQueue();
+			while (this->PollEvent()) {}
+			this->InputLoop();
+			::InputLoop();
 
-			if (lock_state.owns_lock()) {
-				auto t_mutex_acquired = std::chrono::steady_clock::now();
+			auto t_input = std::chrono::steady_clock::now();
 
-				InteractiveRandom();
-				this->DrainCommandQueue();
-				while (this->PollEvent()) {}
-				this->InputLoop();
-				::InputLoop();
-
-				auto t_input = std::chrono::steady_clock::now();
-
-				if (_switch_mode == SM_NONE || HasModalProgress()) {
-					::UpdateWindows();
-				}
-
-				auto t_updwin = std::chrono::steady_clock::now();
-
-				this->PopulateSystemSprites();
-
-				auto t_populate = std::chrono::steady_clock::now();
-
-				auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-				_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex_acquired);
-				_gles_perf.input_poll_us += us(t_mutex_acquired, t_input);
-				_gles_perf.populate_us += us(t_updwin, t_populate);
-			} else {
-				auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-				_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex);
-				_gles_perf.mutex_skipped++;
+			if (_switch_mode == SM_NONE || HasModalProgress()) {
+				::UpdateWindows();
 			}
+
+			auto t_updwin = std::chrono::steady_clock::now();
+
+			this->PopulateSystemSprites();
+
+			auto t_populate = std::chrono::steady_clock::now();
+
+			auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+			_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex);
+			_gles_perf.input_poll_us += us(t_mutex, t_input);
+			_gles_perf.populate_us += us(t_updwin, t_populate);
 		}
 
 		auto t_pre_palette = std::chrono::steady_clock::now();

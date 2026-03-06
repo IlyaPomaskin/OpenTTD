@@ -438,7 +438,7 @@ void GLESBackend::AddDirtyRect(int left, int top, int right, int bottom)
 	this->dirty_rects.push_back(r);
 }
 
-static bool _gles_debug_dirty_overlay = true;
+static bool _gles_debug_dirty_overlay = false;
 
 void GLESBackend::DrawDebugDirtyOverlay(const std::vector<Rect> &rects)
 {

@@ -38,6 +38,7 @@
 #include "network/network_func.h"
 #include "news_func.h"
 #include "sound_func.h"
+#include "openttd.h"
 #include "timer/timer.h"
 #include "timer/timer_window.h"
 
@@ -3204,7 +3205,7 @@ void UpdateWindows()
 	 * iteration in ViewportAddLandscape on skipped frames.
 	 * Combined with partial texture upload, skipped frames have near-zero
 	 * GPU cost since no dirty region means no upload. */
-	if (_gles_gpu_sprites || _gles_video_active) {
+	if (!_gles_gpu_sprites && _gles_video_active) {
 		static int draw_frame_counter = 0;
 		if (++draw_frame_counter % 2 != 0) {
 			/* Still update viewport positions and cursor on skipped frames. */
