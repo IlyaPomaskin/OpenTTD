@@ -357,3 +357,19 @@ const GLESSpriteEntry *GLESSpriteAtlas::Lookup(GLESSpriteID key) const
 	if (it == this->sprites.end()) return nullptr;
 	return &it->second;
 }
+
+static int ComputeOccupancy(const std::vector<GLESAtlasPage> &pages)
+{
+	if (pages.empty()) return 0;
+	int64_t used = 0, total = 0;
+	for (const auto &p : pages) {
+		/* Shelf packer approximation: filled rows + partial current row. */
+		used += static_cast<int64_t>(p.cursor_y) * p.width
+		      + static_cast<int64_t>(p.cursor_x) * p.row_height;
+		total += static_cast<int64_t>(p.width) * p.height;
+	}
+	return total > 0 ? static_cast<int>(used * 100 / total) : 0;
+}
+
+int GLESSpriteAtlas::GetColourOccupancyPercent() const { return ComputeOccupancy(this->colour_pages); }
+int GLESSpriteAtlas::GetRemapOccupancyPercent() const { return ComputeOccupancy(this->remap_pages); }

@@ -130,6 +130,10 @@ public:
 	size_t GetColourPageCount() const { return colour_pages.size(); }
 	size_t GetRemapPageCount() const { return remap_pages.size(); }
 	size_t GetSpriteCount() const { return sprites.size(); }
+
+	/** Get atlas occupancy as approximate percentage (0-100). */
+	int GetColourOccupancyPercent() const;
+	int GetRemapOccupancyPercent() const;
 };
 
 #endif /* VIDEO_GLES_SPRITE_H */

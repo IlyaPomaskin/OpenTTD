@@ -126,6 +126,39 @@ struct GLESPerfCounters {
 	int64_t resolve_us = 0;        ///< Total time in resolve passes.
 
 	int64_t update_windows_us = 0; ///< Total UpdateWindows time.
+	int64_t lock_video_us = 0;     ///< LockVideoBuffer time (vsync wait).
+	int64_t mutex_wait_us = 0;     ///< game_state_mutex acquisition time.
+	int mutex_skipped = 0;         ///< Frames where mutex try_lock failed (wallpaper mode).
+	int64_t input_poll_us = 0;     ///< PollEvent + InputLoop + DrainCommandQueue time.
+	int64_t populate_us = 0;       ///< PopulateSystemSprites time.
+	int64_t check_palette_us = 0;  ///< CheckPaletteAnim time.
+	int64_t paint_full_us = 0;     ///< Full Paint() time (from Tick perspective).
+	int64_t unlock_video_us = 0;   ///< UnlockVideoBuffer time.
+	int64_t tick_total_us = 0;     ///< Total Tick() time (draw section only).
+	int64_t last_frame_us = 0;     ///< Most recent single-frame tick time (for jank detection).
+
+	/* GPU timer query (microseconds, read from previous frame) */
+	int64_t gpu_time_us = 0;       ///< Actual GPU execution time (timer query).
+
+	/* Jank detection */
+	int jank_count = 0;            ///< Frames where frame_time > 2x rolling average.
+
+	/* Game loop timing (game thread, microseconds) */
+	int64_t gameloop_us = 0;       ///< Total StateGameLoop time.
+	int64_t tileloop_us = 0;       ///< RunTileLoop time within StateGameLoop.
+	int64_t vehicletick_us = 0;    ///< CallVehicleTicks time within StateGameLoop.
+	int tileloop_count = 0;        ///< Tiles processed in RunTileLoop.
+	int gameloop_ticks = 0;        ///< Number of game ticks this period.
+
+	/* Vehicle counts (snapshot from game thread) */
+	int vehicle_trains = 0;        ///< Train vehicle count.
+	int vehicle_road = 0;          ///< Road vehicle count.
+	int vehicle_ships = 0;         ///< Ship count.
+	int vehicle_aircraft = 0;      ///< Aircraft count.
+
+	/* Viewport intelligence */
+	int vp_sprites_generated = 0;  ///< Parent sprites generated (before sort/draw).
+
 	int frames = 0;                ///< Frames in this measurement period.
 };
 

@@ -14,11 +14,41 @@
 #include "../palette_func.h"
 #include "../table/gles_shader.h"
 #include <GLES3/gl3.h>
+#include <EGL/egl.h>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <unordered_set>
 
 #include "../safeguards.h"
+
+/* GL_EXT_disjoint_timer_query function pointers. */
+using PFNGLGENQUERIESEXTPROC = void (*)(GLsizei n, GLuint *ids);
+using PFNGLDELETEQUERIESEXTPROC = void (*)(GLsizei n, const GLuint *ids);
+using PFNGLBEGINQUERYEXTPROC = void (*)(GLenum target, GLuint id);
+using PFNGLENDQUERYEXTPROC = void (*)(GLenum target);
+using PFNGLGETQUERYOBJECTUI64VEXTPROC = void (*)(GLuint id, GLenum pname, GLuint64 *params);
+using PFNGLGETQUERYOBJECTIVEXTPROC = void (*)(GLuint id, GLenum pname, GLint *params);
+
+static PFNGLGENQUERIESEXTPROC _glGenQueriesEXT = nullptr;
+static PFNGLDELETEQUERIESEXTPROC _glDeleteQueriesEXT = nullptr;
+static PFNGLBEGINQUERYEXTPROC _glBeginQueryEXT = nullptr;
+static PFNGLENDQUERYEXTPROC _glEndQueryEXT = nullptr;
+static PFNGLGETQUERYOBJECTUI64VEXTPROC _glGetQueryObjectui64vEXT = nullptr;
+static PFNGLGETQUERYOBJECTIVEXTPROC _glGetQueryObjectivEXT = nullptr;
+
+#ifndef GL_TIME_ELAPSED_EXT
+#define GL_TIME_ELAPSED_EXT 0x88BF
+#endif
+#ifndef GL_QUERY_RESULT_EXT
+#define GL_QUERY_RESULT_EXT 0x8866
+#endif
+#ifndef GL_QUERY_RESULT_AVAILABLE_EXT
+#define GL_QUERY_RESULT_AVAILABLE_EXT 0x8867
+#endif
+#ifndef GL_GPU_DISJOINT_EXT
+#define GL_GPU_DISJOINT_EXT 0x8FBB
+#endif
 
 GLESBackend *GLESBackend::instance = nullptr;
 
@@ -42,6 +72,7 @@ GLESBackend::~GLESBackend()
 	if (this->fbo_idx_tex != 0) glDeleteTextures(1, &this->fbo_idx_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 	if (this->vbo != 0) glDeleteBuffers(1, &this->vbo);
+	if (this->has_timer_query && _glDeleteQueriesEXT) _glDeleteQueriesEXT(2, this->gpu_query);
 	this->sprite_atlas.Destroy();
 }
 
@@ -227,6 +258,26 @@ bool GLESBackend::Create()
 	backend->draw_queue.reserve(4096);
 	backend->vertex_buf.reserve(MAX_BATCH_VERTICES);
 
+	/* Probe GL_EXT_disjoint_timer_query for GPU timing. */
+	const char *exts = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+	if (exts != nullptr && std::strstr(exts, "GL_EXT_disjoint_timer_query") != nullptr) {
+		_glGenQueriesEXT = reinterpret_cast<PFNGLGENQUERIESEXTPROC>(eglGetProcAddress("glGenQueriesEXT"));
+		_glDeleteQueriesEXT = reinterpret_cast<PFNGLDELETEQUERIESEXTPROC>(eglGetProcAddress("glDeleteQueriesEXT"));
+		_glBeginQueryEXT = reinterpret_cast<PFNGLBEGINQUERYEXTPROC>(eglGetProcAddress("glBeginQueryEXT"));
+		_glEndQueryEXT = reinterpret_cast<PFNGLENDQUERYEXTPROC>(eglGetProcAddress("glEndQueryEXT"));
+		_glGetQueryObjectui64vEXT = reinterpret_cast<PFNGLGETQUERYOBJECTUI64VEXTPROC>(eglGetProcAddress("glGetQueryObjectui64vEXT"));
+		_glGetQueryObjectivEXT = reinterpret_cast<PFNGLGETQUERYOBJECTIVEXTPROC>(eglGetProcAddress("glGetQueryObjectivEXT"));
+
+		if (_glGenQueriesEXT && _glBeginQueryEXT && _glEndQueryEXT && _glGetQueryObjectui64vEXT && _glGetQueryObjectivEXT) {
+			_glGenQueriesEXT(2, backend->gpu_query);
+			backend->has_timer_query = true;
+			Debug(driver, 1, "GLES: GL_EXT_disjoint_timer_query available, GPU timing enabled");
+		}
+	}
+	if (!backend->has_timer_query) {
+		Debug(driver, 1, "GLES: GL_EXT_disjoint_timer_query not available");
+	}
+
 	GLESBackend::instance = backend;
 
 	Debug(driver, 1, "GLES: Backend initialized successfully");
@@ -256,6 +307,10 @@ void GLESBackend::RecoverGPUState()
 	this->fbo_has_content = false;
 	this->last_remap_ptr = nullptr;
 	this->remap_table_idx = 0;
+	this->gpu_query[0] = 0; this->gpu_query[1] = 0;
+	this->gpu_query_idx = 0;
+	this->gpu_query_active = false;
+	/* has_timer_query stays true if extension was found; re-create query objects below. */
 
 	/* Recompile and link all shader programs in the new context. */
 	if (!this->InitShaders()) {
@@ -302,6 +357,11 @@ void GLESBackend::RecoverGPUState()
 	/* Discard stale queued state from before context loss. */
 	this->draw_queue.clear();
 	this->dirty_rects.clear();
+
+	/* Re-create timer query objects if extension was available. */
+	if (this->has_timer_query && _glGenQueriesEXT) {
+		_glGenQueriesEXT(2, this->gpu_query);
+	}
 
 	Debug(driver, 0, "GLES: RecoverGPUState: done, triggering map reload");
 }
@@ -378,6 +438,48 @@ void GLESBackend::AddDirtyRect(int left, int top, int right, int bottom)
 	this->dirty_rects.push_back(r);
 }
 
+static bool _gles_debug_dirty_overlay = true;
+
+void GLESBackend::DrawDebugDirtyOverlay(const std::vector<Rect> &rects)
+{
+	if (!_gles_debug_dirty_overlay || rects.empty()) return;
+
+	GLenum buf0 = GL_COLOR_ATTACHMENT0;
+	glDrawBuffers(1, &buf0);
+
+	glUseProgram(this->prog_solid);
+	glUniform2f(this->solid_screen_loc, static_cast<float>(this->screen_width), static_cast<float>(this->screen_height));
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	static int colour_idx = 0;
+	const float colours[][4] = {
+		{1.0f, 0.0f, 0.0f, 0.25f},
+		{0.0f, 1.0f, 0.0f, 0.25f},
+		{0.0f, 0.0f, 1.0f, 0.25f},
+		{1.0f, 1.0f, 0.0f, 0.25f},
+	};
+
+	for (const Rect &r : rects) {
+		const float *c = colours[colour_idx++ % 4];
+		float verts[] = {
+			(float)r.left, (float)r.top,   (float)r.right, (float)r.top,   (float)r.left, (float)r.bottom,
+			(float)r.right, (float)r.top,  (float)r.right, (float)r.bottom, (float)r.left, (float)r.bottom,
+		};
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(verts), verts);
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+		glUniform4f(this->solid_colour_loc, c[0], c[1], c[2], c[3]);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+		glDisableVertexAttribArray(0);
+	}
+
+	glDisable(GL_BLEND);
+
+	GLenum bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+	glDrawBuffers(2, bufs);
+}
+
 void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 {
 	this->draw_queue.push_back(cmd);
@@ -387,9 +489,31 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 	this->draw_queue.back().palette_only = (entry != nullptr && entry->palette_only);
 }
 
-void GLESBackend::Paint()
+bool GLESBackend::Paint()
 {
 	this->last_remap_ptr = nullptr;
+
+	/* GPU timer query: read previous frame's result (non-blocking). */
+	if (this->has_timer_query && this->gpu_query_active) {
+		int prev = this->gpu_query_idx ^ 1;
+		GLint available = 0;
+		_glGetQueryObjectivEXT(this->gpu_query[prev], GL_QUERY_RESULT_AVAILABLE_EXT, &available);
+		if (available) {
+			/* Check for disjoint operation (GPU clock reset). */
+			GLint disjoint = 0;
+			glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
+			if (!disjoint) {
+				GLuint64 elapsed_ns = 0;
+				_glGetQueryObjectui64vEXT(this->gpu_query[prev], GL_QUERY_RESULT_EXT, &elapsed_ns);
+				_gles_perf.gpu_time_us = static_cast<int64_t>(elapsed_ns / 1000);
+			}
+		}
+	}
+
+	/* GPU timer query: begin new query for this frame. */
+	if (this->has_timer_query) {
+		_glBeginQueryEXT(GL_TIME_ELAPSED_EXT, this->gpu_query[this->gpu_query_idx]);
+	}
 
 	/* === Phase 1: Render into persistent FBO. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
@@ -402,7 +526,9 @@ void GLESBackend::Paint()
 	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
 
 	/* Clear dirty regions in the FBO before drawing. */
+	std::vector<Rect> frame_dirty_rects;
 	if (!this->dirty_rects.empty()) {
+		frame_dirty_rects = this->dirty_rects;
 		glEnable(GL_SCISSOR_TEST);
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		for (const Rect &r : this->dirty_rects) {
@@ -469,7 +595,7 @@ void GLESBackend::Paint()
 			static int dimmis_log = 0;
 			if ((entry->colour.w < cmd.sprite_width || entry->colour.h < cmd.sprite_height) && dimmis_log < 30) {
 				dimmis_log++;
-				Debug(driver, 0, "GLES: DIM-SMALL key={:#x} cmd=({},{}) atlas=({},{}) skip=({},{}) vis=({},{}) mode={}",
+				Debug(driver, 3, "GLES: DIM-SMALL key={:#x} cmd=({},{}) atlas=({},{}) skip=({},{}) vis=({},{}) mode={}",
 				      cmd.sprite_key, cmd.sprite_width, cmd.sprite_height,
 				      static_cast<int>(entry->colour.w), static_cast<int>(entry->colour.h),
 				      cmd.skip_left, cmd.skip_top, cmd.width, cmd.height,
@@ -564,7 +690,7 @@ void GLESBackend::Paint()
 			float total_v = uv_skip_t + uv_h;
 			if ((total_u > 1.01f || total_v > 1.01f) && uv_log_count < 30) {
 				uv_log_count++;
-				Debug(driver, 0, "GLES: UV overflow key={:#x} skip=({},{}) vis=({},{}) atlas=({},{}) cmd_sprite=({},{}) total_uv=({:.3f},{:.3f})",
+				Debug(driver, 3, "GLES: UV overflow key={:#x} skip=({},{}) vis=({},{}) atlas=({},{}) cmd_sprite=({},{}) total_uv=({:.3f},{:.3f})",
 				      cmd.sprite_key, cmd.skip_left, cmd.skip_top,
 				      cmd.width, cmd.height,
 				      entry->colour.w, entry->colour.h,
@@ -602,7 +728,7 @@ void GLESBackend::Paint()
 
 	/* Log unique sprite set on zoom change to verify GPU scaling reuses same atlas entries. */
 	if (frame_zoom != ZoomLevel::End && frame_zoom != last_logged_zoom) {
-		Debug(driver, 0, "GLES SCALE: zoom={} cmds={} unique_sprites={} unique_keys={} scaled={} fallback={}",
+		Debug(driver, 3, "GLES SCALE: zoom={} cmds={} unique_sprites={} unique_keys={} scaled={} fallback={}",
 		      to_underlying(frame_zoom), this->draw_queue.size(),
 		      unique_base_sprites.size(), unique_keys_used.size(),
 		      _gles_perf.gpu_scaled_hits, _gles_perf.gpu_scaled_fallbacks);
@@ -796,7 +922,16 @@ void GLESBackend::Paint()
 			std::chrono::steady_clock::now() - t_resolve0).count();
 	} else {
 		_gles_perf.idle_blits++;
+		/* Nothing changed — skip FBO blit and swap entirely. */
+		if (this->has_timer_query) {
+			_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+			this->gpu_query_idx ^= 1;
+			this->gpu_query_active = true;
+		}
+		return false;
 	}
+
+	this->DrawDebugDirtyOverlay(frame_dirty_rects);
 
 	/* === Phase 2: Blit FBO to the actual screen. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -833,4 +968,12 @@ void GLESBackend::Paint()
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
+
+	/* GPU timer query: end this frame's query. */
+	if (this->has_timer_query) {
+		_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+		this->gpu_query_idx ^= 1;
+		this->gpu_query_active = true;
+	}
+	return true;
 }

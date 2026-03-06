@@ -35,6 +35,7 @@
 #include "company_gui.h"
 #include "saveload/saveload.h"
 #include "framerate_type.h"
+#include "gfx_func.h"
 #include "landscape_cmd.h"
 #include "terraform_cmd.h"
 #include "station_func.h"
@@ -839,6 +840,8 @@ void RunTileLoop()
 	}
 
 	_cur_tileloop_tile = tile;
+
+	_gles_perf.tileloop_count += 1 << (Map::LogX() + Map::LogY() - TILE_UPDATE_FREQUENCY_LOG);
 }
 
 void InitializeLandscape()

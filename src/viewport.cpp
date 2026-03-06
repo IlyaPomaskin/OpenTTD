@@ -366,6 +366,8 @@ static void SetViewportPosition(Window *w, int x, int y)
 
 	if (old_top == 0 && old_left == 0) return;
 
+	Debug(driver, 0, "SetViewportPosition: delta=({},{}) vp={}x{}", old_left, old_top, vp.width, vp.height);
+
 	_vp_move_offs.x = old_left;
 	_vp_move_offs.y = old_top;
 
@@ -1877,6 +1879,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		_gles_perf.vp_tile_sprites += static_cast<int>(_vd.tile_sprites_to_draw.size());
 		_gles_perf.vp_sort_us += us(_t3, _t4);
 		_gles_perf.vp_draw_us += us(_t4, _t5);
+		_gles_perf.vp_sprites_generated += static_cast<int>(_vd.parent_sprites_to_draw.size());
 		_gles_perf.vp_parent_sprites += static_cast<int>(_vd.parent_sprites_to_sort.size());
 		_gles_perf.vp_child_sprites += static_cast<int>(_vd.child_screen_sprites_to_draw.size());
 		_gles_perf.vp_area_w = std::max(_gles_perf.vp_area_w, static_cast<int>(_vd.dpi.width));

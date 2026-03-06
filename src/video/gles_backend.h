@@ -108,12 +108,19 @@ private:
 	std::vector<GLESVertex> vertex_buf;      ///< Temporary vertex assembly buffer.
 	std::vector<Rect> dirty_rects;           ///< Dirty regions to clear in FBO before drawing.
 
+	/* GPU timer query (GL_EXT_disjoint_timer_query) */
+	GLuint gpu_query[2] = {0, 0};   ///< Double-buffered timer query objects.
+	int gpu_query_idx = 0;           ///< Current query index (ping-pong).
+	bool has_timer_query = false;    ///< GL_EXT_disjoint_timer_query available.
+	bool gpu_query_active = false;   ///< A query is currently in-flight.
+
 	GLESBackend();
 	~GLESBackend();
 
 	bool InitShaders();
 	GLuint CompileShader(GLenum type, const char *source);
 	GLuint LinkProgram(GLuint vert, GLuint frag);
+	void DrawDebugDirtyOverlay(const std::vector<Rect> &rects);
 
 public:
 	static GLESBackend *Get() { return instance; }
@@ -132,8 +139,10 @@ public:
 	/** Add a dirty rectangle that needs clearing in the FBO before drawing. */
 	void AddDirtyRect(int left, int top, int right, int bottom);
 
-	/** Flush all queued draw commands as batched GL draw calls. */
-	void Paint();
+	/** Flush all queued draw commands as batched GL draw calls.
+	 *  @return true if something was rendered (full render or resolve pass),
+	 *          false if idle (nothing changed, no need to swap). */
+	bool Paint();
 
 	/** Recover all GPU state after EGL context loss (SDL_RENDER_DEVICE_RESET).
 	 *  Old GL handles are silently abandoned (freed by OS when context is destroyed).
@@ -143,6 +152,9 @@ public:
 
 	/** Mark palette as dirty, triggering a resolve pass in Paint(). */
 	void SetPaletteDirty(bool dirty) { this->palette_dirty = dirty; }
+
+	/** Whether FBO has valid content from at least one full render. */
+	bool HasFBOContent() const { return this->fbo_has_content; }
 
 	/** Clear the draw queue without rendering. */
 	void ClearQueue() { draw_queue.clear(); }

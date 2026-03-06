@@ -85,9 +85,12 @@
 #include "timer/timer_game_tick.h"
 #include "social_integration.h"
 #include "core/string_consumer.hpp"
+#include "gfx_func.h"
+#include "vehicle_base.h"
 
 #include "linkgraph/linkgraphschedule.h"
 
+#include <chrono>
 #include <system_error>
 
 #include "table/strings.h"
@@ -1222,16 +1225,24 @@ void StateGameLoop()
 	PerformanceMeasurer framerate(PFE_GAMELOOP);
 	PerformanceAccumulator::Reset(PFE_GL_LANDSCAPE);
 
+	auto gl_t0 = std::chrono::steady_clock::now();
+
 	if (_game_mode == GM_EDITOR) {
 		BasePersistentStorageArray::SwitchMode(PSM_ENTER_GAMELOOP);
 		RunTileLoop();
+		auto gl_t1 = std::chrono::steady_clock::now();
 		CallVehicleTicks();
+		auto gl_t2 = std::chrono::steady_clock::now();
 		CallLandscapeTick();
 		BasePersistentStorageArray::SwitchMode(PSM_LEAVE_GAMELOOP);
 		UpdateLandscapingLimits();
 
 		CallWindowGameTickEvent();
 		NewsLoop();
+
+		auto gl_us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+		_gles_perf.tileloop_us += gl_us(gl_t0, gl_t1);
+		_gles_perf.vehicletick_us += gl_us(gl_t1, gl_t2);
 	} else {
 		if (_debug_desync_level > 2 && TimerGameEconomy::date_fract == 0 && (TimerGameEconomy::date.base() & 0x1F) == 0) {
 			/* Save the desync savegame if needed. */
@@ -1253,7 +1264,9 @@ void StateGameLoop()
 		TimerManager<TimerGameEconomy>::Elapsed({});
 		TimerManager<TimerGameTick>::Elapsed(1);
 		RunTileLoop();
+		auto gl_t1 = std::chrono::steady_clock::now();
 		CallVehicleTicks();
+		auto gl_t2 = std::chrono::steady_clock::now();
 		CallLandscapeTick();
 		BasePersistentStorageArray::SwitchMode(PSM_LEAVE_GAMELOOP);
 
@@ -1269,7 +1282,32 @@ void StateGameLoop()
 		CallWindowGameTickEvent();
 		NewsLoop();
 		cur_company.Restore();
+
+		auto gl_us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+		_gles_perf.tileloop_us += gl_us(gl_t0, gl_t1);
+		_gles_perf.vehicletick_us += gl_us(gl_t1, gl_t2);
 	}
+
+	auto gl_t_end = std::chrono::steady_clock::now();
+	_gles_perf.gameloop_us += std::chrono::duration_cast<std::chrono::microseconds>(gl_t_end - gl_t0).count();
+	_gles_perf.gameloop_ticks++;
+
+	/* Snapshot vehicle counts (game thread owns this data). */
+	int v_train = 0, v_road = 0, v_ship = 0, v_aircraft = 0;
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (!v->IsPrimaryVehicle()) continue;
+		switch (v->type) {
+			case VEH_TRAIN:    v_train++; break;
+			case VEH_ROAD:     v_road++; break;
+			case VEH_SHIP:     v_ship++; break;
+			case VEH_AIRCRAFT: v_aircraft++; break;
+			default: break;
+		}
+	}
+	_gles_perf.vehicle_trains = v_train;
+	_gles_perf.vehicle_road = v_road;
+	_gles_perf.vehicle_ships = v_ship;
+	_gles_perf.vehicle_aircraft = v_aircraft;
 
 	assert(IsLocalCompany());
 }

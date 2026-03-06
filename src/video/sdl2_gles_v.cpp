@@ -9,6 +9,7 @@
 
 #include "../stdafx.h"
 #include "../openttd.h"
+#include "../core/geometry_func.hpp"
 #include "../gfx_func.h"
 #include "../spritecache.h"
 #include "../blitter/factory.hpp"
@@ -24,7 +25,9 @@
 #include <SDL_syswm.h>
 #include <GLES3/gl3.h>
 #include <EGL/egl.h>
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #ifdef __ANDROID__
 #include <jni.h>
 #endif
@@ -188,6 +191,13 @@ void *VideoDriver_SDL_GLES::GetVideoPointer()
 	return this->video_buffer.data();
 }
 
+void VideoDriver_SDL_GLES::MakeDirty(int left, int top, int width, int height)
+{
+	Rect r = {left, top, left + width, top + height};
+	this->gles_dirty_rects.push_back(r);
+	this->dirty_rect = BoundingRect(this->dirty_rect, r);
+}
+
 void VideoDriver_SDL_GLES::CheckPaletteAnim()
 {
 	if (!CopyPalette(this->local_palette)) return;
@@ -238,7 +248,7 @@ void VideoDriver_SDL_GLES::Paint()
 		EGLDisplay dpy = eglGetCurrentDisplay();
 		EGLSurface srf = eglGetCurrentSurface(EGL_DRAW);
 		EGLint err = eglGetError();
-		Debug(driver, 0, "GLES ctx: frame={} context={} display={} surface={} egl_err=0x{:04X}",
+		Debug(driver, 3, "GLES ctx: frame={} context={} display={} surface={} egl_err=0x{:04X}",
 			paint_count, (void *)ctx, (void *)dpy, (void *)srf, err);
 		if (ctx == EGL_NO_CONTEXT) {
 			Debug(driver, 0, "GLES ctx: WARNING - EGL_NO_CONTEXT! Context has been lost.");
@@ -247,15 +257,35 @@ void VideoDriver_SDL_GLES::Paint()
 
 	static int fps_frames = 0;
 	static auto fps_last = std::chrono::steady_clock::now();
+
+	/* Frame time ring buffer for jank detection and statistics (persists across 500ms windows). */
+	static int64_t ft_ring[128] = {};
+	static int ft_idx = 0, ft_count = 0;
+
 	fps_frames++;
 	auto fps_now = std::chrono::steady_clock::now();
+
+	/* Record per-frame time and detect jank. */
+	if (_gles_perf.last_frame_us > 0) {
+		ft_ring[ft_idx] = _gles_perf.last_frame_us;
+		ft_idx = (ft_idx + 1) % 128;
+		ft_count = std::min(ft_count + 1, 128);
+
+		if (ft_count > 4) {
+			int64_t sum = 0;
+			for (int i = 0; i < ft_count; i++) sum += ft_ring[i];
+			int64_t avg = sum / ft_count;
+			if (_gles_perf.last_frame_us > avg * 2) _gles_perf.jank_count++;
+		}
+	}
+
 	if (fps_now - fps_last >= std::chrono::milliseconds(500)) {
 		auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(fps_now - fps_last).count();
 		int fps = (elapsed_ms > 0) ? static_cast<int>(fps_frames * 1000 / elapsed_ms) : 0;
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | blit: draws={} gpu_cmds={} miss={} offscr={} | gpu: batches={} reup={} dimmis={} zoom=[{}/{}/{}/{}/{}/{}] scale={}/{} paint={}us swap={}us | enc: total={} up={} transp={} | atlas: cpages={} rpages={} gpu={} reg={} new={} repacked={}",
+		Debug(driver, 0, "PERF fps={} frames={} | blit_calls={} gpu_cmds={} atlas_miss={} offscreen_skip={} | gl_batches={} reuploaded={} dim_mismatch={} zoom=[{}/{}/{}/{}/{}/{}] scaled_hits={} scaled_fallback={} gpu_paint={}us egl_swap={}us | encode: total={} uploaded={} all_transparent={} | atlas: color_pages={} remap_pages={} gpu_entries={} registered={} new_sprites={} repacked={}",
 			fps, p.frames,
 			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
 			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
@@ -266,12 +296,63 @@ void VideoDriver_SDL_GLES::Paint()
 			atlas.GetColourPageCount(), atlas.GetRemapPageCount(),
 			atlas.GetSpriteCount(), GetRegisteredSpriteCount(),
 			p.gpu_sprites_new, p.gpu_sprites_repacked);
-		Debug(driver, 0, "  VP land={}us vehi={}us signs={}us sort={}us draw={}us updwin={}us | tiles={} parents={} children={} calls={} area={}x{} | mrt: full={} resolve={} idle={} resolve={}us",
+		Debug(driver, 0, "  VP landscape={}us vehicles={}us ground_sprites={}us sprite_sort={}us sprite_draw={}us update_windows={}us | tiles_iterated={} parent_sprites={} child_sprites={} sprites_generated={} vp_draw_calls={} viewport={}x{} | mrt: full_renders={} resolve_only={} idle_blit={} resolve={}us",
 			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
 			p.vp_sort_us / n, p.vp_draw_us / n, p.update_windows_us / n,
 			p.vp_tiles_iterated / n, p.vp_parent_sprites / n, p.vp_child_sprites / n,
+			p.vp_sprites_generated / n,
 			p.vp_calls, p.vp_area_w, p.vp_area_h,
 			p.full_renders, p.resolve_passes, p.idle_blits, p.resolve_us / n);
+		auto tick_accounted = p.lock_video_us + p.mutex_wait_us + p.input_poll_us + p.update_windows_us + p.populate_us + p.check_palette_us + p.paint_full_us + p.unlock_video_us;
+		Debug(driver, 0, "  TICK total={}us | lock_video={}us game_mutex={}us(skipped={}) input_poll={}us update_windows={}us populate_sprites={}us check_palette={}us paint={}us(gpu_render={}us egl_swap={}us) unlock_video={}us unaccounted={}us",
+			p.tick_total_us / n,
+			p.lock_video_us / n, p.mutex_wait_us / n, p.mutex_skipped, p.input_poll_us / n,
+			p.update_windows_us / n, p.populate_us / n, p.check_palette_us / n,
+			p.paint_full_us / n, p.gpu_paint_us / n, p.swap_us / n, p.unlock_video_us / n,
+			(p.tick_total_us - tick_accounted) / n);
+
+		/* === 4th PERF line: extended metrics === */
+		{
+			/* Frame time statistics from ring buffer. */
+			int64_t ft_sum = 0;
+			for (int i = 0; i < ft_count; i++) ft_sum += ft_ring[i];
+			int64_t ft_avg = ft_count > 0 ? ft_sum / ft_count : 0;
+			int64_t ft_var = 0;
+			for (int i = 0; i < ft_count; i++) {
+				int64_t d = ft_ring[i] - ft_avg;
+				ft_var += d * d;
+			}
+			ft_var = ft_count > 1 ? ft_var / (ft_count - 1) : 0;
+			int ft_stddev = static_cast<int>(std::sqrt(static_cast<double>(ft_var)));
+
+			/* Percentiles from sorted copy. */
+			int64_t ft_sorted[128];
+			std::copy(ft_ring, ft_ring + ft_count, ft_sorted);
+			std::sort(ft_sorted, ft_sorted + ft_count);
+			int ft_p95 = ft_count > 0 ? static_cast<int>(ft_sorted[ft_count * 95 / 100]) : 0;
+			int ft_p99 = ft_count > 0 ? static_cast<int>(ft_sorted[ft_count * 99 / 100]) : 0;
+
+			/* Derived metrics. */
+			int screen_area = GLESBackend::Get()->GetScreenWidth() * GLESBackend::Get()->GetScreenHeight();
+			float overdraw = (screen_area > 0 && n > 0) ? static_cast<float>(p.blit_draw_pixels) / (static_cast<float>(screen_area) * n) : 0;
+			float batch_eff = p.gpu_batches > 0 ? static_cast<float>(p.gpu_draw_cmds) / p.gpu_batches : 0;
+			int atlas_lookups = p.blit_draw_calls;
+			int atlas_misses = p.gpu_sprites_missing + p.gpu_sprites_new;
+			float cache_hit = atlas_lookups > 0 ? (1.0f - static_cast<float>(atlas_misses) / atlas_lookups) * 100.0f : 100.0f;
+
+			Debug(driver, 0, "  EXTRA gpu_actual={}us | overdraw={:.1f}x batch_eff={:.1f} cache_hit={:.1f}% | atlas_occ: color={}% remap={}% | jank={} stddev={}us p95={}us p99={}us | gameloop={}us tileloop={}us({}tiles) vehtick={}us ticks={} | vehicles: T={} R={} S={} A={}",
+				p.gpu_time_us,
+				overdraw, batch_eff, cache_hit,
+				atlas.GetColourOccupancyPercent(), atlas.GetRemapOccupancyPercent(),
+				p.jank_count, ft_stddev, ft_p95, ft_p99,
+				p.gameloop_us / std::max(1, p.gameloop_ticks),
+				p.tileloop_us / std::max(1, p.gameloop_ticks),
+				p.tileloop_count,
+				p.vehicletick_us / std::max(1, p.gameloop_ticks),
+				p.gameloop_ticks,
+				p.vehicle_trains, p.vehicle_road, p.vehicle_ships, p.vehicle_aircraft);
+		}
+
 		p = {};  /* Reset counters. */
 		fps_frames = 0;
 		fps_last = fps_now;
@@ -284,11 +365,12 @@ void VideoDriver_SDL_GLES::Paint()
 		this->local_palette.count_dirty = 0;
 	}
 
-	/* Forward dirty rectangles to the GLES backend for selective FBO clearing. */
-	if (_gles_gpu_sprites && this->dirty_rect.right > this->dirty_rect.left) {
-		GLESBackend::Get()->AddDirtyRect(
-			this->dirty_rect.left, this->dirty_rect.top,
-			this->dirty_rect.right, this->dirty_rect.bottom);
+	/* Forward individual dirty rectangles to the GLES backend. */
+	if (_gles_gpu_sprites) {
+		for (const Rect &r : this->gles_dirty_rects) {
+			GLESBackend::Get()->AddDirtyRect(r.left, r.top, r.right, r.bottom);
+		}
+		this->gles_dirty_rects.clear();
 	}
 
 	this->dirty_rect = {};
@@ -297,10 +379,12 @@ void VideoDriver_SDL_GLES::Paint()
 	auto t_upload1 = t_upload0;
 
 	_gles_perf.gpu_draw_cmds += static_cast<int>(GLESBackend::Get()->GetDrawQueueSize());
-	GLESBackend::Get()->Paint();
+	bool did_render = GLESBackend::Get()->Paint();
 	auto t_paint1 = std::chrono::steady_clock::now();
 
-	SDL_GL_SwapWindow(this->sdl_window);
+	if (did_render) {
+		SDL_GL_SwapWindow(this->sdl_window);
+	}
 	auto t_swap1 = std::chrono::steady_clock::now();
 
 	/* Accumulate GPU timing. */

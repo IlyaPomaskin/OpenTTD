@@ -20,7 +20,9 @@
 #include "../rev.h"
 #include "../thread.h"
 #include "../window_func.h"
+#include "../openttd.h"
 #include "video_driver.hpp"
+#include "gles_backend.h"
 
 #include "../safeguards.h"
 
@@ -120,46 +122,84 @@ void VideoDriver::Tick()
 		/* Avoid next_draw_tick getting behind more and more if it cannot keep up. */
 		if (this->next_draw_tick < now - ALLOWED_DRIFT * this->GetDrawInterval()) this->next_draw_tick = now;
 
+		auto t_tick0 = std::chrono::steady_clock::now();
+
 		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
 		this->LockVideoBuffer();
 
+		auto t_lock_video = std::chrono::steady_clock::now();
+
+		/* Try to acquire the game state lock without blocking.
+		 * If the game thread is busy, skip UpdateWindows and
+		 * just repaint the previous frame. */
 		{
-			/* Tell the game-thread to stop so we can have a go. */
-			std::lock_guard<std::mutex> lock_wait(this->game_thread_wait_mutex);
-			std::lock_guard<std::mutex> lock_state(this->game_state_mutex);
+			std::unique_lock<std::mutex> lock_wait(this->game_thread_wait_mutex, std::try_to_lock);
+			std::unique_lock<std::mutex> lock_state(this->game_state_mutex, std::defer_lock);
 
-			/* Keep the interactive randomizer a bit more random by requesting
-			 * new values when-ever we can. */
-			InteractiveRandom();
+			auto t_mutex = std::chrono::steady_clock::now();
 
-			this->DrainCommandQueue();
+			if (lock_wait.owns_lock()) lock_state.try_lock();
 
-			while (this->PollEvent()) {}
-			this->InputLoop();
+			if (lock_state.owns_lock()) {
+				auto t_mutex_acquired = std::chrono::steady_clock::now();
 
-			/* Check if the fast-forward button is still pressed. */
-			if (fast_forward_key_pressed && !_networking && _game_mode != GM_MENU) {
-				ChangeGameSpeed(true);
-				this->fast_forward_via_key = true;
-			} else if (this->fast_forward_via_key) {
-				ChangeGameSpeed(false);
-				this->fast_forward_via_key = false;
+				InteractiveRandom();
+				this->DrainCommandQueue();
+				while (this->PollEvent()) {}
+				this->InputLoop();
+				::InputLoop();
+
+				auto t_input = std::chrono::steady_clock::now();
+
+				if (_switch_mode == SM_NONE || HasModalProgress()) {
+					::UpdateWindows();
+				}
+
+				auto t_updwin = std::chrono::steady_clock::now();
+
+				this->PopulateSystemSprites();
+
+				auto t_populate = std::chrono::steady_clock::now();
+
+				auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+				_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex_acquired);
+				_gles_perf.input_poll_us += us(t_mutex_acquired, t_input);
+				_gles_perf.populate_us += us(t_updwin, t_populate);
+			} else {
+				auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+				_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex);
+				_gles_perf.mutex_skipped++;
 			}
-
-			::InputLoop();
-
-			/* Prevent drawing when switching mode, as windows can be removed when they should still appear. */
-			if (_game_mode == GM_BOOTSTRAP || _switch_mode == SM_NONE || HasModalProgress()) {
-				::UpdateWindows();
-			}
-
-			this->PopulateSystemSprites();
 		}
 
+		auto t_pre_palette = std::chrono::steady_clock::now();
 		this->CheckPaletteAnim();
+		auto t_post_palette = std::chrono::steady_clock::now();
 		this->Paint();
 
+		auto t_post_paint = std::chrono::steady_clock::now();
+
 		this->UnlockVideoBuffer();
+		auto t_tick_end = std::chrono::steady_clock::now();
+
+		auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+		_gles_perf.lock_video_us += us(t_tick0, t_lock_video);
+		_gles_perf.check_palette_us += us(t_pre_palette, t_post_palette);
+		_gles_perf.paint_full_us += us(t_post_palette, t_post_paint);
+		_gles_perf.unlock_video_us += us(t_post_paint, t_tick_end);
+		_gles_perf.tick_total_us += us(t_tick0, t_tick_end);
+		_gles_perf.last_frame_us = us(t_tick0, t_tick_end);
+
+		/* Log individual slow frames for stutter diagnosis. */
+		if (_gles_perf.last_frame_us > 20000) {
+			Debug(driver, 0, "  SLOW frame={}us | lock_video={}us mutex+updwin={}us palette={}us paint={}us unlock={}us",
+				_gles_perf.last_frame_us,
+				us(t_tick0, t_lock_video),
+				us(t_lock_video, t_pre_palette),
+				us(t_pre_palette, t_post_palette),
+				us(t_post_palette, t_post_paint),
+				us(t_post_paint, t_tick_end));
+		}
 
 		/* Wait till the first successful drawing tick before marking the driver as operational. */
 		static bool first_draw_tick = true;
