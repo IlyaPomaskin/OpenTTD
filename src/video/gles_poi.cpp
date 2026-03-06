@@ -482,19 +482,21 @@ void PrepareBackground()
 		return;
 	}
 
-	/* After cycling through all POIs on this map, rotate to next title map.
-	 * Skip rotation if user is manually browsing with hotkeys. */
+	_poi_manual_browse = false;
+
+	/* Advance to next POI first, then check if we wrapped around. */
+	if (!_gles_poi_list.empty()) {
+		_gles_poi_idx = (_gles_poi_idx + 1) % (int)_gles_poi_list.size();
+	}
+
+	/* Wrapped back to POI[0] — all POIs shown, rotate to next title map. */
 	if (!_poi_manual_browse && _gles_poi_idx == 0 && !_gles_poi_list.empty() &&
 			_switch_mode == SM_NONE && CanRotateTitleMap()) {
 		Debug(driver, 0, "GLES PrepareBackground: all POIs shown, rotating to next title map");
 		RequestNextTitleMap();
 		return;
 	}
-	_poi_manual_browse = false;
 
-	if (!_gles_poi_list.empty()) {
-		_gles_poi_idx = (_gles_poi_idx + 1) % (int)_gles_poi_list.size();
-	}
 	ShowCurrentPOI();
 }
 
