@@ -4,14 +4,11 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.Handler;
-import android.os.Looper;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceHolder;
-import android.widget.Toast;
 
 import org.libsdl.app.SDL;
 import org.libsdl.app.SDLActivity;
@@ -20,7 +17,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String TAG = "OpenTTDWallpaper";
     private static final String ACTION_JUMP_POI = "org.openttd.android.JUMP_POI";
     private static final String ACTION_SWITCH_MAP = "org.openttd.android.SWITCH_MAP";
-    private static final String ACTION_TOAST = "org.openttd.android.TOAST";
 
     /** Jump camera to a random map waypoint and mark the area dirty for asset pre-loading. */
     private static native void nativePrepareBackground();
@@ -31,7 +27,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
-    private BroadcastReceiver mToastReceiver;
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -63,18 +58,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
         };
         registerReceiver(mSwitchMapReceiver, new IntentFilter(ACTION_SWITCH_MAP),
             Context.RECEIVER_EXPORTED);
-        mToastReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                final String msg = intent.getStringExtra("msg") != null
-                    ? intent.getStringExtra("msg") : "";
-                Log.i(TAG, "TOAST broadcast: " + msg);
-                new Handler(Looper.getMainLooper()).post(() ->
-                    Toast.makeText(context, msg, Toast.LENGTH_SHORT).show());
-            }
-        };
-        registerReceiver(mToastReceiver, new IntentFilter(ACTION_TOAST),
-            Context.RECEIVER_EXPORTED);
     }
 
     @Override
@@ -86,10 +69,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mSwitchMapReceiver != null) {
             unregisterReceiver(mSwitchMapReceiver);
             mSwitchMapReceiver = null;
-        }
-        if (mToastReceiver != null) {
-            unregisterReceiver(mToastReceiver);
-            mToastReceiver = null;
         }
         super.onDestroy();
     }

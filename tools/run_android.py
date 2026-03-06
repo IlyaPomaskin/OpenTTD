@@ -65,9 +65,14 @@ def broadcast(action, extras=""):
     adb(f"shell am broadcast -a {PACKAGE}.{action} {extras}")
 
 
-def toast(msg):
-    """Show a toast message on the device via app broadcast."""
-    broadcast("TOAST", f'--es msg "{msg}"')
+def vibrate(count=1):
+    """Vibrate the device. count=1 single 500ms, count=2 double 300ms pulses."""
+    if count <= 1:
+        adb("shell cmd vibrator_manager synced -d 1000 oneshot 500 255")
+    else:
+        adb("shell cmd vibrator_manager synced -d 500 oneshot 300 255")
+        time.sleep(0.1)
+        adb("shell cmd vibrator_manager synced -d 500 oneshot 300 255")
 
 
 def get_pid():
@@ -186,12 +191,12 @@ def cmd_full(dur=5, cycles=3):
         return
 
     adb("logcat -c")
-    toast("monitoring start")
+    vibrate(1)
 
     # Start simpleperf in background for the entire measurement period.
     total_dur = dur * cycles + cycles * 2  # extra seconds for map switch overhead
-    print(f"==> Starting simpleperf for ~{total_dur}s on PID {pid}...", flush=True)
-    sh(f"adb shell simpleperf record -p {pid} --duration {total_dur} "
+    print(f"==> Starting simpleperf for ~{total_dur}s...", flush=True)
+    sh(f"adb shell simpleperf record --app {PACKAGE} --duration {total_dur} "
        f"-o {DEVICE_PERF_DATA} -g --no-dump-symbols &")
 
     for i in range(1, cycles + 1):
@@ -211,7 +216,7 @@ def cmd_full(dur=5, cycles=3):
     adb(f"pull {DEVICE_PERF_DATA} {perf_file}")
     adb(f"shell rm -f {DEVICE_PERF_DATA}")
 
-    toast("monitoring done")
+    vibrate(2)
 
     print("--- PERF ---")
     print(logcat_dump("PERF "))
