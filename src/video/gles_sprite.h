@@ -10,7 +10,7 @@
 #ifndef VIDEO_GLES_SPRITE_H
 #define VIDEO_GLES_SPRITE_H
 
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <vector>
 #include <unordered_map>
 #include <atomic>
@@ -63,7 +63,7 @@ struct GLESAtlasPage {
 	uint16_t cursor_x = 0;    ///< Current packing cursor X.
 	uint16_t cursor_y = 0;    ///< Current packing cursor Y.
 	uint16_t row_height = 0;  ///< Height of the current shelf row.
-	bool is_luminance;        ///< True for remap atlas (GL_LUMINANCE).
+	bool is_luminance;        ///< True for remap atlas (R8/GL_RED).
 };
 
 /** Manages sprite atlas textures for the GLES backend. */

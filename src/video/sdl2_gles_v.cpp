@@ -22,7 +22,7 @@
 #include "gles_poi.h"
 #include <SDL.h>
 #include <SDL_syswm.h>
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <EGL/egl.h>
 #include <atomic>
 #ifdef __ANDROID__
@@ -60,7 +60,7 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 	SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
 	this->gl_context = SDL_GL_CreateContext(this->sdl_window);
@@ -185,11 +185,10 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 	if (!CopyPalette(this->local_palette)) return;
 
 	if (_gles_gpu_sprites) {
-		/* GPU sprites: mark all dirty blocks so DrawDirtyBlocks() re-renders
-		 * the full viewport next frame with new palette colours.  Do NOT call
-		 * MakeDirty() here — it would clear the FBO this frame while sprites
-		 * are only queued next frame, causing a black flash. */
-		MarkWholeScreenDirty();
+		/* GPU sprites with MRT: palette change is handled by the resolve pass
+		 * in Paint(). No need for MarkWholeScreenDirty() — the FBO already
+		 * has valid sprite content and palette index data in attachment 1.
+		 * Just let Paint() detect the dirty palette and run a cheap resolve. */
 		return;
 	}
 	this->MakeDirty(0, 0, _screen.width, _screen.height);
@@ -272,6 +271,7 @@ void VideoDriver_SDL_GLES::Paint()
 	if (this->local_palette.count_dirty != 0) {
 		GLESBackend::Get()->UpdatePalette(this->local_palette.palette,
 			this->local_palette.first_dirty, this->local_palette.count_dirty);
+		GLESBackend::Get()->SetPaletteDirty(true);
 		this->local_palette.count_dirty = 0;
 	}
 

@@ -13,7 +13,7 @@
 #include "../gfx_type.h"
 #include "../blitter/base.hpp"
 #include "gles_sprite.h"
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <vector>
 
 /** A single draw command recorded by the GLES blitter. */
@@ -51,6 +51,7 @@ private:
 	GLuint prog_transparent = 0; ///< Shader program for transparent sprites.
 	GLuint prog_palette = 0;     ///< Shader program for palette-only sprites (M → palette lookup).
 	GLuint prog_solid = 0;       ///< Shader program for debug solid colour.
+	GLuint prog_resolve = 0;     ///< Shader program for palette resolve (index -> RGBA).
 
 	/* Normal program uniforms. */
 	GLint normal_screen_loc = -1;
@@ -81,6 +82,11 @@ private:
 	GLint solid_screen_loc = -1;
 	GLint solid_colour_loc = -1;
 
+	/* Resolve program uniforms. */
+	GLint resolve_screen_loc = -1;
+	GLint resolve_idx_tex_loc = -1;
+	GLint resolve_palette_tex_loc = -1;
+
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
 	GLuint remap_table_tex[2] = {0, 0}; ///< Double-buffered 256x1 remap table textures.
 	int remap_table_idx = 0;            ///< Current remap table texture index (0 or 1).
@@ -88,7 +94,10 @@ private:
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
 
 	GLuint fbo = 0;              ///< Persistent framebuffer object for accumulation.
-	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO.
+	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO (attachment 0).
+	GLuint fbo_idx_tex = 0;      ///< Palette index attachment for the FBO (attachment 1, R8).
+	bool palette_dirty = false;  ///< Palette texture updated, needs resolve pass.
+	bool fbo_has_content = false; ///< FBO has valid content from a full render.
 
 	int screen_width = 0;
 	int screen_height = 0;
@@ -131,6 +140,9 @@ public:
 	 *  New objects are created in the replacement context. Sprites are reloaded
 	 *  from scratch via a map reload triggered by _switch_mode. */
 	void RecoverGPUState();
+
+	/** Mark palette as dirty, triggering a resolve pass in Paint(). */
+	void SetPaletteDirty(bool dirty) { this->palette_dirty = dirty; }
 
 	/** Clear the draw queue without rendering. */
 	void ClearQueue() { draw_queue.clear(); }

@@ -10,7 +10,7 @@
 #include "../stdafx.h"
 #include "gles_sprite.h"
 #include "../debug.h"
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <algorithm>
 
 #include "../safeguards.h"
@@ -22,7 +22,7 @@ void GLESSpriteAtlas::Init()
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
 	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
 
-	/* Tightly-packed rows for all texture uploads (critical for GL_LUMINANCE
+	/* Tightly-packed rows for all texture uploads (critical for GL_RED/R8
 	 * where row byte count may not be a multiple of the default alignment 4). */
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
@@ -103,8 +103,8 @@ GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, boo
 
 	/* Allocate texture storage with null data. */
 	if (luminance) {
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, page.width, page.height, 0,
-		             GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, page.width, page.height, 0,
+		             GL_RED, GL_UNSIGNED_BYTE, nullptr);
 	} else {
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, page.width, page.height, 0,
 		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
@@ -226,7 +226,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 				}
 				glBindTexture(GL_TEXTURE_2D, this->remap_pages[existing.remap.atlas_idx].texture);
 				glTexSubImage2D(GL_TEXTURE_2D, 0, existing.remap.x, existing.remap.y,
-				                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
+				                width, height, GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 			}
 
 			existing.palette_only = has_remap && !has_rgb;
@@ -280,7 +280,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 
 		glBindTexture(GL_TEXTURE_2D, this->remap_pages[entry.remap.atlas_idx].texture);
 		glTexSubImage2D(GL_TEXTURE_2D, 0, entry.remap.x, entry.remap.y,
-		                width, height, GL_LUMINANCE, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
+		                width, height, GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 	} else {
 		/* No remap data; fill with zeros in colour region. */
 		entry.remap = entry.colour;

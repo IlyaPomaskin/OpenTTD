@@ -13,7 +13,7 @@
 #include "../gfx_func.h"
 #include "../palette_func.h"
 #include "../table/gles_shader.h"
-#include <GLES2/gl2.h>
+#include <GLES3/gl3.h>
 #include <algorithm>
 #include <unordered_set>
 
@@ -34,9 +34,11 @@ GLESBackend::~GLESBackend()
 	if (this->prog_transparent != 0) glDeleteProgram(this->prog_transparent);
 	if (this->prog_palette != 0) glDeleteProgram(this->prog_palette);
 	if (this->prog_solid != 0) glDeleteProgram(this->prog_solid);
+	if (this->prog_resolve != 0) glDeleteProgram(this->prog_resolve);
 	if (this->palette_tex != 0) glDeleteTextures(1, &this->palette_tex);
 	glDeleteTextures(2, this->remap_table_tex);
 	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
+	if (this->fbo_idx_tex != 0) glDeleteTextures(1, &this->fbo_idx_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 	if (this->vbo != 0) glDeleteBuffers(1, &this->vbo);
 	this->sprite_atlas.Destroy();
@@ -163,6 +165,19 @@ bool GLESBackend::InitShaders()
 		this->solid_colour_loc = glGetUniformLocation(this->prog_solid, "u_colour");
 	}
 
+	/* Palette resolve fragment shader (index attachment -> palette lookup). */
+	{
+		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_resolve);
+		if (fs == 0) { glDeleteShader(vs); return false; }
+		this->prog_resolve = LinkProgram(vs, fs);
+		glDeleteShader(fs);
+		if (this->prog_resolve == 0) { glDeleteShader(vs); return false; }
+
+		this->resolve_screen_loc = glGetUniformLocation(this->prog_resolve, "screen");
+		this->resolve_idx_tex_loc = glGetUniformLocation(this->prog_resolve, "idx_tex");
+		this->resolve_palette_tex_loc = glGetUniformLocation(this->prog_resolve, "palette_tex");
+	}
+
 	glDeleteShader(vs);
 
 	Debug(driver, 1, "GLES: All shaders compiled and linked successfully");
@@ -189,7 +204,7 @@ bool GLESBackend::Create()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
-	/* Create double-buffered 256x1 remap table textures (luminance). */
+	/* Create double-buffered 256x1 remap table textures (R8). */
 	glGenTextures(2, backend->remap_table_tex);
 	for (int i = 0; i < 2; i++) {
 		glBindTexture(GL_TEXTURE_2D, backend->remap_table_tex[i]);
@@ -197,7 +212,7 @@ bool GLESBackend::Create()
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 256, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
 	}
 
 	/* Create VBO for batched vertices. */
@@ -231,11 +246,13 @@ void GLESBackend::RecoverGPUState()
 	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
 	 * do NOT call glDelete* on them — that would inject errors into the new context. */
 	this->prog_normal = 0; this->prog_remap = 0; this->prog_transparent = 0;
-	this->prog_palette = 0; this->prog_solid = 0;
+	this->prog_palette = 0; this->prog_solid = 0; this->prog_resolve = 0;
 	this->palette_tex = 0;
 	this->remap_table_tex[0] = 0; this->remap_table_tex[1] = 0;
 	this->vbo = 0;
-	this->fbo = 0; this->fbo_tex = 0;
+	this->fbo = 0; this->fbo_tex = 0; this->fbo_idx_tex = 0;
+	this->palette_dirty = false;
+	this->fbo_has_content = false;
 	this->last_remap_ptr = nullptr;
 	this->remap_table_idx = 0;
 
@@ -262,7 +279,7 @@ void GLESBackend::RecoverGPUState()
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_LUMINANCE, 256, 1, 0, GL_LUMINANCE, GL_UNSIGNED_BYTE, nullptr);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 256, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
 	}
 
 	/* Create VBO. */
@@ -293,10 +310,12 @@ void GLESBackend::Resize(int w, int h)
 	this->screen_width = w;
 	this->screen_height = h;
 
-	/* (Re)create the persistent FBO at the new size. */
+	/* (Re)create the persistent MRT FBO at the new size. */
 	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
+	if (this->fbo_idx_tex != 0) glDeleteTextures(1, &this->fbo_idx_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 
+	/* Attachment 0: RGBA colour. */
 	glGenTextures(1, &this->fbo_tex);
 	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -305,13 +324,30 @@ void GLESBackend::Resize(int w, int h)
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 
+	/* Attachment 1: R8 palette index. */
+	glGenTextures(1, &this->fbo_idx_tex);
+	glBindTexture(GL_TEXTURE_2D, this->fbo_idx_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+
 	glGenFramebuffers(1, &this->fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, this->fbo_tex, 0);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, this->fbo_idx_tex, 0);
 
-	/* Clear the new FBO to black. */
+	/* Enable MRT: draw to both attachments. */
+	GLenum draw_bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+	glDrawBuffers(2, draw_bufs);
+
+	/* Clear both attachments (colour to black, index to 0). */
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
+
+	this->palette_dirty = false;
+	this->fbo_has_content = false;
 
 	/* Bind back to default framebuffer. */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -377,7 +413,9 @@ void GLESBackend::Paint()
 		this->dirty_rects.clear();
 	}
 
-	if (!this->draw_queue.empty()) {
+	bool did_full_render = !this->draw_queue.empty();
+
+	if (did_full_render) {
 
 	/* === Build all vertices and record batch boundaries ===
 	 * Preserve original Z-order from viewport (no sorting).
@@ -669,7 +707,7 @@ void GLESBackend::Paint()
 			glActiveTexture(GL_TEXTURE5);
 			glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1,
-			                GL_LUMINANCE, GL_UNSIGNED_BYTE, b.remap);
+			                GL_RED, GL_UNSIGNED_BYTE, b.remap);
 			this->last_remap_ptr = b.remap;
 		}
 
@@ -685,7 +723,72 @@ void GLESBackend::Paint()
 	for (int i = 0; i < 5; i++) glDisableVertexAttribArray(i);
 	this->draw_queue.clear();
 
-	} /* end if (!draw_queue.empty()) */
+	} /* end if (did_full_render) */
+
+	if (did_full_render) {
+		this->fbo_has_content = true;
+		this->palette_dirty = false;
+	} else if (this->palette_dirty && this->fbo_has_content) {
+		/* === Phase 1.5: Palette resolve pass ===
+		 * Camera is static, only palette changed. Read palette index from
+		 * attachment 1, look up updated palette, write to attachment 0. */
+		glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+		glViewport(0, 0, this->screen_width, this->screen_height);
+
+		/* Detach idx texture from FBO to avoid feedback loop, then
+		 * switch to single-attachment output (attachment 0 only). */
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, 0, 0);
+		GLenum single_buf = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &single_buf);
+
+		/* Draw fullscreen quad with resolve shader. */
+		glUseProgram(this->prog_resolve);
+		float sw = static_cast<float>(this->screen_width);
+		float sh = static_cast<float>(this->screen_height);
+		glUniform2f(this->resolve_screen_loc, sw, sh);
+
+		/* Bind idx texture to unit 0, palette to unit 1. */
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, this->fbo_idx_tex);
+		glUniform1i(this->resolve_idx_tex_loc, 0);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+		glUniform1i(this->resolve_palette_tex_loc, 1);
+
+		/* Blending: discard overwrites palette pixels, keeps non-palette. */
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		GLESVertex resolve_quad[6] = {
+			{0, 0, 0, 1, 0, 0, 0, 0}, {sw, 0, 1, 1, 0, 0, 0, 0}, {0, sh, 0, 0, 0, 0, 0, 0},
+			{sw, 0, 1, 1, 0, 0, 0, 0}, {sw, sh, 1, 0, 0, 0, 0, 0}, {0, sh, 0, 0, 0, 0, 0, 0},
+		};
+
+		glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(resolve_quad), resolve_quad);
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, x)));
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
+		glVertexAttrib1f(3, 0.0f);
+
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(1);
+		glDisable(GL_BLEND);
+
+		/* Reattach idx texture and restore MRT for future full renders. */
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, this->fbo_idx_tex, 0);
+		GLenum mrt_bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+		glDrawBuffers(2, mrt_bufs);
+
+		this->palette_dirty = false;
+		_gles_perf.gpu_batches++; /* Count resolve as a batch for diagnostics. */
+	}
 
 	/* === Phase 2: Blit FBO to the actual screen. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
