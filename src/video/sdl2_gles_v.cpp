@@ -35,10 +35,18 @@
 static std::atomic<bool> _gles_jump_waypoint{false};
 
 #ifdef __ANDROID__
+#include "../wallpaper.h"
+
 extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
 {
 	_gles_jump_waypoint = true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeSwitchMap(JNIEnv *, jclass)
+{
+	RotateTitleMap(1);
 }
 
 #endif
@@ -258,11 +266,12 @@ void VideoDriver_SDL_GLES::Paint()
 			atlas.GetColourPageCount(), atlas.GetRemapPageCount(),
 			atlas.GetSpriteCount(), GetRegisteredSpriteCount(),
 			p.gpu_sprites_new, p.gpu_sprites_repacked);
-		Debug(driver, 0, "  VP land={}us vehi={}us signs={}us sort={}us draw={}us updwin={}us | tiles={} parents={} children={} calls={} area={}x{}",
+		Debug(driver, 0, "  VP land={}us vehi={}us signs={}us sort={}us draw={}us updwin={}us | tiles={} parents={} children={} calls={} area={}x{} | mrt: full={} resolve={} idle={} resolve={}us",
 			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
 			p.vp_sort_us / n, p.vp_draw_us / n, p.update_windows_us / n,
 			p.vp_tiles_iterated / n, p.vp_parent_sprites / n, p.vp_child_sprites / n,
-			p.vp_calls, p.vp_area_w, p.vp_area_h);
+			p.vp_calls, p.vp_area_w, p.vp_area_h,
+			p.full_renders, p.resolve_passes, p.idle_blits, p.resolve_us / n);
 		p = {};  /* Reset counters. */
 		fps_frames = 0;
 		fps_last = fps_now;

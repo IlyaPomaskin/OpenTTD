@@ -1,11 +1,13 @@
 #!/bin/bash
 # Build, deploy, and run OpenTTD live wallpaper on Android.
 # Usage:
-#   ./tools/run_android.sh              # full flow: build → install → activate → record → fps → logs → kill
+#   ./tools/run_android.sh              # full flow: build → install → activate → perf → logs → kill
 #   ./tools/run_android.sh all [SEC]    # full flow with SEC seconds measurement (default 5)
 #   ./tools/run_android.sh perf [SEC]   # measure perf on running app for SEC seconds (default 10)
 #   ./tools/run_android.sh fps [SEC]    # measure FPS on running app for SEC seconds (default 5)
 #   ./tools/run_android.sh record [SEC] # record running app for SEC seconds (default 5)
+#   ./tools/run_android.sh jump          # trigger POI jump on running wallpaper
+#   ./tools/run_android.sh switch        # trigger map switch on running wallpaper
 #   ./tools/run_android.sh logs         # tail logcat
 #   ./tools/run_android.sh deploy       # build + install only (no activate/measure)
 
@@ -80,8 +82,8 @@ do_activate() {
     H=${SIZE#*x}
     adb shell input tap $((W / 2)) $((H / 2))
 
-    echo "==> Waiting 5 seconds for warmup..."
-    sleep 5
+    echo "==> Waiting 2 seconds for warmup..."
+    sleep 2
 }
 
 do_kill() {
@@ -95,33 +97,34 @@ case "${1:-}" in
     fps)    do_fps "${2:-5}";    exit 0 ;;
     perf)   do_perf "${2:-10}";  exit 0 ;;
     record) do_record "${2:-5}"; exit 0 ;;
+    jump)   adb shell am broadcast -a org.openttd.android.JUMP_POI; exit 0 ;;
+    switch) adb shell am broadcast -a org.openttd.android.SWITCH_MAP; exit 0 ;;
     logs)   do_logs;             exit 0 ;;
     deploy) do_build_install;    exit 0 ;;
 esac
 
 # Full flow
 DUR=${2:-5}
+CYCLES=${3:-3}
+LOGFILE="/tmp/openttd/openttd_run_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p /tmp/openttd
 
 do_build_install
 do_activate
 
-echo "==> Recording ${DUR}s video..."
-adb shell screenrecord --time-limit "$DUR" /sdcard/openttd_rec.mp4 &
-RECORD_PID=$!
-
-echo "==> Measuring perf (${DUR}s)..."
 adb logcat -c
-sleep "$DUR"
+
+for i in $(seq 1 "$CYCLES"); do
+    echo "==> Cycle $i/$CYCLES: measuring ${DUR}s..."
+    sleep "$DUR"
+    echo "==> Cycle $i/$CYCLES: switching map..."
+    adb shell am broadcast -a org.openttd.android.SWITCH_MAP
+done
+
 echo "--- PERF ---"
 adb logcat -d -s OpenTTD | grep "PERF "
 
-wait $RECORD_PID 2>/dev/null || true
-adb pull /sdcard/openttd_rec.mp4 /tmp/openttd_rec.mp4
-adb shell rm /sdcard/openttd_rec.mp4
-echo "==> Video saved to /tmp/openttd_rec.mp4"
-
-echo "--- ALL LOGS ---"
-adb logcat -d -s OpenTTD
+adb logcat -d -s OpenTTD > "$LOGFILE"
 
 do_kill
-echo "==> Done"
+echo "FULL LOGS: $LOGFILE"
