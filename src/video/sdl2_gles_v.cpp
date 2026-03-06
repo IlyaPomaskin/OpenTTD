@@ -34,8 +34,12 @@
 
 #include "../safeguards.h"
 
-/** Set to true from Java before pause; processed in Paint() to advance camera to next POI. */
+/** Set to true from Java on hide; processed in Paint() to advance camera to next POI. */
 static std::atomic<bool> _gles_jump_waypoint{false};
+/** Counts down frames after POI jump; when 0 the new area is rendered and ready to pause. */
+static std::atomic<int> _gles_frames_until_pause{-1};
+/** Set to true when new POI is fully rendered and sprites loaded; Java polls this. */
+static std::atomic<bool> _gles_ready_to_pause{false};
 
 #ifdef __ANDROID__
 #include "../wallpaper.h"
@@ -44,6 +48,14 @@ extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
 {
 	_gles_jump_waypoint = true;
+	_gles_ready_to_pause = false;
+	_gles_frames_until_pause = -1;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeIsReadyToPause(JNIEnv *, jclass)
+{
+	return _gles_ready_to_pause.load() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -236,8 +248,23 @@ void VideoDriver_SDL_GLES::Paint()
 		GLESBackend::Get()->GetSpriteAtlas().ProcessPendingClear();
 	}
 
-	/* Jump to a random waypoint before pause (requested from Java onVisibilityChanged). */
-	if (_gles_jump_waypoint.exchange(false)) PrepareBackground();
+	/* Jump to next POI (requested from Java onVisibilityChanged hide). */
+	if (_gles_jump_waypoint.exchange(false)) {
+		PrepareBackground();
+		_gles_frames_until_pause = 5; /* render a few frames to load sprites */
+	}
+
+	/* Count down frames after POI jump; signal ready when sprites are loaded. */
+	if (_gles_frames_until_pause > 0) {
+		_gles_frames_until_pause--;
+		if (_gles_frames_until_pause == 0 && _gles_perf.gpu_sprites_missing == 0) {
+			_gles_ready_to_pause = true;
+			_gles_frames_until_pause = -1;
+		} else if (_gles_frames_until_pause == 0 && _gles_perf.gpu_sprites_missing > 0) {
+			/* Still loading sprites, wait a few more frames. */
+			_gles_frames_until_pause = 3;
+		}
+	}
 
 
 	/* Log EGL context state every 60 frames to detect context loss. */

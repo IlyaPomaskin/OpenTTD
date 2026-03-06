@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Handler;
+import android.os.Looper;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -18,8 +20,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String ACTION_JUMP_POI = "org.openttd.android.JUMP_POI";
     private static final String ACTION_SWITCH_MAP = "org.openttd.android.SWITCH_MAP";
 
-    /** Jump camera to a random map waypoint and mark the area dirty for asset pre-loading. */
+    /** Jump camera to next POI and start rendering the new area. */
     private static native void nativePrepareBackground();
+    /** Returns true when new POI area is fully rendered and sprites loaded. */
+    private static native boolean nativeIsReadyToPause();
     /** Cycle zoom level In2x → Normal → Out2x → In2x. */
     private static native void nativeCycleZoom();
     /** Trigger map regeneration. */
@@ -82,6 +86,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         private Surface mEngineSurface;
         private int mSurfaceWidth = 1;
         private int mSurfaceHeight = 1;
+        private final Handler mPauseHandler = new Handler(Looper.getMainLooper());
+        private static final long PAUSE_POLL_INTERVAL_MS = 100;
+        private static final long PAUSE_TIMEOUT_MS = 3000;
+        private long mPauseRequestTime = 0;
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -194,16 +202,33 @@ public class OpenTTDWallpaperService extends WallpaperService {
                     SDLActivity.onNativeResize();
                     SDLActivity.onNativeSurfaceChanged();
                 }
+                mPauseHandler.removeCallbacksAndMessages(null);
                 Log.i(TAG, "onVisibilityChanged: setting state=RESUMED");
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                Log.i(TAG, "onVisibilityChanged: preparing background then pausing");
+                Log.i(TAG, "onVisibilityChanged: jumping to next POI, deferring pause");
                 nativePrepareBackground();
-                SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
-                SDLActivity.handleNativeState();
+                mPauseRequestTime = System.currentTimeMillis();
+                mPauseHandler.removeCallbacksAndMessages(null);
+                mPauseHandler.postDelayed(mPausePoller, PAUSE_POLL_INTERVAL_MS);
             }
         }
+
+        private final Runnable mPausePoller = new Runnable() {
+            @Override
+            public void run() {
+                boolean ready = nativeIsReadyToPause();
+                boolean timeout = System.currentTimeMillis() - mPauseRequestTime > PAUSE_TIMEOUT_MS;
+                if (ready || timeout) {
+                    Log.i(TAG, "Deferred pause: ready=" + ready + " timeout=" + timeout);
+                    SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
+                    SDLActivity.handleNativeState();
+                } else {
+                    mPauseHandler.postDelayed(this, PAUSE_POLL_INTERVAL_MS);
+                }
+            }
+        };
 
     }
 }
