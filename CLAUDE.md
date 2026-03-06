@@ -43,3 +43,43 @@ cmake --build /tmp/openttd -j4
 ### Running app
 
 To start app use binary from inside app.
+
+## Android
+
+### Python must use system interpreter
+
+Always use `/usr/bin/python3` for Python scripts. Homebrew python3 is blocked by sandbox.
+
+### run_android.py
+
+Main automation script for Android development: `tools/run_android.py`
+
+```sh
+/usr/bin/python3 tools/run_android.py [command] [args...]
+```
+
+| Command | Description |
+|---|---|
+| *(no args)* / `all [SEC] [CYCLES]` | Full flow: build, install, activate wallpaper, simpleperf + map switch cycles, save logs |
+| `build` | Build APK only |
+| `deploy` | Build + install APK |
+| `perf [SEC]` | Collect PERF log lines for SEC seconds (default 10) |
+| `fps [SEC]` | Collect FPS log lines for SEC seconds (default 5) |
+| `record [SEC]` | Record screen video for SEC seconds |
+| `jump` | Send JUMP_POI broadcast (move camera to next POI) |
+| `switch` | Send SWITCH_MAP broadcast (regenerate map) |
+| `logs` | Dump logcat |
+
+Full flow outputs:
+- `FULL LOGS: /tmp/openttd/openttd_run_*.log` — all app logs
+- `SIMPLEPERF FILE: /tmp/openttd/perf_*.data` — CPU profile
+
+### adb broadcast commands
+
+Control the running wallpaper service remotely:
+
+```sh
+adb shell am broadcast -a org.openttd.android.JUMP_POI      # move camera to next POI
+adb shell am broadcast -a org.openttd.android.SWITCH_MAP     # regenerate map
+adb shell am broadcast -a org.openttd.android.TOAST --es msg "text"  # show toast
+```

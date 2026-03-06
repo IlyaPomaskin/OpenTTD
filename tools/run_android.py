@@ -2,7 +2,7 @@
 """Build, deploy, and run OpenTTD live wallpaper on Android.
 
 Usage:
-    run_android.py                     # full flow: build → install → activate → perf cycles → logs → kill
+    run_android.py                     # full flow: build → install → activate → perf cycles → logs
     run_android.py all [SEC] [CYCLES]  # full flow with SEC seconds per cycle (default 5), CYCLES (default 3)
     run_android.py build               # build APK only
     run_android.py deploy              # build + install only
@@ -16,7 +16,6 @@ Usage:
 
 import os
 import re
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -28,31 +27,38 @@ PROJECT_DIR = Path(__file__).resolve().parent.parent
 APK = PROJECT_DIR / "android/app/build/outputs/apk/debug/app-debug.apk"
 LOG_DIR = Path("/tmp/openttd")
 DEVICE_PERF_DATA = "/data/local/tmp/perf.data"
+JAVA_HOME = "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home"
 
-ENV = {
-    **os.environ,
-    "JAVA_HOME": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home",
-    "PATH": "/Library/Java/JavaVirtualMachines/temurin-25.jdk/Contents/Home/bin:"
-            "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:" + os.environ.get("PATH", ""),
-}
+os.environ["JAVA_HOME"] = JAVA_HOME
+os.environ["PATH"] = f"{JAVA_HOME}/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:" + os.environ.get("PATH", "")
 
 
-def run(cmd, check=True, capture=False, **kwargs):
-    """Run a command, print it, return CompletedProcess."""
-    print(f"  $ {cmd}")
-    return subprocess.run(cmd, shell=True, env=ENV, check=check,
-                          capture_output=capture, text=True, **kwargs)
+def sh(cmd):
+    """Run a shell command, print it, return exit code."""
+    print(f"  $ {cmd}", flush=True)
+    return os.system(cmd)
 
 
-def adb(args, check=True, capture=False):
-    return run(f"adb {args}", check=check, capture=capture)
+def sh_capture(cmd):
+    """Run a shell command and capture stdout via temp file."""
+    import tempfile
+    print(f"  $ {cmd}", flush=True)
+    with tempfile.NamedTemporaryFile(mode='r', suffix='.txt', dir='/tmp', delete=False) as f:
+        tmp = f.name
+    os.system(f"{cmd} > {tmp} 2>&1")
+    try:
+        with open(tmp) as f:
+            return f.read()
+    finally:
+        os.unlink(tmp)
 
 
-def adb_popen(args):
-    """Start adb command in background, return Popen."""
-    cmd = f"adb {args}"
-    print(f"  $ {cmd} &")
-    return subprocess.Popen(cmd, shell=True, env=ENV, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def adb(args):
+    return sh(f"adb {args}")
+
+
+def adb_capture(args):
+    return sh_capture(f"adb {args}")
 
 
 def broadcast(action, extras=""):
@@ -66,58 +72,58 @@ def toast(msg):
 
 def get_pid():
     """Get PID of the running app."""
-    result = adb(f"shell pidof {PACKAGE}", capture=True, check=False)
-    pid = result.stdout.strip().split()[0] if result.stdout.strip() else None
+    output = adb_capture(f"shell pidof {PACKAGE}").strip()
+    pid = output.split()[0] if output else None
     if pid:
-        print(f"  PID: {pid}")
+        print(f"  PID: {pid}", flush=True)
     return pid
 
 
 # --- Commands ---
 
 def build():
-    print("==> Building APK...")
-    run("./gradlew assembleDebug", cwd=PROJECT_DIR / "android")
+    print("==> Building APK...", flush=True)
+    sh(f"cd {PROJECT_DIR / 'android'} && ./gradlew assembleDebug")
 
 
 def install():
-    print("==> Stopping app...")
-    adb(f"shell am force-stop {PACKAGE}", check=False)
-    print("==> Installing APK...")
+    print("==> Stopping app...", flush=True)
+    adb(f"shell am force-stop {PACKAGE}")
+    print("==> Installing APK...", flush=True)
     adb(f"install {APK}")
 
 
 def activate():
-    print("==> Going to home screen...")
+    print("==> Going to home screen...", flush=True)
     adb("shell input keyevent KEYCODE_HOME")
     time.sleep(1)
 
-    print("==> Opening WallpaperSettingsActivity...")
+    print("==> Opening WallpaperSettingsActivity...", flush=True)
     adb(f"shell am start -n {ACTIVITY}")
     time.sleep(2)
 
-    print("==> Tapping center of screen (Set Wallpaper)...")
-    result = adb("shell wm size", capture=True)
-    match = re.search(r"(\d+)x(\d+)", result.stdout)
+    print("==> Tapping center of screen (Set Wallpaper)...", flush=True)
+    output = adb_capture("shell wm size")
+    match = re.search(r"(\d+)x(\d+)", output)
     if match:
         w, h = int(match.group(1)), int(match.group(2))
         adb(f"shell input tap {w // 2} {h // 2}")
 
-    print("==> Waiting 2 seconds for warmup...")
+    print("==> Waiting 2 seconds for warmup...", flush=True)
     time.sleep(2)
 
 
 def kill():
-    print("==> Killing app...")
-    adb(f"shell am force-stop {PACKAGE}", check=False)
-    adb("shell am force-stop com.android.wallpaper.livepicker", check=False)
+    print("==> Killing app...", flush=True)
+    adb(f"shell am force-stop {PACKAGE}")
+    adb("shell am force-stop com.android.wallpaper.livepicker")
 
 
 def logcat_dump(grep=None):
-    result = adb("logcat -d -s OpenTTD", capture=True)
+    output = adb_capture("logcat -d -s OpenTTD")
     if grep:
-        return "\n".join(l for l in result.stdout.splitlines() if grep in l)
-    return result.stdout
+        return "\n".join(l for l in output.splitlines() if grep in l)
+    return output
 
 
 def cmd_build():
@@ -130,7 +136,7 @@ def cmd_deploy():
 
 
 def cmd_fps(dur=5):
-    print(f"==> Measuring FPS for {dur}s...")
+    print(f"==> Measuring FPS for {dur}s...", flush=True)
     adb("logcat -c")
     time.sleep(dur)
     print("--- FPS ---")
@@ -138,7 +144,7 @@ def cmd_fps(dur=5):
 
 
 def cmd_perf(dur=10):
-    print(f"==> Collecting perf logs for {dur}s...")
+    print(f"==> Collecting perf logs for {dur}s...", flush=True)
     adb("logcat -c")
     time.sleep(dur)
     print("--- PERF LOGS ---")
@@ -146,7 +152,7 @@ def cmd_perf(dur=10):
 
 
 def cmd_record(dur=5):
-    print(f"==> Recording {dur}s video...")
+    print(f"==> Recording {dur}s video...", flush=True)
     adb(f"shell screenrecord --time-limit {dur} /sdcard/openttd_rec.mp4")
     adb("pull /sdcard/openttd_rec.mp4 /tmp/openttd_rec.mp4")
     adb("shell rm /sdcard/openttd_rec.mp4")
@@ -162,7 +168,7 @@ def cmd_switch():
 
 
 def cmd_logs():
-    print("==> Dumping logs...")
+    print("==> Dumping logs...", flush=True)
     print(logcat_dump())
 
 
@@ -177,7 +183,6 @@ def cmd_full(dur=5, cycles=3):
     pid = get_pid()
     if not pid:
         print("ERROR: could not find app PID")
-        kill()
         return
 
     adb("logcat -c")
@@ -185,26 +190,26 @@ def cmd_full(dur=5, cycles=3):
 
     # Start simpleperf in background for the entire measurement period.
     total_dur = dur * cycles + cycles * 2  # extra seconds for map switch overhead
-    print(f"==> Starting simpleperf for ~{total_dur}s on PID {pid}...")
-    simpleperf_proc = adb_popen(
-        f"shell simpleperf record -p {pid} --duration {total_dur} "
-        f"-o {DEVICE_PERF_DATA} -g --no-dump-symbols"
-    )
+    print(f"==> Starting simpleperf for ~{total_dur}s on PID {pid}...", flush=True)
+    sh(f"adb shell simpleperf record -p {pid} --duration {total_dur} "
+       f"-o {DEVICE_PERF_DATA} -g --no-dump-symbols &")
 
     for i in range(1, cycles + 1):
-        print(f"==> Cycle {i}/{cycles}: measuring {dur}s...")
+        print(f"==> Cycle {i}/{cycles}: measuring {dur}s...", flush=True)
         time.sleep(dur)
-        print(f"==> Cycle {i}/{cycles}: switching map...")
+        print(f"==> Cycle {i}/{cycles}: switching map...", flush=True)
         broadcast("SWITCH_MAP")
 
-    # Wait for simpleperf to finish.
-    print("==> Waiting for simpleperf to finish...")
-    simpleperf_proc.wait()
+    # Wait for simpleperf to finish (it has its own --duration timer).
+    remaining = total_dur - dur * cycles
+    if remaining > 0:
+        print(f"==> Waiting {remaining}s for simpleperf to finish...", flush=True)
+        time.sleep(remaining + 1)
 
     # Pull simpleperf data.
     perf_file = LOG_DIR / f"perf_{timestamp}.data"
-    adb(f"pull {DEVICE_PERF_DATA} {perf_file}", check=False)
-    adb(f"shell rm -f {DEVICE_PERF_DATA}", check=False)
+    adb(f"pull {DEVICE_PERF_DATA} {perf_file}")
+    adb(f"shell rm -f {DEVICE_PERF_DATA}")
 
     toast("monitoring done")
 
@@ -214,9 +219,9 @@ def cmd_full(dur=5, cycles=3):
     logfile = LOG_DIR / f"openttd_run_{timestamp}.log"
     logfile.write_text(logcat_dump())
 
-    print(f"FULL LOGS: {logfile}")
+    print(f"FULL LOGS: {logfile}", flush=True)
     if perf_file.exists():
-        print(f"SIMPLEPERF FILE: {perf_file}")
+        print(f"SIMPLEPERF FILE: {perf_file}", flush=True)
 
 
 # --- Main ---
