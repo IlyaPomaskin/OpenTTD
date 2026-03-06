@@ -13,7 +13,6 @@
 #include <GLES2/gl2.h>
 #include <vector>
 #include <unordered_map>
-#include <mutex>
 #include <atomic>
 #include <chrono>
 #include "../spriteloader/spriteloader.hpp"
@@ -76,7 +75,6 @@ private:
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
 
-	std::mutex staged_mutex;
 	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
 
 	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
