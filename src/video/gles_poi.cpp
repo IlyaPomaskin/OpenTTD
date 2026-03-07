@@ -365,7 +365,7 @@ static void ScanTownPOIs(std::vector<GlesPOI> &candidates)
 	}
 }
 
-/** Scan all POI types, sort by score, keep top 10. */
+/** Scan all POI types, sort by score, pick 10 random from top 50. */
 static void ScanMapPOIs()
 {
 	_gles_poi_list.clear();
@@ -375,27 +375,62 @@ static void ScanMapPOIs()
 	candidates.reserve(64);
 
 	ScanStationPOIs(candidates);
+	int n_stations = (int)candidates.size();
 	ScanLighthousePOIs(candidates);
+	int n_lighthouses = (int)candidates.size() - n_stations;
 	ScanJunctionPOIs(candidates);
+	int n_junctions = (int)candidates.size() - n_stations - n_lighthouses;
 	ScanTownPOIs(candidates);
+	int n_towns = (int)candidates.size() - n_stations - n_lighthouses - n_junctions;
+	Debug(driver, 0, "GLES POI candidates: {} total (stations={} lighthouses={} junctions={} towns={})",
+		(int)candidates.size(), n_stations, n_lighthouses, n_junctions, n_towns);
+
+	/* Remove POIs within 20 tiles of map edge. */
+	candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+		[](const GlesPOI &c) {
+			const uint edge_margin = 20;
+			uint tx = (uint)(c.map_fx * Map::SizeX());
+			uint ty = (uint)(c.map_fy * Map::SizeY());
+			return tx < edge_margin || ty < edge_margin ||
+			       tx >= Map::SizeX() - edge_margin || ty >= Map::SizeY() - edge_margin;
+		}), candidates.end());
+
+	int n_after_edge = (int)candidates.size();
+	Debug(driver, 0, "GLES POI after edge filter: {} (removed {})", n_after_edge,
+		n_stations + n_lighthouses + n_junctions + n_towns - n_after_edge);
 
 	std::sort(candidates.begin(), candidates.end(),
 		[](const GlesPOI &a, const GlesPOI &b) { return a.score > b.score; });
 
-	/* Pick top candidates, skipping any within 10 tiles of an already selected POI. */
+	/* Build top-50 pool, skipping any within 10 tiles of an already selected entry. */
+	std::vector<GlesPOI> top_pool;
 	for (const auto &c : candidates) {
-		if ((int)_gles_poi_list.size() >= 10) break;
+		if ((int)top_pool.size() >= 50) break;
 		TileIndex ct = TileXY(
 			(uint)(c.map_fx * Map::SizeX()),
 			(uint)(c.map_fy * Map::SizeY()));
 		bool too_close = false;
-		for (const auto &sel : _gles_poi_list) {
+		for (const auto &sel : top_pool) {
 			TileIndex st = TileXY(
 				(uint)(sel.map_fx * Map::SizeX()),
 				(uint)(sel.map_fy * Map::SizeY()));
 			if (DistanceManhattan(ct, st) < 10) { too_close = true; break; }
 		}
-		if (!too_close) _gles_poi_list.push_back(c);
+		if (!too_close) top_pool.push_back(c);
+	}
+
+	Debug(driver, 0, "GLES POI top-50 pool (10-tile dedup): {} entries", (int)top_pool.size());
+
+	/* Pick 10 random from the pool. */
+	if ((int)top_pool.size() <= 10) {
+		_gles_poi_list = std::move(top_pool);
+	} else {
+		/* Fisher-Yates partial shuffle: pick 10 random entries. */
+		for (int i = 0; i < 10; i++) {
+			int j = i + (std::rand() % ((int)top_pool.size() - i));
+			std::swap(top_pool[i], top_pool[j]);
+		}
+		_gles_poi_list.assign(top_pool.begin(), top_pool.begin() + 10);
 	}
 	_gles_poi_idx = 0;
 
