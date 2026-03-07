@@ -243,11 +243,6 @@ void VideoDriver_SDL_GLES::Paint()
 		return; /* Skip this frame; draw_queue was cleared, FBO is black anyway. */
 	}
 
-	/* Process deferred atlas clear (requested from game thread on map switch). */
-	if (GLESBackend::Get() != nullptr) {
-		GLESBackend::Get()->GetSpriteAtlas().ProcessPendingClear();
-	}
-
 	/* Jump to next POI (requested from Java onVisibilityChanged hide). */
 	if (_gles_jump_waypoint.exchange(false)) {
 		PrepareBackground();

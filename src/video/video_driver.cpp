@@ -137,6 +137,12 @@ void VideoDriver::Tick()
 
 			auto t_mutex = std::chrono::steady_clock::now();
 
+			/* Process deferred atlas clear before UpdateWindows so that
+			 * LookupOrUpload never returns stale entries from the old map. */
+			if (_gles_gpu_sprites && GLESBackend::Get() != nullptr) {
+				GLESBackend::Get()->GetSpriteAtlas().ProcessPendingClear();
+			}
+
 			InteractiveRandom();
 			this->DrainCommandQueue();
 			while (this->PollEvent()) {}
