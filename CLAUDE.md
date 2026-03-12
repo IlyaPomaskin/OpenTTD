@@ -1,5 +1,7 @@
 # Claude CLI — OpenTTD Project Instructions
 
+In all interactions and commit messages, always be extremely concise and sacrifice grammar for the sake of concision.
+
 ## Sandbox Environment
 
 This session runs inside a macOS sandbox (`sandbox-exec`). Filesystem access is restricted to specific directories only.

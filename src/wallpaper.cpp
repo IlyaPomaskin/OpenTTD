@@ -73,7 +73,7 @@ void BuildTitleFileList()
 
 bool CanRotateTitleMap()
 {
-	return _title_files.size() > 1;
+	return _title_files.size() >= 1;
 }
 
 void RequestNextTitleMap()

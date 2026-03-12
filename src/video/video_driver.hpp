@@ -387,6 +387,7 @@ private:
 	std::vector<std::function<void()>> cmd_queue;
 
 	void GameLoop();
+	void RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, std::chrono::steady_clock::time_point t_gl1);
 	void GameThread();
 };
 

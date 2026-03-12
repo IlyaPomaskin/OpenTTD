@@ -15,6 +15,7 @@
 #include <unordered_map>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 #include "../spriteloader/spriteloader.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
@@ -76,6 +77,7 @@ private:
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
 
 	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
+	std::mutex staged_mutex; ///< Protects staged map (game thread writes, GPU thread reads).
 
 	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
 	std::vector<uint8_t> upload_m_buf;    ///< Reusable buffer for M channel extraction.

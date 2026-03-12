@@ -10,6 +10,7 @@
 #ifndef DRAW_SNAPSHOT_H
 #define DRAW_SNAPSHOT_H
 
+#include "../blitter/base.hpp"
 #include "../gfx_type.h"
 #include "../zoom_type.h"
 #include <array>
@@ -33,10 +34,19 @@ struct DrawCommand {
 	};
 
 	Type type;              ///< Operation type
+	BlitterMode mode;       ///< Actual blitter mode (Normal, ColourRemap, Transparent, etc.)
 	int16_t x;              ///< Screen X coordinate (left)
 	int16_t y;              ///< Screen Y coordinate (top)
 	SpriteID sprite;        ///< Sprite ID in sprite cache
 	PaletteID palette;      ///< Remap palette (for RECOLOUR, 0 = no remap)
+	int16_t width;          ///< Visible width after clipping
+	int16_t height;         ///< Visible height after clipping
+	int16_t skip_left;      ///< Source skip X for clipping
+	int16_t skip_top;       ///< Source skip Y for clipping
+	int16_t sprite_width;   ///< Full sprite width (zoom-adjusted)
+	int16_t sprite_height;  ///< Full sprite height (zoom-adjusted)
+	ZoomLevel zoom;         ///< Zoom level at draw time
+	const uint8_t *remap = nullptr; ///< Pointer to 256-byte remap table (stable sprite cache data)
 	// uint16_t width;      ///< Area width (for FILL_RECT, STRING)
 	// uint16_t height;     ///< Area height (for FILL_RECT)
 	// uint8_t colour;      ///< Colour index (for FILL_RECT, LINE)
@@ -62,6 +72,7 @@ struct DrawSnapshot {
 	// Rect dirty_region{};         ///< Changed area (if !full_redraw)
 
 	std::vector<DrawCommand> commands;                          ///< Draw commands in back-to-front order
+	std::vector<Rect> dirty_rects;                              ///< Dirty regions from MakeDirty during recording
 	std::unordered_map<SnapshotSpriteKey, StagedSprite> staged;      ///< Sprites missing from GPU atlas
 	std::array<uint32_t, 256> palette{};                        ///< Current 256-colour palette (RGBA)
 
@@ -71,6 +82,7 @@ struct DrawSnapshot {
 
 	void Clear() {
 		commands.clear();
+		dirty_rects.clear();
 		staged.clear();
 		full_redraw = true;
 		frame_id = 0;
@@ -80,17 +92,17 @@ struct DrawSnapshot {
 /**
  * Lock-free triple buffer for passing DrawSnapshots from CPU to GPU thread.
  *
- * Three buffers with atomic index swaps:
- * - write_buf: CPU thread writes here (exclusive CPU access)
- * - ready_buf: last published snapshot (swap point)
- * - read_buf:  GPU thread reads here (exclusive GPU access)
+ * Uses a single atomic "shared" slot with non-atomic thread-local indices.
+ * Each Publish/Acquire is a single atomic exchange — no multi-step races.
+ *
+ * Invariant: {write_idx, shared_idx, read_idx} is always a permutation of {0,1,2}.
  */
 struct SnapshotTripleBuffer {
 	DrawSnapshot buffers[3];
 
-	std::atomic<int> write_idx{0};   ///< CPU owns buffers[write_idx]
-	std::atomic<int> ready_idx{1};   ///< Latest published snapshot
-	std::atomic<int> read_idx{2};    ///< GPU owns buffers[read_idx]
+	std::atomic<int> shared_idx{1};  ///< Shared slot, accessed by both threads via exchange
+	int write_idx{0};                ///< CPU thread only
+	int read_idx{2};                 ///< GPU thread only
 
 	/* Metrics */
 	uint32_t cpu_ahead_count{0};     ///< CPU overwrote ready before GPU grabbed it
@@ -100,32 +112,33 @@ struct SnapshotTripleBuffer {
 	uint64_t gpu_frame_id{0};        ///< Last frame_id received by GPU
 
 	/** CPU thread: get buffer to write into. */
-	DrawSnapshot &GetWriteBuffer() { return buffers[write_idx.load(std::memory_order_relaxed)]; }
+	DrawSnapshot &GetWriteBuffer() { return buffers[write_idx]; }
 
-	/** CPU thread: publish finished snapshot. Swaps write <-> ready. */
+	/** CPU thread: publish finished snapshot. Single atomic exchange. */
 	void Publish() {
-		buffers[write_idx.load(std::memory_order_relaxed)].frame_id = ++cpu_frame_id;
-		int old_ready = ready_idx.exchange(write_idx.load(std::memory_order_relaxed), std::memory_order_acq_rel);
-		write_idx.store(old_ready, std::memory_order_relaxed);
+		buffers[write_idx].frame_id = ++cpu_frame_id;
+		/* Swap write <-> shared in one atomic op. */
+		write_idx = shared_idx.exchange(write_idx, std::memory_order_acq_rel);
 		if (cpu_frame_id - gpu_frame_id > 1) cpu_ahead_count++;
 	}
 
-	/** GPU thread: acquire latest snapshot. Swaps read <-> ready. Returns true if new. */
+	/** GPU thread: acquire latest snapshot. Peeks first, swaps only if new data. */
 	bool Acquire() {
-		int old_read = read_idx.exchange(ready_idx.load(std::memory_order_relaxed), std::memory_order_acq_rel);
-		ready_idx.store(old_read, std::memory_order_relaxed);
-		uint64_t new_id = buffers[read_idx.load(std::memory_order_relaxed)].frame_id;
-		if (new_id > gpu_frame_id) {
-			gpu_frame_id = new_id;
-			swap_count++;
-			return true;
+		/* Peek at shared buffer's frame_id to avoid unnecessary swaps. */
+		int cur_shared = shared_idx.load(std::memory_order_acquire);
+		if (buffers[cur_shared].frame_id <= gpu_frame_id) {
+			gpu_ahead_count++;
+			return false;
 		}
-		gpu_ahead_count++;
-		return false;
+		/* New data available — swap read <-> shared in one atomic op. */
+		read_idx = shared_idx.exchange(read_idx, std::memory_order_acq_rel);
+		gpu_frame_id = buffers[read_idx].frame_id;
+		swap_count++;
+		return true;
 	}
 
 	/** GPU thread: get buffer to read from. */
-	DrawSnapshot &GetReadBuffer() { return buffers[read_idx.load(std::memory_order_relaxed)]; }
+	DrawSnapshot &GetReadBuffer() { return buffers[read_idx]; }
 
 	/** Reset all metrics counters. */
 	void ResetMetrics() {
@@ -143,5 +156,8 @@ void StopRecording();
 
 /** Returns true if currently recording (for GfxBlitter intercept). */
 bool IsRecording();
+
+/** Append a draw command to the current recording snapshot. No-op if not recording. */
+void RecordCommand(const DrawCommand &cmd);
 
 #endif /* DRAW_SNAPSHOT_H */

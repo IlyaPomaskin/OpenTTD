@@ -35,16 +35,6 @@ private:
 		return s_blitters;
 	}
 
-	/**
-	 * Get the currently active blitter.
-	 * @return The currently active blitter.
-	 */
-	static std::unique_ptr<Blitter> &GetActiveBlitter()
-	{
-		static std::unique_ptr<Blitter> s_blitter = nullptr;
-		return s_blitter;
-	}
-
 protected:
 	/**
 	 * Construct the blitter, and register it.
@@ -82,6 +72,16 @@ protected:
 	}
 
 public:
+	/**
+	 * Get the currently active blitter.
+	 * @return The currently active blitter.
+	 */
+	static std::unique_ptr<Blitter> &GetActiveBlitter()
+	{
+		static std::unique_ptr<Blitter> s_blitter = nullptr;
+		return s_blitter;
+	}
+
 	/** Ensure the destructor of the sub classes are called as well. */
 	virtual ~BlitterFactory()
 	{

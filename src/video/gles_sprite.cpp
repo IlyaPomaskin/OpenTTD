@@ -318,9 +318,8 @@ GLESSpriteID GLESSpriteAtlas::Stage(SpriteID sprite_id, ZoomLevel zoom,
 	sp.has_rgb = has_rgb;
 	sp.has_remap = has_remap;
 
+	std::lock_guard<std::mutex> lock(this->staged_mutex);
 	this->staged[key] = std::move(sp);
-	// Debug(driver, 0, "GLES: Atlas STAGE sprite={} zoom={} key=0x{:x} {}x{} staged_count={}",
-	//       sprite_id, zoom, key, width, height, this->staged.size());
 	return key;
 }
 
@@ -333,13 +332,15 @@ const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 	/* Check staged data (written by game thread via Stage()).
 	 * Copy instead of move — keep staged data so it survives ClearSprites()
 	 * and can be re-uploaded if the atlas is cleared during map switches.
-	 * No mutex needed: Stage() runs under game_state_mutex, and Paint()
-	 * (which calls this) runs after game_state_mutex is released while
-	 * the game thread is still blocked on game_thread_wait_mutex. */
-	auto sit = this->staged.find(key);
-	if (sit == this->staged.end()) return nullptr;
-
-	GLESStagedPixels sp = sit->second;
+	 * Mutex required in snapshot mode: Stage() runs on game thread
+	 * concurrently with LookupOrUpload on the GPU thread. */
+	GLESStagedPixels sp;
+	{
+		std::lock_guard<std::mutex> lock(this->staged_mutex);
+		auto sit = this->staged.find(key);
+		if (sit == this->staged.end()) return nullptr;
+		sp = sit->second;
+	}
 
 	/* Upload to GPU (we're on the GL thread). */
 	SpriteID sprite_id = static_cast<SpriteID>(key >> 4);

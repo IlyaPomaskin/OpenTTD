@@ -50,4 +50,6 @@ add_files(
     factory.hpp
     null.cpp
     null.hpp
+    snapshot.cpp
+    snapshot.hpp
 )

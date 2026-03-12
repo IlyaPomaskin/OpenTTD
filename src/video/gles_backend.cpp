@@ -937,6 +937,14 @@ bool GLESBackend::Paint()
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 
+	/* Force alpha=1.0 on the output surface.  Sprite blending in the FBO
+	 * can reduce alpha below 1.0; the Android wallpaper compositor then
+	 * composites those pixels as semi-transparent, causing flickering.
+	 * Write only RGB from the FBO blit, keeping alpha=1 from the clear. */
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
+
 	glDisable(GL_BLEND);
 	glUseProgram(this->prog_normal);
 	glUniform2f(this->normal_screen_loc,
@@ -968,6 +976,7 @@ bool GLESBackend::Paint()
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
+	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 	/* GPU timer query: end this frame's query. */
 	if (this->has_timer_query) {

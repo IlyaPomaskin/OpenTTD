@@ -13,6 +13,7 @@
 #include "../gfx_func.h"
 #include "../spritecache.h"
 #include "../blitter/factory.hpp"
+#include "../blitter/gles.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
 #include "../window_func.h"
@@ -99,6 +100,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 
 	if (!GLESBackend::Create()) return "Failed to initialize GLES backend";
 
+	/* Transfer sprites that were encoded before backend was ready. */
+	FlushEarlyStaged();
+
 	return std::nullopt;
 }
 
@@ -136,10 +140,9 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 	}
 	Debug(driver, 0, "GLES: AllocateContext OK");
 
-	/* Select the GLES blitter to enable GPU sprite recording. */
-	if (BlitterFactory::SelectBlitter("gles") == nullptr) {
-		/* Fall back: the blitter might not be registered. */
-		Debug(driver, 0, "GLES: Could not select 'gles' blitter, falling back to '32bpp-optimized'");
+	/* Select the snapshot blitter for two-thread recording. */
+	if (BlitterFactory::SelectBlitter("snapshot") == nullptr) {
+		Debug(driver, 0, "GLES: Could not select 'snapshot' blitter, falling back to '32bpp-optimized'");
 		BlitterFactory::SelectBlitter("32bpp-optimized");
 	}
 
@@ -231,42 +234,47 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 {
 	if (this->snapshot_buffer == nullptr) return false;
 
-	bool have_new = this->snapshot_buffer->Acquire();
-	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
-
-	if (snap.frame_id == 0) return false; /* No snapshot published yet. */
-
 	GLESBackend *backend = GLESBackend::Get();
 	if (backend == nullptr) return false;
 
-	auto &atlas = backend->GetSpriteAtlas();
+	/* Read from triple buffer. */
+	this->snapshot_buffer->Acquire();
+	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
+	if (snap.commands.empty()) return false;
 
-	/* 1. Upload ALL staged sprites BEFORE drawing. */
-	uint32_t uploaded = 0;
-	for (auto &[key, ss] : snap.staged) {
-		GLESSpriteID gles_key = key; /* SnapshotSpriteKey == GLESSpriteID == uint64_t */
-		if (atlas.Lookup(gles_key) != nullptr) continue; /* Already in atlas. */
-		SpriteID sid = static_cast<SpriteID>(key >> 4);
-		ZoomLevel zm = static_cast<ZoomLevel>(key & 0xF);
-		auto *pixels = reinterpret_cast<const SpriteLoader::CommonPixel *>(ss.pixels.data());
-		atlas.Upload(sid, zm, pixels, ss.width, ss.height, ss.has_rgb, ss.has_remap);
-		uploaded++;
+	/* Replay from triple buffer. */
+	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	backend->ClearQueue();
+
+	for (const auto &cmd : snap.commands) {
+		GLESSpriteID key = MakeGLESSpriteKey(cmd.sprite, cmd.zoom);
+		const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
+		if (entry == nullptr) continue;
+
+		GLESDrawCommand gcmd;
+		gcmd.sprite_key = key;
+		gcmd.screen_x = cmd.x;
+		gcmd.screen_y = cmd.y;
+		gcmd.width = cmd.width;
+		gcmd.height = cmd.height;
+		gcmd.skip_left = cmd.skip_left;
+		gcmd.skip_top = cmd.skip_top;
+		gcmd.sprite_width = cmd.sprite_width;
+		gcmd.sprite_height = cmd.sprite_height;
+		gcmd.zoom = cmd.zoom;
+		gcmd.mode = cmd.mode;
+		gcmd.remap_idx = 0;
+		gcmd.remap = cmd.remap;
+		gcmd.palette_only = entry->palette_only;
+
+		backend->QueueDraw(gcmd);
 	}
-	if (uploaded > 0) {
-		Debug(driver, 0, "SNAPSHOT PAINT: uploaded {} new sprites to atlas", uploaded);
-	}
 
-	/* 2. Palette. */
-	/* TODO: UpdatePaletteTexture(snap.palette); */
+	backend->AddDirtyRect(0, 0, _screen.width, _screen.height);
 
-	/* 3. Draw commands. */
-	/* TODO: iterate snap.commands and call GLESBackend draw for each sprite.
-	 * For now, log and fall through to normal Paint() pipeline. */
-	Debug(driver, 0, "SNAPSHOT PAINT: frame={} commands={} staged={} new={}",
-		snap.frame_id, (int)snap.commands.size(), (int)snap.staged.size(), have_new);
-
-	/* Return false to fall through to normal Paint() until draw is implemented. */
-	return false;
+	this->CheckPaletteAnim();
+	this->Paint();
+	return true;
 }
 
 void VideoDriver_SDL_GLES::Paint()
@@ -407,16 +415,20 @@ void VideoDriver_SDL_GLES::Paint()
 			int atlas_misses = p.gpu_sprites_missing + p.gpu_sprites_new;
 			float cache_hit = atlas_lookups > 0 ? (1.0f - static_cast<float>(atlas_misses) / atlas_lookups) * 100.0f : 100.0f;
 
-			Debug(driver, 0, "  EXTRA gpu_actual={}us | overdraw={:.1f}x batch_eff={:.1f} cache_hit={:.1f}% | atlas_occ: color={}% remap={}% | jank={} stddev={}us p95={}us p99={}us | gameloop={}us tileloop={}us({}tiles) vehtick={}us ticks={} | vehicles: T={} R={} S={} A={}",
+			{
+			int gt = std::max(1, p.gameloop_ticks);
+			Debug(driver, 0, "  CPU gameloop={}us snap_total={}us(record={}us validate={}us) cmds={} | tileloop={}us({}tiles) vehtick={}us ticks={}",
+				p.gameloop_us / gt,
+				p.snap_total_us / gt, p.snap_record_us / gt, p.snap_validate_us / gt,
+				p.snap_commands / gt,
+				p.tileloop_us / gt, p.tileloop_count,
+				p.vehicletick_us / gt, p.gameloop_ticks);
+		}
+		Debug(driver, 0, "  EXTRA gpu_actual={}us | overdraw={:.1f}x batch_eff={:.1f} cache_hit={:.1f}% | atlas_occ: color={}% remap={}% | jank={} stddev={}us p95={}us p99={}us | vehicles: T={} R={} S={} A={}",
 				p.gpu_time_us,
 				overdraw, batch_eff, cache_hit,
 				atlas.GetColourOccupancyPercent(), atlas.GetRemapOccupancyPercent(),
 				p.jank_count, ft_stddev, ft_p95, ft_p99,
-				p.gameloop_us / std::max(1, p.gameloop_ticks),
-				p.tileloop_us / std::max(1, p.gameloop_ticks),
-				p.tileloop_count,
-				p.vehicletick_us / std::max(1, p.gameloop_ticks),
-				p.gameloop_ticks,
 				p.vehicle_trains, p.vehicle_road, p.vehicle_ships, p.vehicle_aircraft);
 		}
 
@@ -425,15 +437,15 @@ void VideoDriver_SDL_GLES::Paint()
 		fps_last = fps_now;
 	}
 
-	if (this->local_palette.count_dirty != 0) {
-		GLESBackend::Get()->UpdatePalette(this->local_palette.palette,
-			this->local_palette.first_dirty, this->local_palette.count_dirty);
-		GLESBackend::Get()->SetPaletteDirty(true);
-		this->local_palette.count_dirty = 0;
-	}
+	/* Always upload full palette every frame — treat it as perpetually dirty. */
+	GLESBackend::Get()->UpdatePalette(this->local_palette.palette, 0, 256);
+	GLESBackend::Get()->SetPaletteDirty(true);
+	this->local_palette.count_dirty = 0;
 
-	/* Forward individual dirty rectangles to the GLES backend. */
-	if (_gles_gpu_sprites) {
+	/* Forward individual dirty rectangles to the GLES backend.
+	 * Skip in snapshot mode — dirty rects come from the snapshot buffer
+	 * (added in PaintFromSnapshot), not from gles_dirty_rects. */
+	if (_gles_gpu_sprites && this->snapshot_buffer == nullptr) {
 		for (const Rect &r : this->gles_dirty_rects) {
 			GLESBackend::Get()->AddDirtyRect(r.left, r.top, r.right, r.bottom);
 		}

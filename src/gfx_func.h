@@ -150,6 +150,12 @@ struct GLESPerfCounters {
 	int tileloop_count = 0;        ///< Tiles processed in RunTileLoop.
 	int gameloop_ticks = 0;        ///< Number of game ticks this period.
 
+	/* Snapshot recording (CPU game thread, microseconds) */
+	int64_t snap_record_us = 0;    ///< DrawDirtyBlocks recording time.
+	int64_t snap_validate_us = 0;  ///< Coordinate validation time.
+	int64_t snap_total_us = 0;     ///< Total snapshot path time (palette+record+validate+publish).
+	int snap_commands = 0;         ///< Commands recorded per snapshot.
+
 	/* Vehicle counts (snapshot from game thread) */
 	int vehicle_trains = 0;        ///< Train vehicle count.
 	int vehicle_road = 0;          ///< Road vehicle count.

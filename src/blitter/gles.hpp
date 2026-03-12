@@ -34,4 +34,7 @@ public:
 	std::unique_ptr<Blitter> CreateInstance() override { return std::make_unique<Blitter_GLES>(); }
 };
 
+/** Flush sprites staged before GLESBackend was ready into the atlas. */
+void FlushEarlyStaged();
+
 #endif /* BLITTER_GLES_HPP */

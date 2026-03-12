@@ -16,11 +16,34 @@
 #include "../palette_func.h"
 #include "../debug.h"
 
-#include <unordered_set>
-
 #include "../safeguards.h"
 
 static FBlitter_GLES iFBlitter_GLES;
+
+/** Early staging buffer for sprites encoded before GLESBackend is ready. */
+static std::unordered_map<GLESSpriteID, GLESStagedPixels> &GetEarlyStaged()
+{
+	static std::unordered_map<GLESSpriteID, GLESStagedPixels> buf;
+	return buf;
+}
+
+void FlushEarlyStaged()
+{
+	auto &early = GetEarlyStaged();
+	if (early.empty()) return;
+
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend == nullptr) return;
+
+	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	for (auto &[key, sp] : early) {
+		SpriteID sprite_id = static_cast<SpriteID>(key >> 4);
+		ZoomLevel zoom = static_cast<ZoomLevel>(key & 0xF);
+		atlas.Stage(sprite_id, zoom, reinterpret_cast<const SpriteLoader::CommonPixel *>(sp.pixels.data()),
+		            sp.width, sp.height, sp.has_rgb, sp.has_remap);
+	}
+	early.clear();
+}
 
 /**
  * Encode a sprite for the GLES blitter.
@@ -38,34 +61,39 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 	dest_sprite->x_offs = root.x_offs;
 	dest_sprite->y_offs = root.y_offs;
 
-	GLESBackend *backend = GLESBackend::Get();
-	if (backend == nullptr) {
-		_gles_perf.encode_skipped++;
-		return dest_sprite;
-	}
-
-	/* Upload only the single best (largest) zoom variant for GPU scaling.
-	 * Prefer base zoom, then search toward more detail,
-	 * then toward less detail. */
-	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	/* Find the single best (largest) zoom variant for GPU scaling. */
 	const SpriteLoader::Sprite *best = nullptr;
-	int best_zoom = -1;
 
 	for (int z = to_underlying(kGPUScaleBaseZoom); z >= to_underlying(ZoomLevel::Begin); z--) {
 		const auto &s = sprite[static_cast<ZoomLevel>(z)];
-		if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; best_zoom = z; break; }
+		if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
 	}
 	if (best == nullptr) {
 		for (int z = to_underlying(kGPUScaleBaseZoom) + 1; z < to_underlying(ZoomLevel::End); z++) {
 			const auto &s = sprite[static_cast<ZoomLevel>(z)];
-			if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; best_zoom = z; break; }
+			if (s.data != nullptr && s.width > 0 && s.height > 0) { best = &s; break; }
 		}
 	}
 	if (best != nullptr) {
 		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
 		bool has_remap = best->colours.Test(SpriteComponent::Palette);
-		atlas.Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
-		            best->width, best->height, has_rgb, has_remap);
+
+		GLESBackend *backend = GLESBackend::Get();
+		if (backend != nullptr) {
+			backend->GetSpriteAtlas().Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
+			                               best->width, best->height, has_rgb, has_remap);
+		} else {
+			/* Backend not ready yet — save to early staging buffer. */
+			GLESStagedPixels sp;
+			size_t count = static_cast<size_t>(best->width) * best->height;
+			sp.pixels.assign(best->data, best->data + count);
+			sp.width = best->width;
+			sp.height = best->height;
+			sp.has_rgb = has_rgb;
+			sp.has_remap = has_remap;
+			GLESSpriteID key = MakeGLESSpriteKey(_gles_encoding_sprite_id, kGPUScaleBaseZoom);
+			GetEarlyStaged()[key] = std::move(sp);
+		}
 		_gles_perf.encode_uploaded++;
 	}
 
@@ -111,46 +139,7 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 
 		if (entry == nullptr) {
 			_gles_perf.gpu_sprites_missing++;
-			static int miss_log_count = 0;
-			if (miss_log_count < 50) {
-				miss_log_count++;
-				Debug(driver, 0, "GLES: Draw miss sprite_id={} zoom={} key={:#x} mode={} skip=({},{}) vis=({},{}) spr=({},{})",
-				      bp->sprite_id, static_cast<int>(zoom), key, static_cast<int>(mode),
-				      bp->skip_left, bp->skip_top, bp->width, bp->height,
-				      bp->sprite_width, bp->sprite_height);
-			}
 			return;
-		}
-
-		/* Log suspicious atlas entries that could render as empty. */
-		{
-			static int bad_log_count = 0;
-			int bad_type = 0; /* 0=ok, 1=zero-dim, 2=zero-vis, 3=cpage>1, 4=rpage>1, 5=clipped */
-			int spr_w = static_cast<int>(UnScaleByZoom(bp->sprite_width, zoom));
-			int spr_h = static_cast<int>(UnScaleByZoom(bp->sprite_height, zoom));
-
-			if (entry->colour.w == 0 || entry->colour.h == 0) {
-				bad_type = 1;
-			} else if (bp->width <= 0 || bp->height <= 0) {
-				bad_type = 2;
-			} else if (entry->colour.atlas_idx > 1) {
-				bad_type = 3;
-			} else if (entry->has_remap && entry->remap.atlas_idx > 1) {
-				bad_type = 4;
-			} else if (bp->skip_left >= spr_w || bp->skip_top >= spr_h) {
-				bad_type = 5;
-			}
-
-			if (bad_type > 0 && bad_log_count < 50) {
-				bad_log_count++;
-				Debug(driver, 0, "GLES: BAD-DRAW type={} sid={} zoom={} mode={} skip=({},{}) vis=({},{}) spr=({},{}) atlas_c=({},{} p{}) atlas_r=({},{} p{}) remap={} palonly={}",
-				      bad_type, bp->sprite_id, static_cast<int>(zoom), static_cast<int>(mode),
-				      bp->skip_left, bp->skip_top, bp->width, bp->height,
-				      spr_w, spr_h,
-				      static_cast<int>(entry->colour.w), static_cast<int>(entry->colour.h), static_cast<int>(entry->colour.atlas_idx),
-				      static_cast<int>(entry->remap.w), static_cast<int>(entry->remap.h), static_cast<int>(entry->remap.atlas_idx),
-				      static_cast<int>(entry->has_remap), static_cast<int>(entry->palette_only));
-			}
 		}
 
 		/* Convert buffer-relative coords to absolute screen coords. */

@@ -11,6 +11,7 @@
 #include "../core/random_func.hpp"
 #include "../network/network.h"
 #include "../blitter/factory.hpp"
+#include "../blitter/snapshot.hpp"
 #include "../debug.h"
 #include "../driver.h"
 #include "../fontcache.h"
@@ -20,11 +21,55 @@
 #include "../rev.h"
 #include "../thread.h"
 #include "../window_func.h"
+#include "../window_gui.h"
+#include "../viewport_func.h"
 #include "../openttd.h"
 #include "video_driver.hpp"
 #include "draw_snapshot.h"
 #include "gles_backend.h"
 #include "../palette_func.h"
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#include <signal.h>
+#include <unwind.h>
+#include <dlfcn.h>
+#endif
+
+#ifdef __ANDROID__
+static _Unwind_Reason_Code unwind_callback(struct _Unwind_Context *context, void *arg) {
+	int *depth = static_cast<int *>(arg);
+	uintptr_t pc = _Unwind_GetIP(context);
+	if (pc) {
+		Dl_info info;
+		if (dladdr(reinterpret_cast<void *>(pc), &info) && info.dli_sname) {
+			__android_log_print(4, "OpenTTD", "  #%d: %s (%s+%p)", *depth, info.dli_sname, info.dli_fname, reinterpret_cast<void *>(pc - reinterpret_cast<uintptr_t>(info.dli_fbase)));
+		} else {
+			__android_log_print(4, "OpenTTD", "  #%d: pc=%p", *depth, reinterpret_cast<void *>(pc));
+		}
+	}
+	(*depth)++;
+	return (*depth > 20) ? _URC_END_OF_STACK : _URC_NO_REASON;
+}
+
+static void crash_handler(int sig) {
+	__android_log_print(6, "OpenTTD", "CRASH: signal %d", sig);
+	int depth = 0;
+	_Unwind_Backtrace(unwind_callback, &depth);
+	_exit(1);
+}
+
+static struct CrashHandlerInstaller {
+	CrashHandlerInstaller() {
+		struct sigaction sa{};
+		sa.sa_handler = crash_handler;
+		sigemptyset(&sa.sa_mask);
+		sa.sa_flags = SA_RESETHAND;
+		sigaction(SIGSEGV, &sa, nullptr);
+		sigaction(SIGABRT, &sa, nullptr);
+	}
+} _crash_handler_installer;
+#endif
 
 #include "../safeguards.h"
 
@@ -42,33 +87,88 @@ void VideoDriver::GameLoop()
 	{
 		std::lock_guard<std::mutex> lock(this->game_state_mutex);
 
+		auto t_gl0 = std::chrono::steady_clock::now();
 		::GameLoop();
+		auto t_gl1 = std::chrono::steady_clock::now();
+
+		if (this->snapshot_buffer != nullptr && _screen.width > 0 && _screen.height > 0) {
+			this->RecordSnapshot(t_gl0, t_gl1);
+		}
 	}
+}
+
+void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, std::chrono::steady_clock::time_point t_gl1)
+{
+	auto t_snap0 = std::chrono::steady_clock::now();
+
+	DrawSnapshot &snap = this->snapshot_buffer->GetWriteBuffer();
+	snap.Clear();
+
+	for (int i = 0; i < 256; i++) {
+		snap.palette[i] = _cur_palette.palette[i].data;
+	}
+
+	void *save_dst = _screen.dst_ptr;
+	DrawPixelInfo *save_dpi = _cur_dpi;
+
+	static std::vector<uint8_t> dummy_buf;
+	size_t needed = (size_t)_screen.width * _screen.height * 4;
+	if (dummy_buf.size() < needed) dummy_buf.resize(needed);
+
+	_screen.dst_ptr = dummy_buf.data();
+	_cur_dpi = &_screen;
+
+	/* Set recording buffer on the snapshot blitter (already active). */
+	auto *snap_blitter = dynamic_cast<Blitter_Snapshot *>(BlitterFactory::GetActiveBlitter().get());
+	if (snap_blitter != nullptr) snap_blitter->SetRecordingBuffer(dummy_buf.data(), _screen.pitch);
+	StartRecording(snap);
+	MarkWholeScreenDirty();
+	auto t_rec0 = std::chrono::steady_clock::now();
+	DrawDirtyBlocks();
+	auto t_rec1 = std::chrono::steady_clock::now();
+	StopRecording();
+
+	/* Restore only what we changed. Do NOT restore width/height/pitch —
+	 * a concurrent resize on the draw thread must not be overwritten. */
+	_screen.dst_ptr = save_dst;
+	_cur_dpi = save_dpi;
+	snap.full_redraw = true;
+
+	/* Validate coordinates before publishing to GPU thread. */
+	auto t_val0 = std::chrono::steady_clock::now();
+	int sw = _screen.width;
+	int sh = _screen.height;
+	int bad = 0;
+	for (auto it = snap.commands.begin(); it != snap.commands.end(); ) {
+		const auto &c = *it;
+		if (c.x < -4096 || c.y < -4096 || c.x > sw + 4096 || c.y > sh + 4096) {
+			++bad;
+			it = snap.commands.erase(it);
+		} else {
+			++it;
+		}
+	}
+	auto t_val1 = std::chrono::steady_clock::now();
+	if (bad > 0) {
+		Debug(driver, 0, "SNAP_VALIDATE: dropped {} commands with out-of-range coords (screen {}x{})", bad, sw, sh);
+	}
+
+	this->snapshot_buffer->Publish();
+	auto t_snap1 = std::chrono::steady_clock::now();
+
+	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+	_gles_perf.gameloop_us += us(t_gl0, t_gl1);
+	_gles_perf.snap_record_us += us(t_rec0, t_rec1);
+	_gles_perf.snap_validate_us += us(t_val0, t_val1);
+	_gles_perf.snap_total_us += us(t_snap0, t_snap1);
+	_gles_perf.snap_commands += static_cast<int>(snap.commands.size());
+	_gles_perf.gameloop_ticks++;
 }
 
 void VideoDriver::GameThread()
 {
 	while (!_exit_game) {
 		this->GameLoop();
-
-		/* Snapshot path: record draw commands after game state update. */
-		if (this->snapshot_buffer != nullptr) {
-			DrawSnapshot &snap = this->snapshot_buffer->GetWriteBuffer();
-			snap.Clear();
-
-			/* Copy palette. */
-			for (int i = 0; i < 256; i++) {
-				snap.palette[i] = _cur_palette.palette[i].data;
-			}
-
-			/* Record draw commands via GfxBlitter intercept. */
-			StartRecording(snap);
-			::UpdateWindows();
-			StopRecording();
-
-			snap.full_redraw = true;
-			this->snapshot_buffer->Publish();
-		}
 
 		auto now = std::chrono::steady_clock::now();
 		if (this->next_game_tick > now) {
@@ -145,11 +245,14 @@ void VideoDriver::Tick()
 
 		auto t_tick0 = std::chrono::steady_clock::now();
 
-		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
-		this->LockVideoBuffer();
-
-		/* Snapshot path: paint from triple buffer, skip mutex wait. */
+		/* Snapshot path: paint from triple buffer, skip mutex wait.
+		 * Do NOT call LockVideoBuffer here — it overwrites _screen.dst_ptr,
+		 * which races with the game thread's snapshot recording. */
 		if (this->snapshot_buffer != nullptr) {
+			/* Process SDL events to keep surface/EGL state in sync. */
+			this->DrainCommandQueue();
+			while (this->PollEvent()) {}
+
 			this->PaintFromSnapshot();
 
 			/* Log triple buffer metrics periodically. */
@@ -160,8 +263,6 @@ void VideoDriver::Tick()
 				tb.ResetMetrics();
 			}
 
-			this->UnlockVideoBuffer();
-
 			static bool first_draw_tick = true;
 			if (first_draw_tick) {
 				first_draw_tick = false;
@@ -169,6 +270,9 @@ void VideoDriver::Tick()
 			}
 			return;
 		}
+
+		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
+		this->LockVideoBuffer();
 
 		auto t_lock_video = std::chrono::steady_clock::now();
 
