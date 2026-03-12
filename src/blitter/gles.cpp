@@ -116,9 +116,8 @@ void Blitter_GLES::DrawRect(void *video, int width, int height, PixelColour colo
  */
 void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom)
 {
-	if (_gles_gpu_sprites) {
-		GLESBackend *backend = GLESBackend::Get();
-		if (backend == nullptr) return;
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend != nullptr) {
 
 		/* Only intercept draws to the actual screen buffer, not screenshots. */
 		const uint32_t *screen_start = static_cast<const uint32_t *>(_screen.dst_ptr);
@@ -170,6 +169,6 @@ void Blitter_GLES::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel 
 		return;
 	}
 
-	/* CPU fallback (only when _gles_gpu_sprites is off). */
+	/* CPU fallback (when GLESBackend is not available). */
 	Blitter_32bppOptimized::Draw(bp, mode, zoom);
 }

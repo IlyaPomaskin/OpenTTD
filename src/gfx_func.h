@@ -63,7 +63,6 @@ extern bool _right_button_clicked;
 
 extern DrawPixelInfo _screen;
 extern bool _screen_disable_anim;   ///< Disable palette animation (important for 32bpp-anim blitter during giant screenshot)
-extern bool _gles_gpu_sprites;      ///< When true, queue GPU draw commands instead of CPU blitting.
 extern bool _gles_video_active;     ///< When true, GLES video driver is active (enables dirty block coalescing).
 extern bool _gles_context_lost;     ///< Set on SDL_RENDER_DEVICE_RESET; consumed by GLES Paint() to trigger GPU rebuild.
 extern SpriteID _gles_encoding_sprite_id; ///< SpriteID currently being encoded.

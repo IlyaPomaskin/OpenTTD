@@ -394,8 +394,8 @@ static void SetViewportPosition(Window *w, int x, int y)
 		if (i >= 0) height -= i;
 
 		if (height > 0) {
-			if (_gles_gpu_sprites) {
-				/* GPU sprites: no CPU buffer to scroll, just redraw the whole region. */
+			if (_game_mode == GM_WALLPAPER) {
+				/* Wallpaper mode: no CPU buffer to scroll, just redraw the whole region. */
 				RedrawScreenRect(left, top, left + width, top + height);
 			} else {
 				Window::IteratorToFront it(w);
@@ -1847,7 +1847,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	ViewportAddVehicles(&_vd.dpi);
 	auto _t2 = std::chrono::steady_clock::now();
 
-	if (!_gles_gpu_sprites) {
+	if (_game_mode != GM_WALLPAPER) {
 		ViewportAddKdtreeSigns(&_vd.dpi);
 		DrawTextEffects(&_vd.dpi);
 	}
@@ -1910,7 +1910,7 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		DrawPOIMarkers(vp);
 	}
 
-	if (!_gles_gpu_sprites && !_vd.string_sprites_to_draw.empty()) {
+	if (_game_mode != GM_WALLPAPER && !_vd.string_sprites_to_draw.empty()) {
 		/* translate to world coordinates */
 		dp.left = UnScaleByZoom(_vd.dpi.left, zoom);
 		dp.top = UnScaleByZoom(_vd.dpi.top, zoom);
@@ -2057,7 +2057,7 @@ void UpdateViewportPosition(Window *w, uint32_t delta_ms)
 
 		bool update_overlay = false;
 		if (delta_x != 0 || delta_y != 0) {
-			if (_settings_client.gui.smooth_scroll /*|| _gles_gpu_sprites*/) {
+			if (_settings_client.gui.smooth_scroll || _game_mode == GM_WALLPAPER) {
 				int delta_x_clamped;
 				int delta_y_clamped;
 

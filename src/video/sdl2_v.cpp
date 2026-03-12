@@ -440,7 +440,7 @@ bool VideoDriver_SDL_Base::PollEvent()
 
 			/* Tap on wallpaper: cycle zoom In2x → Normal → Out2x → In2x. */
 			if (ev.button.button == SDL_BUTTON_LEFT &&
-					_game_mode == GM_MENU && _gles_gpu_sprites) {
+					_game_mode == GM_WALLPAPER) {
 				Window *w = GetMainWindow();
 				ViewportData &vp = *w->viewport;
 				ZoomLevel next;

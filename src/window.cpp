@@ -963,8 +963,8 @@ void DrawOverlappedWindowForAll(int left, int top, int right, int bottom)
 	DrawPixelInfo bk;
 	AutoRestoreBackup dpi_backup(_cur_dpi, &bk);
 
-	if (_gles_gpu_sprites) {
-		/* GPU sprites mode: only the viewport (WC_MAIN_WINDOW) renders.
+	if (_game_mode == GM_WALLPAPER) {
+		/* Wallpaper mode: only the viewport (WC_MAIN_WINDOW) renders.
 		 * No other windows exist visually, so skip overlap logic entirely. */
 		for (Window *w : Window::IterateFromBack()) {
 			if (w->window_class != WC_MAIN_WINDOW || !MayBeShown(w)) continue;
@@ -2482,7 +2482,7 @@ static EventState HandleViewportScroll()
 	 * outside of the window and should not left-mouse scroll anymore. */
 	if (_last_scroll_window == nullptr) _last_scroll_window = FindWindowFromPt(_cursor.pos.x, _cursor.pos.y);
 
-	if (_last_scroll_window == nullptr || !((_gles_gpu_sprites && _left_button_down) || (_settings_client.gui.scroll_mode != ViewportScrollMode::MapLMB && _right_button_down) || scrollwheel_scrolling || (_settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB && _left_button_down))) {
+	if (_last_scroll_window == nullptr || !((_game_mode == GM_WALLPAPER && _left_button_down) || (_settings_client.gui.scroll_mode != ViewportScrollMode::MapLMB && _right_button_down) || scrollwheel_scrolling || (_settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB && _left_button_down))) {
 		_cursor.fix_at = false;
 		_scrolling_viewport = false;
 		_last_scroll_window = nullptr;
@@ -2925,7 +2925,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 	/* Don't allow any action in a viewport if we have a modal progress window.
 	 * In menu mode, skip viewport-specific handling but still dispatch to OnClick. */
 	if (vp != nullptr && HasModalProgress()) { Debug(misc, 0, "MouseLoop: blocked by modal progress"); return; }
-	if (vp != nullptr && _game_mode == GM_MENU && !_gles_gpu_sprites) {
+	if (vp != nullptr && _game_mode == GM_MENU) {
 		vp = nullptr;
 	}
 
@@ -2953,7 +2953,7 @@ static void MouseLoop(MouseClick click, int mousewheel)
 			case MC_LEFT:
 				if (HandleViewportClicked(*vp, x, y)) return;
 				if (!w->flags.Test(WindowFlag::DisableVpScroll) &&
-						(/*_gles_gpu_sprites ||*/ _settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB)) {
+						(_game_mode == GM_WALLPAPER || _settings_client.gui.scroll_mode == ViewportScrollMode::MapLMB)) {
 					_scrolling_viewport = true;
 					_cursor.fix_at = false;
 					return;
@@ -3205,14 +3205,14 @@ void UpdateWindows()
 	 * iteration in ViewportAddLandscape on skipped frames.
 	 * Combined with partial texture upload, skipped frames have near-zero
 	 * GPU cost since no dirty region means no upload. */
-	if (!_gles_gpu_sprites && _gles_video_active) {
+	if (_game_mode != GM_WALLPAPER && _gles_video_active) {
 		static int draw_frame_counter = 0;
 		if (++draw_frame_counter % 2 != 0) {
 			/* Still update viewport positions and cursor on skipped frames. */
 			for (Window *w : Window::Iterate()) {
 				if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 			}
-			if (!_gles_gpu_sprites) DrawMouseCursor();
+			DrawMouseCursor();
 			return;
 		}
 	}
@@ -3224,8 +3224,8 @@ void UpdateWindows()
 	}
 	DrawDirtyBlocks();
 	_gles_perf.update_windows_us += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uw_t0).count();
-	if (!_gles_gpu_sprites) NetworkDrawChatMessage();
-	if (!_gles_gpu_sprites) DrawMouseCursor();
+	if (_game_mode != GM_WALLPAPER) NetworkDrawChatMessage();
+	if (_game_mode != GM_WALLPAPER) DrawMouseCursor();
 
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW) {
 		/* We are done with the last draw-frame, so we know what sprites we

@@ -340,7 +340,7 @@ protected:
 
 		/* Match draw rate to game tick rate — no point drawing faster
 		 * than game state updates (~37 Hz). */
-		if (_gles_gpu_sprites) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
+		if (this->snapshot_buffer != nullptr) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
 
 		/* If vsync, draw interval is decided by the display driver */
 		if (_video_vsync && this->uses_hardware_acceleration) return std::chrono::microseconds(0);

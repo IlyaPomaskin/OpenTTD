@@ -286,7 +286,7 @@ void VideoDriver::Tick()
 
 			/* Process deferred atlas clear before UpdateWindows so that
 			 * LookupOrUpload never returns stale entries from the old map. */
-			if (_gles_gpu_sprites && GLESBackend::Get() != nullptr) {
+			if (GLESBackend::Get() != nullptr) {
 				GLESBackend::Get()->GetSpriteAtlas().ProcessPendingClear();
 			}
 

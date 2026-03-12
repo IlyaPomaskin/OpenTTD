@@ -152,8 +152,6 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 	/* Enable dirty block coalescing for GLES (single RedrawScreenRect). */
 	_gles_video_active = true;
 
-	/* Enable GPU sprite rendering — blitter queues draw commands instead of CPU blitting. */
-	_gles_gpu_sprites = true;
 
 	/* Force a client-size-changed event to allocate buffers. */
 	int w, h;
@@ -170,7 +168,6 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 
 void VideoDriver_SDL_GLES::Stop()
 {
-	_gles_gpu_sprites = false;
 	_gles_video_active = false;
 	this->DestroyContext();
 	this->VideoDriver_SDL_Base::Stop();
@@ -220,11 +217,9 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 {
 	if (!CopyPalette(this->local_palette)) return;
 
-	if (_gles_gpu_sprites) {
-		/* GPU sprites with MRT: palette change is handled by the resolve pass
-		 * in Paint(). No need for MarkWholeScreenDirty() — the FBO already
-		 * has valid sprite content and palette index data in attachment 1.
-		 * Just let Paint() detect the dirty palette and run a cheap resolve. */
+	if (this->snapshot_buffer != nullptr) {
+		/* Snapshot mode: palette change is handled by the resolve pass
+		 * in Paint(). No need for MarkWholeScreenDirty(). */
 		return;
 	}
 	this->MakeDirty(0, 0, _screen.width, _screen.height);
@@ -445,7 +440,7 @@ void VideoDriver_SDL_GLES::Paint()
 	/* Forward individual dirty rectangles to the GLES backend.
 	 * Skip in snapshot mode — dirty rects come from the snapshot buffer
 	 * (added in PaintFromSnapshot), not from gles_dirty_rects. */
-	if (_gles_gpu_sprites && this->snapshot_buffer == nullptr) {
+	if (this->snapshot_buffer == nullptr && GLESBackend::Get() != nullptr) {
 		for (const Rect &r : this->gles_dirty_rects) {
 			GLESBackend::Get()->AddDirtyRect(r.left, r.top, r.right, r.bottom);
 		}

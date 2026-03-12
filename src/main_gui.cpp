@@ -419,16 +419,10 @@ struct MainWindow : Window
 	{
 		int dx = ScaleByZoom(delta.x, this->viewport->zoom);
 		int dy = ScaleByZoom(delta.y, this->viewport->zoom);
-		//if (_gles_gpu_sprites) {
-		//	/* Smooth scrolling for touch: only move dest, let viewport interpolation ease. */
-		//	this->viewport->dest_scrollpos_x += dx;
-		//	this->viewport->dest_scrollpos_y += dy;
-		//} else {
-			this->viewport->scrollpos_x += dx;
-			this->viewport->scrollpos_y += dy;
-			this->viewport->dest_scrollpos_x = this->viewport->scrollpos_x;
-			this->viewport->dest_scrollpos_y = this->viewport->scrollpos_y;
-		//}
+		this->viewport->scrollpos_x += dx;
+		this->viewport->scrollpos_y += dy;
+		this->viewport->dest_scrollpos_x = this->viewport->scrollpos_x;
+		this->viewport->dest_scrollpos_y = this->viewport->scrollpos_y;
 		this->refresh_timeout.Reset();
 	}
 
