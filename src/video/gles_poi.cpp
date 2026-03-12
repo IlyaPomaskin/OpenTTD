@@ -24,6 +24,7 @@
 #include "../tile_map.h"
 #include "../object_map.h"
 #include "../object_type.h"
+#include "../vehicle_base.h"
 #include "../openttd.h"
 #include "../wallpaper.h"
 #include "../landscape.h"
@@ -365,6 +366,38 @@ static void ScanTownPOIs(std::vector<GlesPOI> &candidates)
 	}
 }
 
+/** Scan vehicles and emit a "follow vehicle" POI (20% chance). */
+static void ScanVehiclePOIs(std::vector<GlesPOI> &candidates)
+{
+	if ((std::rand() % 100) >= 20) return;
+
+	/* Collect all front vehicles (trains, road vehicles, ships, aircraft). */
+	std::vector<const Vehicle *> front_vehicles;
+	for (const Vehicle *v : Vehicle::Iterate()) {
+		if (!v->IsPrimaryVehicle()) continue;
+		if (v->vehstatus.Test(VehState::Stopped)) continue;
+		if (v->vehstatus.Test(VehState::Hidden)) continue;
+		front_vehicles.push_back(v);
+	}
+	if (front_vehicles.empty()) return;
+
+	const Vehicle *veh = front_vehicles[std::rand() % front_vehicles.size()];
+	auto [fx, fy] = TileToFxy(veh->tile);
+
+	static const char *vtype_names[] = {"train", "road vehicle", "ship", "aircraft"};
+	const char *vtype = (veh->type <= VEH_AIRCRAFT) ? vtype_names[veh->type] : "vehicle";
+
+	GlesPOI poi;
+	poi.map_fx = fx;
+	poi.map_fy = fy;
+	poi.score = 50;
+	poi.zoom = 0;
+	poi.delay_ms = 8000;
+	poi.reason = fmt::format("follow {}: vehicle #{}", vtype, veh->index);
+	poi.follow_vehicle = veh->index;
+	candidates.push_back(std::move(poi));
+}
+
 /** Scan all POI types, sort by score, pick 10 random from top 50. */
 static void ScanMapPOIs()
 {
@@ -382,12 +415,15 @@ static void ScanMapPOIs()
 	int n_junctions = (int)candidates.size() - n_stations - n_lighthouses;
 	ScanTownPOIs(candidates);
 	int n_towns = (int)candidates.size() - n_stations - n_lighthouses - n_junctions;
-	Debug(driver, 0, "GLES POI candidates: {} total (stations={} lighthouses={} junctions={} towns={})",
-		(int)candidates.size(), n_stations, n_lighthouses, n_junctions, n_towns);
+	ScanVehiclePOIs(candidates);
+	int n_vehicles = (int)candidates.size() - n_stations - n_lighthouses - n_junctions - n_towns;
+	Debug(driver, 0, "GLES POI candidates: {} total (stations={} lighthouses={} junctions={} towns={} vehicles={})",
+		(int)candidates.size(), n_stations, n_lighthouses, n_junctions, n_towns, n_vehicles);
 
-	/* Remove POIs within 20 tiles of map edge. */
+	/* Remove POIs within 20 tiles of map edge (skip vehicle-follow POIs). */
 	candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
 		[](const GlesPOI &c) {
+			if (c.follow_vehicle != VehicleID::Invalid()) return false;
 			const uint edge_margin = 20;
 			uint tx = (uint)(c.map_fx * Map::SizeX());
 			uint ty = (uint)(c.map_fy * Map::SizeY());
@@ -397,26 +433,30 @@ static void ScanMapPOIs()
 
 	int n_after_edge = (int)candidates.size();
 	Debug(driver, 0, "GLES POI after edge filter: {} (removed {})", n_after_edge,
-		n_stations + n_lighthouses + n_junctions + n_towns - n_after_edge);
+		n_stations + n_lighthouses + n_junctions + n_towns + n_vehicles - n_after_edge);
 
 	std::sort(candidates.begin(), candidates.end(),
 		[](const GlesPOI &a, const GlesPOI &b) { return a.score > b.score; });
 
-	/* Build top-50 pool, skipping any within 10 tiles of an already selected entry. */
+	/* Build top-50 pool, skipping any within 10 tiles of an already selected entry.
+	 * Vehicle-follow POIs skip distance check (they move). */
 	std::vector<GlesPOI> top_pool;
 	for (const auto &c : candidates) {
 		if ((int)top_pool.size() >= 50) break;
-		TileIndex ct = TileXY(
-			(uint)(c.map_fx * Map::SizeX()),
-			(uint)(c.map_fy * Map::SizeY()));
-		bool too_close = false;
-		for (const auto &sel : top_pool) {
-			TileIndex st = TileXY(
-				(uint)(sel.map_fx * Map::SizeX()),
-				(uint)(sel.map_fy * Map::SizeY()));
-			if (DistanceManhattan(ct, st) < 10) { too_close = true; break; }
+		if (c.follow_vehicle == VehicleID::Invalid()) {
+			TileIndex ct = TileXY(
+				(uint)(c.map_fx * Map::SizeX()),
+				(uint)(c.map_fy * Map::SizeY()));
+			bool too_close = false;
+			for (const auto &sel : top_pool) {
+				TileIndex st = TileXY(
+					(uint)(sel.map_fx * Map::SizeX()),
+					(uint)(sel.map_fy * Map::SizeY()));
+				if (DistanceManhattan(ct, st) < 10) { too_close = true; break; }
+			}
+			if (too_close) continue;
 		}
-		if (!too_close) top_pool.push_back(c);
+		top_pool.push_back(c);
 	}
 
 	Debug(driver, 0, "GLES POI top-50 pool (10-tile dedup): {} entries", (int)top_pool.size());
@@ -456,31 +496,42 @@ static bool _poi_manual_browse = false;
 /** Move camera to the current POI. */
 static void ShowCurrentPOI()
 {
-	float fx, fy;
-	ZoomLevel zoom = ZoomLevel::In4x;
-
 	if (_gles_poi_list.empty()) return;
 
 	const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
-	fx   = poi.map_fx;
-	fy   = poi.map_fy;
-	zoom = static_cast<ZoomLevel>(poi.zoom);
+	ZoomLevel zoom = static_cast<ZoomLevel>(poi.zoom);
 	Debug(driver, 0, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} zoom={} — {}",
-		_gles_poi_idx, poi.score, fx, fy, poi.zoom, poi.reason);
+		_gles_poi_idx, poi.score, poi.map_fx, poi.map_fy, poi.zoom, poi.reason);
+
+	Window *w = GetMainWindow();
+	if (w == nullptr || w->viewport == nullptr) return;
+
+	ViewportData &vp = *w->viewport;
 
 	/* Set zoom BEFORE scrolling — ScrollMainWindowTo uses virtual_width/height
 	 * to compute the center offset, so zoom must be correct first. */
-	Window *w = GetMainWindow();
-	if (w != nullptr && w->viewport != nullptr) {
-		ViewportData &vp = *w->viewport;
-		vp.zoom = zoom;
-		vp.virtual_width = ScaleByZoom(vp.width, vp.zoom);
-		vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);
-	}
+	vp.zoom = zoom;
+	vp.virtual_width = ScaleByZoom(vp.width, vp.zoom);
+	vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);
 
-	int world_x = (int)(fx * Map::SizeX() * TILE_SIZE);
-	int world_y = (int)(fy * Map::SizeY() * TILE_SIZE);
-	ScrollMainWindowTo(world_x, world_y, -1, true);
+	if (poi.follow_vehicle != VehicleID::Invalid() && Vehicle::IsValidID(poi.follow_vehicle)) {
+		/* Follow vehicle mode: let the viewport track the vehicle automatically. */
+		const Vehicle *veh = Vehicle::Get(poi.follow_vehicle);
+		vp.follow_vehicle = poi.follow_vehicle;
+		/* Set initial scroll position to vehicle's current location. */
+		Point pt = RemapCoords(veh->x_pos, veh->y_pos, veh->z_pos);
+		vp.scrollpos_x = pt.x - vp.virtual_width / 2;
+		vp.scrollpos_y = pt.y - vp.virtual_height / 2;
+		vp.dest_scrollpos_x = vp.scrollpos_x;
+		vp.dest_scrollpos_y = vp.scrollpos_y;
+	} else {
+		/* Static POI: cancel any vehicle following and scroll to position. */
+		vp.follow_vehicle = VehicleID::Invalid();
+
+		int world_x = (int)(poi.map_fx * Map::SizeX() * TILE_SIZE);
+		int world_y = (int)(poi.map_fy * Map::SizeY() * TILE_SIZE);
+		ScrollMainWindowTo(world_x, world_y, -1, true);
+	}
 
 	MarkWholeScreenDirty();
 }
