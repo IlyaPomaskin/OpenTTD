@@ -22,7 +22,9 @@
 #include "../window_func.h"
 #include "../openttd.h"
 #include "video_driver.hpp"
+#include "draw_snapshot.h"
 #include "gles_backend.h"
+#include "../palette_func.h"
 
 #include "../safeguards.h"
 
@@ -48,6 +50,25 @@ void VideoDriver::GameThread()
 {
 	while (!_exit_game) {
 		this->GameLoop();
+
+		/* Snapshot path: record draw commands after game state update. */
+		if (this->snapshot_buffer != nullptr) {
+			DrawSnapshot &snap = this->snapshot_buffer->GetWriteBuffer();
+			snap.Clear();
+
+			/* Copy palette. */
+			for (int i = 0; i < 256; i++) {
+				snap.palette[i] = _cur_palette.palette[i].data;
+			}
+
+			/* Record draw commands via GfxBlitter intercept. */
+			StartRecording(snap);
+			::UpdateWindows();
+			StopRecording();
+
+			snap.full_redraw = true;
+			this->snapshot_buffer->Publish();
+		}
 
 		auto now = std::chrono::steady_clock::now();
 		if (this->next_game_tick > now) {
@@ -126,6 +147,28 @@ void VideoDriver::Tick()
 
 		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
 		this->LockVideoBuffer();
+
+		/* Snapshot path: paint from triple buffer, skip mutex wait. */
+		if (this->snapshot_buffer != nullptr) {
+			this->PaintFromSnapshot();
+
+			/* Log triple buffer metrics periodically. */
+			auto &tb = *this->snapshot_buffer;
+			if (tb.swap_count % 60 == 0 && tb.swap_count > 0) {
+				Debug(driver, 0, "TRIPLE_BUFFER: swaps={} cpu_ahead={} gpu_ahead={}",
+					tb.swap_count, tb.cpu_ahead_count, tb.gpu_ahead_count);
+				tb.ResetMetrics();
+			}
+
+			this->UnlockVideoBuffer();
+
+			static bool first_draw_tick = true;
+			if (first_draw_tick) {
+				first_draw_tick = false;
+				DriverFactoryBase::MarkVideoDriverOperational();
+			}
+			return;
+		}
 
 		auto t_lock_video = std::chrono::steady_clock::now();
 

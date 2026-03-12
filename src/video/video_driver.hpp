@@ -21,8 +21,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
+
+#include "draw_snapshot.h"
 
 extern std::string _ini_videodriver;
 extern std::vector<Dimension> _resolutions;
@@ -277,6 +280,9 @@ protected:
 	 */
 	virtual void Paint() {}
 
+	/** Paint from snapshot triple buffer. Returns true if a frame was rendered. */
+	virtual bool PaintFromSnapshot() { return false; }
+
 	/**
 	 * Process any pending palette animation.
 	 */
@@ -369,6 +375,8 @@ protected:
 	std::thread game_thread;
 	std::mutex game_state_mutex;
 	std::mutex game_thread_wait_mutex;
+
+	std::unique_ptr<SnapshotTripleBuffer> snapshot_buffer; ///< Triple buffer for snapshot rendering. nullptr = disabled.
 
 	bool uses_hardware_acceleration;
 

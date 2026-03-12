@@ -25,6 +25,10 @@
 #include "core/geometry_func.hpp"
 #include "viewport_func.h"
 
+#include "video/draw_snapshot.h"
+#include "video/gles_sprite.h"
+#include "video/gles_backend.h"
+
 #include "table/animcursors.h"
 #include "table/string_colours.h"
 #include "table/sprites.h"
@@ -50,6 +54,29 @@ bool _gles_video_active = false;     ///< When true, GLES video driver is active
 bool _gles_context_lost = false;     ///< Set on SDL_RENDER_DEVICE_RESET; consumed by GLES Paint() to trigger GPU rebuild.
 GLESPerfCounters _gles_perf;         ///< Per-frame rendering performance counters.
 SpriteID _gles_encoding_sprite_id = 0; ///< SpriteID currently being encoded (set before Encode(), read by GLES blitter).
+
+/** Snapshot recording state for two-thread rendering. */
+static DrawSnapshot *_recording_snapshot = nullptr;
+static uint32_t _recording_stage_redundant = 0;
+static uint32_t _recording_stage_new = 0;
+
+void StartRecording(DrawSnapshot &snapshot) {
+	snapshot.Clear();
+	_recording_snapshot = &snapshot;
+	_recording_stage_redundant = 0;
+	_recording_stage_new = 0;
+}
+
+void StopRecording() {
+	if (_recording_snapshot != nullptr && (_recording_stage_new > 0 || _recording_stage_redundant > 0)) {
+		Debug(driver, 0, "SNAPSHOT: {} commands, staged {} new sprites ({} redundant)",
+			(int)_recording_snapshot->commands.size(), _recording_stage_new, _recording_stage_redundant);
+	}
+	_recording_snapshot = nullptr;
+}
+
+bool IsRecording() { return _recording_snapshot != nullptr; }
+
 std::atomic<bool> _exit_game;
 GameMode _game_mode;
 SwitchMode _switch_mode;  ///< The next mainloop command.
@@ -1077,6 +1104,53 @@ void DrawSprite(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub,
 template <int ZOOM_BASE, bool SCALED_XY>
 static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mode, const SubSprite * const sub, SpriteID sprite_id, ZoomLevel zoom, const DrawPixelInfo *dst = nullptr)
 {
+	/* Snapshot recording: capture draw command instead of rendering. */
+	if (_recording_snapshot != nullptr) {
+		DrawCommand cmd;
+		cmd.type = (mode == BlitterMode::ColourRemap) ? DrawCommand::RECOLOUR : DrawCommand::SPRITE;
+
+		/* Compute screen position same as the normal path. */
+		int rx = SCALED_XY ? ScaleByZoom(x, zoom) : x;
+		int ry = SCALED_XY ? ScaleByZoom(y, zoom) : y;
+		rx += sprite->x_offs;
+		ry += sprite->y_offs;
+
+		cmd.x = static_cast<int16_t>(rx);
+		cmd.y = static_cast<int16_t>(ry);
+		cmd.sprite = sprite_id;
+		cmd.palette = 0; /* TODO: extract from _colour_remap_ptr */
+		_recording_snapshot->commands.push_back(cmd);
+
+		/* Stage sprite if not in GPU atlas.
+		 * False negative OK: GPU may have uploaded after our check.
+		 * GPU thread skips duplicate upload. */
+		if (_gles_gpu_sprites && GLESBackend::Get() != nullptr) {
+			SnapshotSpriteKey key = (static_cast<uint64_t>(sprite_id) << 4) | static_cast<uint64_t>(zoom);
+			if (_recording_snapshot->staged.find(key) == _recording_snapshot->staged.end()) {
+				auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
+				GLESSpriteID gles_key = MakeGLESSpriteKey(sprite_id, zoom);
+				if (atlas.Lookup(gles_key) == nullptr) {
+					StagedSprite ss;
+					ss.width = sprite->width;
+					ss.height = sprite->height;
+					ss.x_offs = sprite->x_offs;
+					ss.y_offs = sprite->y_offs;
+					ss.has_rgb = true;  /* TODO: detect from sprite data */
+					ss.has_remap = false;
+					size_t byte_count = (size_t)sprite->width * sprite->height * sizeof(SpriteLoader::CommonPixel);
+					ss.pixels.assign(
+						reinterpret_cast<const uint8_t *>(sprite->data),
+						reinterpret_cast<const uint8_t *>(sprite->data) + byte_count);
+					_recording_snapshot->staged[key] = std::move(ss);
+					_recording_stage_new++;
+				} else {
+					_recording_stage_redundant++;
+				}
+			}
+		}
+		return;
+	}
+
 	const DrawPixelInfo *dpi = (dst != nullptr) ? dst : _cur_dpi;
 	Blitter::BlitterParams bp;
 

@@ -34,6 +34,7 @@ protected:
 	void *GetVideoPointer() override;
 	void ReleaseVideoPointer() override {}
 	void Paint() override;
+	bool PaintFromSnapshot() override;
 	void CheckPaletteAnim() override;
 	bool CreateMainWindow(uint w, uint h, uint flags) override;
 

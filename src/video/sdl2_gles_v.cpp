@@ -19,6 +19,7 @@
 #include "../viewport_type.h"
 #include "../zoom_func.h"
 #include "sdl2_gles_v.h"
+#include "draw_snapshot.h"
 #include "gles_backend.h"
 #include "gles_poi.h"
 #include <SDL.h>
@@ -119,9 +120,11 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &pa
 		Debug(driver, 0, "GLES: SDL_Base::Start failed: {}", *error);
 		return error;
 	}
-	/* Single-threaded mode: GameLoop + Draw run sequentially in one thread.
-	 * Avoids mutex contention which wastes CPU time at low clock speeds. */
-	this->is_game_threaded = false;
+	/* Two-threaded snapshot rendering: CPU thread records draw commands,
+	 * GPU thread (main) renders from snapshots via lock-free triple buffer. */
+	this->is_game_threaded = true;
+	this->snapshot_buffer = std::make_unique<SnapshotTripleBuffer>();
+	Debug(driver, 0, "GLES: snapshot rendering enabled, is_game_threaded=true");
 
 	Debug(driver, 0, "GLES: SDL_Base::Start OK, window={}", (void *)this->sdl_window);
 
@@ -222,6 +225,48 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 		return;
 	}
 	this->MakeDirty(0, 0, _screen.width, _screen.height);
+}
+
+bool VideoDriver_SDL_GLES::PaintFromSnapshot()
+{
+	if (this->snapshot_buffer == nullptr) return false;
+
+	bool have_new = this->snapshot_buffer->Acquire();
+	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
+
+	if (snap.frame_id == 0) return false; /* No snapshot published yet. */
+
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend == nullptr) return false;
+
+	auto &atlas = backend->GetSpriteAtlas();
+
+	/* 1. Upload ALL staged sprites BEFORE drawing. */
+	uint32_t uploaded = 0;
+	for (auto &[key, ss] : snap.staged) {
+		GLESSpriteID gles_key = key; /* SnapshotSpriteKey == GLESSpriteID == uint64_t */
+		if (atlas.Lookup(gles_key) != nullptr) continue; /* Already in atlas. */
+		SpriteID sid = static_cast<SpriteID>(key >> 4);
+		ZoomLevel zm = static_cast<ZoomLevel>(key & 0xF);
+		auto *pixels = reinterpret_cast<const SpriteLoader::CommonPixel *>(ss.pixels.data());
+		atlas.Upload(sid, zm, pixels, ss.width, ss.height, ss.has_rgb, ss.has_remap);
+		uploaded++;
+	}
+	if (uploaded > 0) {
+		Debug(driver, 0, "SNAPSHOT PAINT: uploaded {} new sprites to atlas", uploaded);
+	}
+
+	/* 2. Palette. */
+	/* TODO: UpdatePaletteTexture(snap.palette); */
+
+	/* 3. Draw commands. */
+	/* TODO: iterate snap.commands and call GLESBackend draw for each sprite.
+	 * For now, log and fall through to normal Paint() pipeline. */
+	Debug(driver, 0, "SNAPSHOT PAINT: frame={} commands={} staged={} new={}",
+		snap.frame_id, (int)snap.commands.size(), (int)snap.staged.size(), have_new);
+
+	/* Return false to fall through to normal Paint() until draw is implemented. */
+	return false;
 }
 
 void VideoDriver_SDL_GLES::Paint()
