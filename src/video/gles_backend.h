@@ -37,8 +37,8 @@ struct GLESVertex {
 	float x, y;     ///< Screen position in pixels.
 	float u, v;     ///< Colour atlas UV.
 	float ru, rv;   ///< Remap atlas UV.
-	float cpage;    ///< Colour atlas page index (0.0 or 1.0).
-	float rpage;    ///< Remap atlas page index (0.0 or 1.0).
+	float cpage;    ///< Colour atlas array layer index.
+	float rpage;    ///< Remap atlas array layer index.
 };
 
 /** OpenGL ES backend singleton managing shaders, textures, and batched rendering. */
@@ -57,26 +57,21 @@ private:
 	/* Normal program uniforms. */
 	GLint normal_screen_loc = -1;
 	GLint normal_colour_tex_loc = -1;
-	GLint normal_colour_tex1_loc = -1;
 
 	/* Remap program uniforms. */
 	GLint remap_screen_loc = -1;
 	GLint remap_colour_tex_loc = -1;
-	GLint remap_colour_tex1_loc = -1;
 	GLint remap_remap_tex_loc = -1;
-	GLint remap_remap_tex1_loc = -1;
 	GLint remap_palette_tex_loc = -1;
 	GLint remap_table_tex_loc = -1;
 
 	/* Transparent program uniforms. */
 	GLint trans_screen_loc = -1;
 	GLint trans_colour_tex_loc = -1;
-	GLint trans_colour_tex1_loc = -1;
 
 	/* Palette program uniforms. */
 	GLint pal_screen_loc = -1;
 	GLint pal_remap_tex_loc = -1;
-	GLint pal_remap_tex1_loc = -1;
 	GLint pal_palette_tex_loc = -1;
 
 	/* Solid debug program uniforms. */

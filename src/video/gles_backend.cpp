@@ -139,7 +139,6 @@ bool GLESBackend::InitShaders()
 
 		this->normal_screen_loc = glGetUniformLocation(this->prog_normal, "screen");
 		this->normal_colour_tex_loc = glGetUniformLocation(this->prog_normal, "colour_tex");
-		this->normal_colour_tex1_loc = glGetUniformLocation(this->prog_normal, "colour_tex1");
 	}
 
 	/* Remap fragment shader. */
@@ -152,9 +151,7 @@ bool GLESBackend::InitShaders()
 
 		this->remap_screen_loc = glGetUniformLocation(this->prog_remap, "screen");
 		this->remap_colour_tex_loc = glGetUniformLocation(this->prog_remap, "colour_tex");
-		this->remap_colour_tex1_loc = glGetUniformLocation(this->prog_remap, "colour_tex1");
 		this->remap_remap_tex_loc = glGetUniformLocation(this->prog_remap, "remap_tex");
-		this->remap_remap_tex1_loc = glGetUniformLocation(this->prog_remap, "remap_tex1");
 		this->remap_palette_tex_loc = glGetUniformLocation(this->prog_remap, "palette_tex");
 		this->remap_table_tex_loc = glGetUniformLocation(this->prog_remap, "remap_table_tex");
 	}
@@ -169,7 +166,6 @@ bool GLESBackend::InitShaders()
 
 		this->trans_screen_loc = glGetUniformLocation(this->prog_transparent, "screen");
 		this->trans_colour_tex_loc = glGetUniformLocation(this->prog_transparent, "colour_tex");
-		this->trans_colour_tex1_loc = glGetUniformLocation(this->prog_transparent, "colour_tex1");
 	}
 
 	/* Palette-only fragment shader (M channel → palette lookup). */
@@ -182,7 +178,6 @@ bool GLESBackend::InitShaders()
 
 		this->pal_screen_loc = glGetUniformLocation(this->prog_palette, "screen");
 		this->pal_remap_tex_loc = glGetUniformLocation(this->prog_palette, "remap_tex");
-		this->pal_remap_tex1_loc = glGetUniformLocation(this->prog_palette, "remap_tex1");
 		this->pal_palette_tex_loc = glGetUniformLocation(this->prog_palette, "palette_tex");
 	}
 
@@ -356,11 +351,10 @@ void GLESBackend::RecoverGPUState()
 	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
 	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
 
-	/* Re-initialize atlas (GL settings for the new context). */
+	/* Re-initialize atlas (GL settings for the new context).
+	 * Abandon old GL handles first — they belong to the dead context. */
+	this->sprite_atlas.AbandonGLObjects();
 	this->sprite_atlas.Init();
-
-	/* Request deferred atlas clear — old textures belong to dead context. */
-	this->sprite_atlas.RequestClear();
 
 	/* Recreate FBO and cpu_framebuf_tex via Resize() (handles are already 0). */
 	if (this->screen_width > 0 && this->screen_height > 0) {
@@ -773,21 +767,15 @@ bool GLESBackend::Paint()
 	glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
 	                      reinterpret_cast<void *>(offsetof(GLESVertex, rpage)));
 
-	/* === Bind ALL atlas textures once ===
-	 * Unit 0: colour page 0    Unit 1: colour page 1
-	 * Unit 2: remap page 0     Unit 3: remap page 1
-	 * Unit 4: palette           Unit 5: remap table */
-	GLuint cp0 = this->sprite_atlas.GetColourPageCount() > 0 ? this->sprite_atlas.GetColourTexture(0) : 0;
-	GLuint cp1 = this->sprite_atlas.GetColourPageCount() > 1 ? this->sprite_atlas.GetColourTexture(1) : cp0;
-	GLuint rp0 = this->sprite_atlas.GetRemapPageCount() > 0 ? this->sprite_atlas.GetRemapTexture(0) : 0;
-	GLuint rp1 = this->sprite_atlas.GetRemapPageCount() > 1 ? this->sprite_atlas.GetRemapTexture(1) : rp0;
-
-	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, cp0);
-	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, cp1);
-	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, rp0);
-	glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, rp1);
-	glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_2D, this->palette_tex);
-	glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
+	/* === Bind atlas array textures once ===
+	 * Unit 0: colour array (GL_TEXTURE_2D_ARRAY)
+	 * Unit 1: remap array  (GL_TEXTURE_2D_ARRAY)
+	 * Unit 2: palette       (GL_TEXTURE_2D)
+	 * Unit 3: remap table   (GL_TEXTURE_2D) */
+	glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, this->sprite_atlas.GetColourTexture());
+	glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D_ARRAY, this->sprite_atlas.GetRemapTexture());
+	glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+	glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
 
 	/* === Draw batches — only break on shader type change === */
 	glEnable(GL_BLEND);
@@ -811,14 +799,12 @@ bool GLESBackend::Paint()
 				glUseProgram(this->prog_normal);
 				glUniform2f(this->normal_screen_loc, sw, sh);
 				glUniform1i(this->normal_colour_tex_loc, 0);
-				glUniform1i(this->normal_colour_tex1_loc, 1);
 				break;
 
 			case BT_TRANSPARENT:
 				glUseProgram(this->prog_transparent);
 				glUniform2f(this->trans_screen_loc, sw, sh);
 				glUniform1i(this->trans_colour_tex_loc, 0);
-				glUniform1i(this->trans_colour_tex1_loc, 1);
 				glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 				break;
 
@@ -826,19 +812,16 @@ bool GLESBackend::Paint()
 				glUseProgram(this->prog_remap);
 				glUniform2f(this->remap_screen_loc, sw, sh);
 				glUniform1i(this->remap_colour_tex_loc, 0);
-				glUniform1i(this->remap_colour_tex1_loc, 1);
-				glUniform1i(this->remap_remap_tex_loc, 2);
-				glUniform1i(this->remap_remap_tex1_loc, 3);
-				glUniform1i(this->remap_palette_tex_loc, 4);
-				glUniform1i(this->remap_table_tex_loc, 5);
+				glUniform1i(this->remap_remap_tex_loc, 1);
+				glUniform1i(this->remap_palette_tex_loc, 2);
+				glUniform1i(this->remap_table_tex_loc, 3);
 				break;
 
 			case BT_PALETTE:
 				glUseProgram(this->prog_palette);
 				glUniform2f(this->pal_screen_loc, sw, sh);
-				glUniform1i(this->pal_remap_tex_loc, 2);
-				glUniform1i(this->pal_remap_tex1_loc, 3);
-				glUniform1i(this->pal_palette_tex_loc, 4);
+				glUniform1i(this->pal_remap_tex_loc, 1);
+				glUniform1i(this->pal_palette_tex_loc, 2);
 				break;
 			}
 		}
@@ -847,7 +830,7 @@ bool GLESBackend::Paint()
 		if (b.type == BT_REMAP && b.remap != nullptr && b.remap != this->last_remap_ptr) {
 			/* Swap to the other remap texture to avoid GPU ghost on the one still in use. */
 			this->remap_table_idx ^= 1;
-			glActiveTexture(GL_TEXTURE5);
+			glActiveTexture(GL_TEXTURE3);
 			glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1,
 			                GL_RED, GL_UNSIGNED_BYTE, b.remap);

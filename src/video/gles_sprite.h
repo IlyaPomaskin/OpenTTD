@@ -56,22 +56,25 @@ struct GLESStagedPixels {
 	bool has_rgb, has_remap;
 };
 
-/** A single atlas texture with a shelf packer. */
+/** A single layer in an atlas texture array, with shelf packer state. */
 struct GLESAtlasPage {
-	GLuint texture = 0;       ///< GL texture handle.
 	uint16_t width = 0;       ///< Atlas width in pixels.
 	uint16_t height = 0;      ///< Atlas height in pixels.
 	uint16_t cursor_x = 0;    ///< Current packing cursor X.
 	uint16_t cursor_y = 0;    ///< Current packing cursor Y.
 	uint16_t row_height = 0;  ///< Height of the current shelf row.
-	bool is_luminance;        ///< True for remap atlas (R8/GL_RED).
 };
 
 /** Manages sprite atlas textures for the GLES backend. */
 class GLESSpriteAtlas {
 private:
-	std::vector<GLESAtlasPage> colour_pages; ///< RGBA atlas pages.
-	std::vector<GLESAtlasPage> remap_pages;  ///< Luminance (M channel) atlas pages.
+	std::vector<GLESAtlasPage> colour_pages; ///< RGBA atlas layers (packing state).
+	std::vector<GLESAtlasPage> remap_pages;  ///< Remap atlas layers (packing state).
+	GLuint colour_array_tex = 0;             ///< GL_TEXTURE_2D_ARRAY for colour (RGBA).
+	GLuint remap_array_tex = 0;              ///< GL_TEXTURE_2D_ARRAY for remap (R8).
+	int colour_array_depth = 0;              ///< Allocated depth of colour array texture.
+	int remap_array_depth = 0;               ///< Allocated depth of remap array texture.
+	static constexpr int MAX_ATLAS_LAYERS = 4; ///< Pre-allocated layer count.
 	uint16_t atlas_size = 2048;              ///< Atlas page dimension.
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
@@ -92,6 +95,15 @@ public:
 
 	/** Request atlas clear (thread-safe, deferred to GL thread). */
 	void RequestClear() { this->clear_pending.store(true); }
+
+	/** Abandon GL handles without deleting (after EGL context loss). */
+	void AbandonGLObjects() {
+		this->colour_array_tex = 0;
+		this->remap_array_tex = 0;
+		this->colour_pages.clear();
+		this->remap_pages.clear();
+		this->sprites.clear();
+	}
 
 	/** Process deferred clear. Must be called from GL thread (e.g. in Paint). */
 	void ProcessPendingClear();
@@ -122,11 +134,11 @@ public:
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;
 
-	/** Get the GL texture handle for a colour atlas page. */
-	GLuint GetColourTexture(uint16_t idx) const { return colour_pages[idx].texture; }
+	/** Get the GL_TEXTURE_2D_ARRAY handle for the colour atlas. */
+	GLuint GetColourTexture() const { return colour_array_tex; }
 
-	/** Get the GL texture handle for a remap atlas page. */
-	GLuint GetRemapTexture(uint16_t idx) const { return remap_pages[idx].texture; }
+	/** Get the GL_TEXTURE_2D_ARRAY handle for the remap atlas. */
+	GLuint GetRemapTexture() const { return remap_array_tex; }
 
 	/** Get atlas page counts for diagnostics. */
 	size_t GetColourPageCount() const { return colour_pages.size(); }

@@ -46,7 +46,7 @@ public:
 	void ScrollBuffer(void *, int &, int &, int &, int &, int, int) override {}
 	size_t BufferSize(uint w, uint h) override { return static_cast<size_t>(w) * h * 4; }
 	void PaletteAnimate(const Palette &) override {}
-	Blitter::PaletteAnimation UsePaletteAnimation() override { return Blitter::PaletteAnimation::None; }
+	Blitter::PaletteAnimation UsePaletteAnimation() override { return Blitter::PaletteAnimation::Blitter; }
 
 	std::string_view GetName() override { return "snapshot"; }
 };

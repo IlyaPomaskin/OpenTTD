@@ -13,7 +13,7 @@
  *  and page indices to select which atlas texture to sample. */
 static const char *_gles_vertex_shader =
 	"#version 300 es\n"
-	"precision mediump float;\n"
+	"precision highp float;\n"
 	"uniform vec2 screen;\n"
 	"in vec2 a_position;\n"
 	"in vec2 a_colour_uv;\n"
@@ -35,40 +35,34 @@ static const char *_gles_vertex_shader =
 	"}\n";
 
 /** Fragment shader for normal (RGBA) sprite rendering.
- *  Selects between two atlas pages based on v_cpage.
+ *  Samples colour from a 2D array texture using v_cpage as layer index.
  *  Writes palette index 0 (not palette-dependent). */
 static const char *_gles_frag_shader_normal =
 	"#version 300 es\n"
-	"precision mediump float;\n"
-	"uniform sampler2D colour_tex;\n"
-	"uniform sampler2D colour_tex1;\n"
+	"precision highp float;\n"
+	"uniform highp sampler2DArray colour_tex;\n"
 	"in vec2 v_colour_uv;\n"
 	"in float v_cpage;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"layout(location = 1) out vec4 o_index;\n"
 	"void main() {\n"
-	"  if (v_cpage < 0.5)\n"
-	"    o_colour = texture(colour_tex, v_colour_uv);\n"
-	"  else\n"
-	"    o_colour = texture(colour_tex1, v_colour_uv);\n"
+	"  o_colour = texture(colour_tex, vec3(v_colour_uv, v_cpage));\n"
 	"  o_index = vec4(0.0);\n"
 	"}\n";
 
 /** Fragment shader for colour-remapped sprite rendering.
- *  Reads the M channel from the remap atlas, looks up the remap table
+ *  Reads the M channel from the remap array texture, looks up the remap table
  *  to get the final palette index, then looks up the palette texture.
  *  Brightness from the RGBA sprite modulates the final colour.
- *  Selects atlas page based on v_cpage / v_rpage.
+ *  Uses v_cpage / v_rpage as array layer indices.
  *  Writes the remapped palette index to attachment 1 for deferred resolve. */
 static const char *_gles_frag_shader_remap =
 	"#version 300 es\n"
-	"precision mediump float;\n"
-	"uniform sampler2D colour_tex;\n"
-	"uniform sampler2D colour_tex1;\n"
-	"uniform sampler2D remap_tex;\n"
-	"uniform sampler2D remap_tex1;\n"
-	"uniform sampler2D palette_tex;\n"
-	"uniform sampler2D remap_table_tex;\n"
+	"precision highp float;\n"
+	"uniform highp sampler2DArray colour_tex;\n"
+	"uniform highp sampler2DArray remap_tex;\n"
+	"uniform highp sampler2D palette_tex;\n"
+	"uniform highp sampler2D remap_table_tex;\n"
 	"in vec2 v_colour_uv;\n"
 	"in vec2 v_remap_uv;\n"
 	"in float v_cpage;\n"
@@ -88,18 +82,10 @@ static const char *_gles_frag_shader_remap =
 	"}\n"
 	"\n"
 	"void main() {\n"
-	"  float m;\n"
-	"  if (v_rpage < 0.5)\n"
-	"    m = texture(remap_tex, v_remap_uv).r;\n"
-	"  else\n"
-	"    m = texture(remap_tex1, v_remap_uv).r;\n"
-	"  float remapped = texture(remap_table_tex, vec2(m, 0.5)).r;\n"
-	"  vec4 pal_col = texture(palette_tex, vec2(remapped, 0.5));\n"
-	"  vec4 rgb_col;\n"
-	"  if (v_cpage < 0.5)\n"
-	"    rgb_col = texture(colour_tex, v_colour_uv);\n"
-	"  else\n"
-	"    rgb_col = texture(colour_tex1, v_colour_uv);\n"
+	"  float m = texture(remap_tex, vec3(v_remap_uv, v_rpage)).r;\n"
+	"  float remapped = texture(remap_table_tex, vec2((m * 255.0 + 0.5) / 256.0, 0.5)).r;\n"
+	"  vec4 pal_col = texture(palette_tex, vec2((remapped * 255.0 + 0.5) / 256.0, 0.5));\n"
+	"  vec4 rgb_col = texture(colour_tex, vec3(v_colour_uv, v_cpage));\n"
 	"  if (m > 0.0) {\n"
 	"    o_colour.a = pal_col.a;\n"
 	"    o_colour.rgb = adj_brightness(pal_col.rgb, max3(rgb_col.rgb));\n"
@@ -111,28 +97,23 @@ static const char *_gles_frag_shader_remap =
 	"}\n";
 
 /** Fragment shader for palette-only sprite rendering.
- *  Reads the M channel index from the remap atlas, looks up the palette
+ *  Reads the M channel index from the remap array texture, looks up the palette
  *  texture to get the final RGBA colour. Index 0 is transparent (discarded).
- *  Selects atlas page based on v_rpage.
+ *  Uses v_rpage as array layer index.
  *  Writes the palette index to attachment 1 for deferred resolve. */
 static const char *_gles_frag_shader_palette =
 	"#version 300 es\n"
-	"precision mediump float;\n"
-	"uniform sampler2D remap_tex;\n"
-	"uniform sampler2D remap_tex1;\n"
-	"uniform sampler2D palette_tex;\n"
+	"precision highp float;\n"
+	"uniform highp sampler2DArray remap_tex;\n"
+	"uniform highp sampler2D palette_tex;\n"
 	"in vec2 v_remap_uv;\n"
 	"in float v_rpage;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"layout(location = 1) out vec4 o_index;\n"
 	"void main() {\n"
-	"  float m;\n"
-	"  if (v_rpage < 0.5)\n"
-	"    m = texture(remap_tex, v_remap_uv).r;\n"
-	"  else\n"
-	"    m = texture(remap_tex1, v_remap_uv).r;\n"
+	"  float m = texture(remap_tex, vec3(v_remap_uv, v_rpage)).r;\n"
 	"  if (m < 0.002) discard;\n"
-	"  vec4 col = texture(palette_tex, vec2(m, 0.5));\n"
+	"  vec4 col = texture(palette_tex, vec2((m * 255.0 + 0.5) / 256.0, 0.5));\n"
 	"  o_colour = vec4(col.rgb, 1.0);\n"
 	"  o_index = vec4(m, 0.0, 0.0, 0.0);\n"
 	"}\n";
@@ -141,7 +122,7 @@ static const char *_gles_frag_shader_palette =
  *  Writes palette index 0. */
 static const char *_gles_frag_shader_solid =
 	"#version 300 es\n"
-	"precision mediump float;\n"
+	"precision highp float;\n"
 	"uniform vec4 u_colour;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"layout(location = 1) out vec4 o_index;\n"
@@ -152,23 +133,18 @@ static const char *_gles_frag_shader_solid =
 
 /** Fragment shader for transparent sprite rendering.
  *  Outputs black with alpha, used with glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA).
- *  Selects atlas page based on v_cpage.
+ *  Uses v_cpage as array layer index.
  *  Writes palette index 0 (not palette-dependent). */
 static const char *_gles_frag_shader_transparent =
 	"#version 300 es\n"
-	"precision mediump float;\n"
-	"uniform sampler2D colour_tex;\n"
-	"uniform sampler2D colour_tex1;\n"
+	"precision highp float;\n"
+	"uniform highp sampler2DArray colour_tex;\n"
 	"in vec2 v_colour_uv;\n"
 	"in float v_cpage;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"layout(location = 1) out vec4 o_index;\n"
 	"void main() {\n"
-	"  float a;\n"
-	"  if (v_cpage < 0.5)\n"
-	"    a = texture(colour_tex, v_colour_uv).a;\n"
-	"  else\n"
-	"    a = texture(colour_tex1, v_colour_uv).a;\n"
+	"  float a = texture(colour_tex, vec3(v_colour_uv, v_cpage)).a;\n"
 	"  o_colour = vec4(0.0, 0.0, 0.0, a * 0.5);\n"
 	"  o_index = vec4(0.0);\n"
 	"}\n";
@@ -176,7 +152,7 @@ static const char *_gles_frag_shader_transparent =
 /** Simple FBO blit fragment shader — single output, no MRT. */
 static const char *_gles_frag_shader_blit =
 	"#version 300 es\n"
-	"precision mediump float;\n"
+	"precision highp float;\n"
 	"uniform sampler2D u_tex;\n"
 	"in vec2 v_colour_uv;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
@@ -190,14 +166,14 @@ static const char *_gles_frag_shader_blit =
  *  Non-palette pixels (index < 0.002) are discarded to preserve existing colour. */
 static const char *_gles_frag_shader_resolve =
 	"#version 300 es\n"
-	"precision mediump float;\n"
-	"uniform sampler2D idx_tex;\n"
-	"uniform sampler2D palette_tex;\n"
+	"precision highp float;\n"
+	"uniform highp sampler2D idx_tex;\n"
+	"uniform highp sampler2D palette_tex;\n"
 	"in vec2 v_colour_uv;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"void main() {\n"
 	"  float idx = texture(idx_tex, v_colour_uv).r;\n"
 	"  if (idx < 0.002) discard;\n"
-	"  vec4 col = texture(palette_tex, vec2(idx, 0.5));\n"
+	"  vec4 col = texture(palette_tex, vec2((idx * 255.0 + 0.5) / 256.0, 0.5));\n"
 	"  o_colour = vec4(col.rgb, 1.0);\n"
 	"}\n";

@@ -31,12 +31,10 @@ void GLESSpriteAtlas::Init()
 
 void GLESSpriteAtlas::Destroy()
 {
-	for (auto &page : this->colour_pages) {
-		if (page.texture != 0) glDeleteTextures(1, &page.texture);
-	}
-	for (auto &page : this->remap_pages) {
-		if (page.texture != 0) glDeleteTextures(1, &page.texture);
-	}
+	if (this->colour_array_tex != 0) glDeleteTextures(1, &this->colour_array_tex);
+	if (this->remap_array_tex != 0) glDeleteTextures(1, &this->remap_array_tex);
+	this->colour_array_tex = 0;
+	this->remap_array_tex = 0;
 	this->colour_pages.clear();
 	this->remap_pages.clear();
 	this->sprites.clear();
@@ -63,12 +61,10 @@ void GLESSpriteAtlas::ClearSprites()
 	 * Keep stored_pixels and staged — they may already contain data for the
 	 * new map (staged from the game thread between RequestClear and this call).
 	 * LookupOrUpload will re-upload them on demand. */
-	for (auto &page : this->colour_pages) {
-		if (page.texture != 0) glDeleteTextures(1, &page.texture);
-	}
-	for (auto &page : this->remap_pages) {
-		if (page.texture != 0) glDeleteTextures(1, &page.texture);
-	}
+	if (this->colour_array_tex != 0) glDeleteTextures(1, &this->colour_array_tex);
+	if (this->remap_array_tex != 0) glDeleteTextures(1, &this->remap_array_tex);
+	this->colour_array_tex = 0;
+	this->remap_array_tex = 0;
 
 	size_t old_pages = this->colour_pages.size() + this->remap_pages.size();
 	size_t old_sprites = this->sprites.size();
@@ -92,28 +88,61 @@ GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, boo
 	page.cursor_x = 0;
 	page.cursor_y = 0;
 	page.row_height = 0;
-	page.is_luminance = luminance;
+	pages.push_back(page);
 
-	glGenTextures(1, &page.texture);
-	glBindTexture(GL_TEXTURE_2D, page.texture);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	GLuint &array_tex = luminance ? this->remap_array_tex : this->colour_array_tex;
+	int new_depth = static_cast<int>(pages.size());
 
-	/* Allocate texture storage with null data. */
+	/* Create new array texture with one more layer. */
+	GLuint new_tex;
+	glGenTextures(1, &new_tex);
+	glBindTexture(GL_TEXTURE_2D_ARRAY, new_tex);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
 	if (luminance) {
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, page.width, page.height, 0,
+		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R8, page.width, page.height, new_depth, 0,
 		             GL_RED, GL_UNSIGNED_BYTE, nullptr);
 	} else {
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, page.width, page.height, 0,
+		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, page.width, page.height, new_depth, 0,
 		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	}
 
-	pages.push_back(page);
+	/* Copy existing layers from old array texture via glCopyTexSubImage3D.
+	 * Attach each old layer to a read FBO, then copy directly into the
+	 * new array texture — no CPU readback, works with any format (R8/RGBA). */
+	if (array_tex != 0 && new_depth > 1) {
+		GLuint copy_fbo;
+		glGenFramebuffers(1, &copy_fbo);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, copy_fbo);
 
-	Debug(driver, 0, "GLES: Allocated {} atlas page {} ({}x{}) total_pages={}",
-	      luminance ? "remap" : "colour", pages.size() - 1, page.width, page.height, pages.size());
+		for (int i = 0; i < new_depth - 1; i++) {
+			glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, array_tex, 0, i);
+			GLenum fb_status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+			if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
+				Debug(driver, 0, "GLES: Atlas copy FBO incomplete: 0x{:04X} layer={} lum={}",
+				      fb_status, i, luminance);
+				continue;
+			}
+			glBindTexture(GL_TEXTURE_2D_ARRAY, new_tex);
+			glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, 0, 0, page.width, page.height);
+			GLenum err = glGetError();
+			if (err != GL_NO_ERROR) {
+				Debug(driver, 0, "GLES: Atlas glCopyTexSubImage3D error: 0x{:04X} layer={}", err, i);
+			}
+		}
+
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+		glDeleteFramebuffers(1, &copy_fbo);
+		glDeleteTextures(1, &array_tex);
+	}
+
+	array_tex = new_tex;
+
+	Debug(driver, 0, "GLES: Allocated {} atlas layer {} ({}x{}) total_layers={}",
+	      luminance ? "remap" : "colour", new_depth - 1, page.width, page.height, new_depth);
 
 	return pages.back();
 }
@@ -215,18 +244,20 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 				this->upload_rgba_buf[i * 4 + 2] = pixels[i].b;
 				this->upload_rgba_buf[i * 4 + 3] = pixels[i].a;
 			}
-			glBindTexture(GL_TEXTURE_2D, this->colour_pages[existing.colour.atlas_idx].texture);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, existing.colour.x, existing.colour.y,
-			                width, height, GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
+			glBindTexture(GL_TEXTURE_2D_ARRAY, this->colour_array_tex);
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, existing.colour.x, existing.colour.y,
+			                existing.colour.atlas_idx, width, height, 1,
+			                GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
 
 			if (has_remap) {
 				this->upload_m_buf.resize(npixels);
 				for (size_t i = 0; i < npixels; i++) {
 					this->upload_m_buf[i] = pixels[i].m;
 				}
-				glBindTexture(GL_TEXTURE_2D, this->remap_pages[existing.remap.atlas_idx].texture);
-				glTexSubImage2D(GL_TEXTURE_2D, 0, existing.remap.x, existing.remap.y,
-				                width, height, GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
+				glBindTexture(GL_TEXTURE_2D_ARRAY, this->remap_array_tex);
+				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, existing.remap.x, existing.remap.y,
+				                existing.remap.atlas_idx, width, height, 1,
+				                GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 			}
 
 			existing.palette_only = has_remap && !has_rgb;
@@ -262,9 +293,10 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 			return key;
 		}
 
-		glBindTexture(GL_TEXTURE_2D, this->colour_pages[entry.colour.atlas_idx].texture);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, entry.colour.x, entry.colour.y,
-		                width, height, GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
+		glBindTexture(GL_TEXTURE_2D_ARRAY, this->colour_array_tex);
+		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, entry.colour.x, entry.colour.y,
+		                entry.colour.atlas_idx, width, height, 1,
+		                GL_RGBA, GL_UNSIGNED_BYTE, this->upload_rgba_buf.data());
 	}
 
 	/* Upload M (remap) channel. */
@@ -278,9 +310,10 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 			return key;
 		}
 
-		glBindTexture(GL_TEXTURE_2D, this->remap_pages[entry.remap.atlas_idx].texture);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, entry.remap.x, entry.remap.y,
-		                width, height, GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
+		glBindTexture(GL_TEXTURE_2D_ARRAY, this->remap_array_tex);
+		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, entry.remap.x, entry.remap.y,
+		                entry.remap.atlas_idx, width, height, 1,
+		                GL_RED, GL_UNSIGNED_BYTE, this->upload_m_buf.data());
 	} else {
 		/* No remap data; fill with zeros in colour region. */
 		entry.remap = entry.colour;
