@@ -11,6 +11,9 @@
 #include "gles_sprite.h"
 #include "../debug.h"
 #include "../gfx_func.h"
+#include "../spritecache.h"
+#include "../spritecache_internal.h"
+#include "../spriteloader/grf.hpp"
 #include <GLES3/gl3.h>
 #include <algorithm>
 #include <chrono>
@@ -143,6 +146,9 @@ void GLESSpriteAtlas::ClearSprites()
 
 	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, {} queued",
 	      old_pages, old_sprites, this->upload_queue.size());
+
+	/* Rebuild GL-thread sprite file copies (GRF files may have changed). */
+	this->BuildGLSpriteFiles();
 }
 
 /* ---- PBO async upload pipeline ---- */
@@ -820,12 +826,35 @@ GLESSpriteID GLESSpriteAtlas::Enqueue(SpriteID sprite_id, ZoomLevel zoom,
 
 const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 {
-	/* Fast path: already uploaded to GPU via PBO. */
-	auto it = this->sprites.find(key);
-	if (it != this->sprites.end()) return &it->second;
+	_gles_perf.lookup_total++;
 
-	/* Sprite not yet uploaded — return placeholder so the draw is visible.
-	 * ProcessPBOUploads() will upload the real sprite next frame. */
+	/* Fast path: already uploaded. */
+	auto it = this->sprites.find(key);
+	if (it != this->sprites.end()) {
+		_gles_perf.lookup_hits++;
+		return &it->second;
+	}
+
+	/* Per-frame budget check. */
+	if (this->loads_this_frame >= MAX_LOADS_PER_FRAME) {
+		_gles_perf.gl_budget_skips++;
+		_gles_perf.gpu_sprites_missing++;
+		if (this->placeholder_ready) return &this->placeholder_entry;
+		return nullptr;
+	}
+
+	/* Extract SpriteID from key. */
+	SpriteID sprite_id = static_cast<SpriteID>(key >> 4);
+
+	/* Try loading from memory-backed GRF. */
+	if (this->LoadSpriteOnGLThread(sprite_id)) {
+		this->loads_this_frame++;
+		it = this->sprites.find(key);
+		if (it != this->sprites.end()) return &it->second;
+	} else {
+		_gles_perf.gl_thread_fails++;
+	}
+
 	_gles_perf.gpu_sprites_missing++;
 	if (this->placeholder_ready) return &this->placeholder_entry;
 	return nullptr;
@@ -975,4 +1004,101 @@ void GLESSpriteAtlas::EstimateAtlasPages() const
 	      col_pages, col_occ, col_mb, rem_pages, rem_occ, rem_mb, col_mb + rem_mb, staged_mb);
 	Debug(driver, 0, "ATLAS_ESTIMATE: timing: collect={}us sort={}us pack={}us total={}us",
 	      us(t0, t_collect), us(t_collect, t_sort), us(t_sort, t_pack), us(t0, t_pack));
+}
+
+/**
+ * Build GL-thread-owned memory-backed SpriteFile copies.
+ * Must be called after BufferSpriteFilesToMemory() and before GL-thread sprite loading.
+ */
+void GLESSpriteAtlas::BuildGLSpriteFiles()
+{
+	this->gl_sprite_files.clear();
+	for (const auto &f : GetCachedSpriteFiles()) {
+		if (f->GetMemoryData() == nullptr) continue;
+		auto gl_file = std::make_unique<SpriteFile>(
+			f->GetMemoryData(), f->GetMemorySize(), f->GetFilename(),
+			f->NeedsPaletteRemap(), f->GetContainerVersion(),
+			f->GetContentBegin(), f->GetStartPos());
+		this->gl_sprite_files[f.get()] = std::move(gl_file);
+	}
+	Debug(sprite, 0, "BuildGLSpriteFiles: {} files", this->gl_sprite_files.size());
+}
+
+/**
+ * Decode a sprite from memory-backed GRF and upload directly to atlas.
+ * GL thread only. Returns true on success.
+ */
+bool GLESSpriteAtlas::LoadSpriteOnGLThread(SpriteID sprite_id)
+{
+	SpriteCacheInfo info;
+	if (!GetSpriteCacheInfo(sprite_id, info)) {
+		Debug(sprite, 3, "GL LoadSprite {}: no cache info", sprite_id);
+		return false;
+	}
+	if (info.type != SpriteType::Normal) {
+		Debug(sprite, 3, "GL LoadSprite {}: type={}", sprite_id, static_cast<int>(info.type));
+		return false;
+	}
+
+	/* Find GL-thread SpriteFile copy. */
+	auto it = this->gl_sprite_files.find(info.file);
+	if (it == this->gl_sprite_files.end()) {
+		Debug(sprite, 0, "GL LoadSprite {}: no GL file for {}", sprite_id, info.file->GetFilename());
+		return false;
+	}
+	SpriteFile &gl_file = *it->second;
+
+	/* Decode sprite. */
+	SpriteLoader::SpriteCollection sprite;
+	ZoomLevels sprite_avail;
+	ZoomLevels avail_8bpp;
+	ZoomLevels avail_32bpp;
+
+	SpriteLoaderGrf sprite_loader(gl_file.GetContainerVersion());
+	sprite_avail = sprite_loader.LoadSprite(sprite, gl_file, info.file_pos, info.type, true, info.control_flags, avail_8bpp, avail_32bpp);
+	if (sprite_avail.None()) {
+		sprite_avail = sprite_loader.LoadSprite(sprite, gl_file, info.file_pos, info.type, false, info.control_flags, avail_8bpp, avail_32bpp);
+	}
+	if (sprite_avail.None()) {
+		Debug(sprite, 0, "GL LoadSprite {}: decode failed, file={} pos={}", sprite_id, gl_file.GetFilename(), info.file_pos);
+		return false;
+	}
+
+	/* Find best available zoom. Prefer base zoom, fall back to any. */
+	ZoomLevel use_zoom = kGPUScaleBaseZoom;
+	if (!sprite_avail.Test(use_zoom)) {
+		for (ZoomLevel z = ZoomLevel::Min; z <= ZoomLevel::Max; z++) {
+			if (sprite_avail.Test(z)) { use_zoom = z; break; }
+		}
+	}
+
+	const auto &sl = sprite[use_zoom];
+	if (sl.data == nullptr || sl.width == 0 || sl.height == 0) return false;
+
+	uint16_t w = sl.width;
+	uint16_t h = sl.height;
+	size_t count = static_cast<size_t>(w) * h;
+
+	/* Determine channels from sprite component flags (matches Blitter_Snapshot::Encode). */
+	bool has_rgb = sl.colours.Test(SpriteComponent::RGB) || sl.colours.Test(SpriteComponent::Alpha);
+	bool has_remap = sl.colours.Test(SpriteComponent::Palette);
+	if (!has_rgb && !has_remap) {
+		/* Fallback: scan pixel data. */
+		for (size_t i = 0; i < count; i++) {
+			if (sl.data[i].r || sl.data[i].g || sl.data[i].b) has_rgb = true;
+			if (sl.data[i].m) has_remap = true;
+			if (has_rgb && has_remap) break;
+		}
+		if (!has_rgb && !has_remap) has_rgb = true;
+	}
+
+	/* Upload directly. */
+	this->Upload(sprite_id, kGPUScaleBaseZoom, sl.data, w, h, has_rgb, has_remap);
+
+	/* Cache meta for fast-path. */
+	const auto &root = sprite.Root();
+	this->CacheMeta(sprite_id, root.width, root.height, root.x_offs, root.y_offs);
+
+	_gles_perf.gl_thread_loads++;
+	return true;
 }

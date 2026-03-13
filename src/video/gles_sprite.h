@@ -18,6 +18,7 @@
 #include <chrono>
 #include <mutex>
 #include "../spriteloader/spriteloader.hpp"
+#include "../spriteloader/sprite_file_type.hpp"
 #include "../zoom_type.h"
 #include "../gfx_func.h"
 
@@ -132,6 +133,11 @@ private:
 	GLESSpriteEntry placeholder_entry{}; ///< 1x1 semi-transparent black sprite for missing sprites.
 	bool placeholder_ready = false;
 
+	/** GL-thread-owned memory-backed SpriteFile copies, keyed by original SpriteFile pointer. */
+	std::unordered_map<const SpriteFile *, std::unique_ptr<SpriteFile>> gl_sprite_files;
+	static constexpr int MAX_LOADS_PER_FRAME = 200; ///< Per-frame budget for on-demand sprite loads.
+	int loads_this_frame = 0;
+
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
 	                uint16_t w, uint16_t h, GLESSpriteRegion &out);
@@ -191,8 +197,17 @@ public:
 	                     uint16_t width, uint16_t height,
 	                     bool has_rgb, bool has_remap);
 
-	/** Look up a sprite; returns placeholder if not yet uploaded. GL thread only. */
+	/** Look up a sprite; decode from memory and upload if not yet present. GL thread only. */
 	const GLESSpriteEntry *LookupOrUpload(GLESSpriteID key);
+
+	/** Decode sprite from memory-backed GRF and upload to atlas. GL thread only. */
+	bool LoadSpriteOnGLThread(SpriteID sprite_id);
+
+	/** Build GL-thread SpriteFile copies from buffered memory. Call after BufferSpriteFilesToMemory(). */
+	void BuildGLSpriteFiles();
+
+	/** Reset per-frame load counter. Call at start of each frame. */
+	void ResetFrameLoadCounter() { this->loads_this_frame = 0; }
 
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;

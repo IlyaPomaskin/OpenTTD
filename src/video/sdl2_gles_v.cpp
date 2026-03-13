@@ -226,17 +226,29 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
 
 	if (new_snapshot && !snap.commands.empty()) {
+		auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+
 		/* Process deferred atlas clear before replaying. */
+		auto t0 = std::chrono::steady_clock::now();
 		backend->GetSpriteAtlas().ProcessPendingClear();
+		auto t1 = std::chrono::steady_clock::now();
+		_gles_perf.snap_clear_us += us(t0, t1);
+
+		/* Process PBO uploads so newly enqueued sprites are available for LookupOrUpload. */
+		backend->GetSpriteAtlas().ProcessPBOUploads();
+		auto t2 = std::chrono::steady_clock::now();
+		_gles_perf.snap_pbo_us += us(t1, t2);
 
 		/* Replay draw commands into the GPU queue. */
 		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+		atlas.ResetFrameLoadCounter();
 		backend->ClearQueue();
 
+		int replayed = 0, null_entries = 0;
 		for (const auto &cmd : snap.commands) {
 			GLESSpriteID key = MakeGLESSpriteKey(cmd.sprite, cmd.zoom);
 			const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
-			if (entry == nullptr) continue;
+			if (entry == nullptr) { null_entries++; continue; }
 
 			GLESDrawCommand gcmd;
 			gcmd.sprite_key = key;
@@ -255,7 +267,12 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 			gcmd.palette_only = entry->palette_only;
 
 			backend->QueueDraw(gcmd);
+			replayed++;
 		}
+		auto t3 = std::chrono::steady_clock::now();
+		_gles_perf.snap_replay_us += us(t2, t3);
+		_gles_perf.snap_replayed_cmds += replayed;
+		_gles_perf.snap_null_entries += null_entries;
 
 		backend->AddDirtyRect(0, 0, _screen.width, _screen.height);
 
@@ -265,12 +282,13 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 		GLESBackend::Get()->UpdatePalette(this->local_palette.palette, 0, 256);
 		GLESBackend::Get()->SetPaletteDirty(true);
 		this->local_palette.count_dirty = 0;
+		auto t4 = std::chrono::steady_clock::now();
+		_gles_perf.snap_palette_us += us(t3, t4);
 
 		_gles_perf.gpu_draw_cmds += static_cast<int>(backend->GetDrawQueueSize());
-		auto t_fbo0 = std::chrono::steady_clock::now();
 		backend->PaintFBO();
-		auto t_fbo1 = std::chrono::steady_clock::now();
-		_gles_perf.gpu_paint_us += std::chrono::duration_cast<std::chrono::microseconds>(t_fbo1 - t_fbo0).count();
+		auto t5 = std::chrono::steady_clock::now();
+		_gles_perf.gpu_paint_us += us(t4, t5);
 
 		/* Record snapshot scroll state for interpolation.
 		 * prev = where we were (previous snapshot), curr = where FBO is now.
@@ -287,11 +305,16 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 
 	auto t_blit0 = std::chrono::steady_clock::now();
 	backend->BlitToScreen(0.0f, 0.0f);
-	SDL_GL_SwapWindow(this->sdl_window);
 	auto t_blit1 = std::chrono::steady_clock::now();
+	SDL_GL_SwapWindow(this->sdl_window);
+	auto t_swap1 = std::chrono::steady_clock::now();
 
-	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-	_gles_perf.swap_us += us(t_blit0, t_blit1);
+	{
+		auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+		_gles_perf.blit_to_screen_us += us(t_blit0, t_blit1);
+		_gles_perf.swap_us += us(t_blit1, t_swap1);
+	}
+	_gles_perf.frames++;
 
 	/* Run Paint() for PERF logging, POI handling, context recovery.
 	 * It early-returns before GL work in snapshot mode. */
@@ -369,7 +392,7 @@ void VideoDriver_SDL_GLES::Paint()
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | blit_calls={} gpu_cmds={} atlas_miss={} offscreen_skip={} | gl_batches={} reuploaded={} dim_mismatch={} zoom=[{}/{}/{}/{}/{}/{}] scaled_hits={} scaled_fallback={} gpu_paint={}us egl_swap={}us | encode: total={} uploaded={} all_transparent={} | atlas: color_pages={} remap_pages={} gpu_entries={} registered={} new_sprites={} repacked={}",
+		Debug(driver, 0, "PERF fps={} frames={} | blit_calls={} gpu_cmds={} atlas_miss={} offscreen_skip={} | gl_batches={} reuploaded={} dim_mismatch={} zoom=[{}/{}/{}/{}/{}/{}] scaled_hits={} scaled_fallback={} gpu_paint={}us egl_swap={}us | encode: total={} uploaded={} all_transparent={} | atlas: color_pages={} remap_pages={} gpu_entries={} registered={} new_sprites={} repacked={} | gl: loads={} fails={} budget_skip={} pbo_up={} lookup={}/{}",
 			fps, p.frames,
 			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
 			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
@@ -379,7 +402,8 @@ void VideoDriver_SDL_GLES::Paint()
 			p.encode_total, p.encode_uploaded, p.encode_all_transparent,
 			atlas.GetColourPageCount(), atlas.GetRemapPageCount(),
 			atlas.GetSpriteCount(), GetRegisteredSpriteCount(),
-			p.gpu_sprites_new, p.gpu_sprites_repacked);
+			p.gpu_sprites_new, p.gpu_sprites_repacked,
+			p.gl_thread_loads, p.gl_thread_fails, p.gl_budget_skips, p.pbo_uploaded_this_period, p.lookup_hits, p.lookup_total);
 		Debug(driver, 0, "  VP landscape={}us vehicles={}us ground_sprites={}us sprite_sort={}us sprite_draw={}us update_windows={}us | tiles_iterated={} parent_sprites={} child_sprites={} sprites_generated={} vp_draw_calls={} viewport={}x{} | mrt: full_renders={} resolve_only={} idle_blit={} resolve={}us",
 			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
 			p.vp_sort_us / n, p.vp_draw_us / n, p.update_windows_us / n,
@@ -439,6 +463,11 @@ void VideoDriver_SDL_GLES::Paint()
 				atlas.GetColourOccupancyPercent(), atlas.GetRemapOccupancyPercent(),
 				p.jank_count, ft_stddev, ft_p95, ft_p99,
 				p.vehicle_trains, p.vehicle_road, p.vehicle_ships, p.vehicle_aircraft);
+		Debug(driver, 0, "  GPU_SNAP clear={}us pbo={}us replay={}us(cmds={} null={}) palette={}us paint={}us blit={}us swap={}us",
+				p.snap_clear_us / n, p.snap_pbo_us / n, p.snap_replay_us / n,
+				p.snap_replayed_cmds / n, p.snap_null_entries / n,
+				p.snap_palette_us / n, p.gpu_paint_us / n,
+				p.blit_to_screen_us / n, p.swap_us / n);
 		}
 
 		p = {};  /* Reset counters. */

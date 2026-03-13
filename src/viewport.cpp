@@ -366,7 +366,7 @@ static void SetViewportPosition(Window *w, int x, int y)
 
 	if (old_top == 0 && old_left == 0) return;
 
-	Debug(driver, 0, "SetViewportPosition: delta=({},{}) vp={}x{}", old_left, old_top, vp.width, vp.height);
+
 
 	_vp_move_offs.x = old_left;
 	_vp_move_offs.y = old_top;

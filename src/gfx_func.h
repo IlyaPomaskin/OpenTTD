@@ -99,11 +99,26 @@ struct GLESPerfCounters {
 	int upload_rows = 0;           ///< Rows uploaded (0 = skipped).
 	int64_t gpu_paint_us = 0;      ///< GLESBackend::Paint time.
 	int64_t swap_us = 0;           ///< SDL_GL_SwapWindow time.
+	int64_t blit_to_screen_us = 0; ///< BlitToScreen time (FBO→screen).
+
+	/* Snapshot replay stages (GPU thread, microseconds) */
+	int64_t snap_clear_us = 0;     ///< ProcessPendingClear time.
+	int64_t snap_pbo_us = 0;       ///< ProcessPBOUploads time.
+	int64_t snap_replay_us = 0;    ///< Command replay loop (LookupOrUpload + QueueDraw).
+	int64_t snap_palette_us = 0;   ///< UpdatePalette time in snapshot path.
+	int snap_replayed_cmds = 0;    ///< Commands replayed (non-null entries).
+	int snap_null_entries = 0;     ///< Commands skipped (LookupOrUpload returned null).
 	int gpu_draw_cmds = 0;         ///< GPU draw commands queued.
 	int gpu_batches = 0;           ///< GPU draw batches (actual glDrawArrays calls).
 	int gpu_sprites_missing = 0;   ///< Sprites not found in atlas (silently skipped).
 	int gpu_sprites_new = 0;       ///< New sprites packed into atlas this period.
 	int gpu_sprites_repacked = 0;  ///< Sprites evicted and repacked (dimension change).
+	int gl_thread_loads = 0;       ///< Sprites decoded on GL thread from memory-backed GRF.
+	int gl_thread_fails = 0;       ///< GL-thread decode attempts that failed.
+	int gl_budget_skips = 0;       ///< Sprites skipped due to per-frame budget limit.
+	int pbo_uploaded_this_period = 0; ///< Sprites uploaded via PBO this period.
+	int lookup_hits = 0;           ///< LookupOrUpload found sprite in atlas.
+	int lookup_total = 0;          ///< Total LookupOrUpload calls.
 	int gpu_sprites_reuploaded = 0;///< Sprites re-uploaded due to cache key collision.
 	int gpu_dim_mismatches = 0;   ///< Sprites where computed dims != atlas entry dims.
 	int gpu_skip_offscreen = 0;   ///< Draws skipped: dst outside screen buffer.

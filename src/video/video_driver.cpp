@@ -28,6 +28,7 @@
 #include "draw_snapshot.h"
 #include "gles_backend.h"
 #include "../palette_func.h"
+#include "../zoom_func.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -111,53 +112,89 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 	void *save_dst = _screen.dst_ptr;
 	DrawPixelInfo *save_dpi = _cur_dpi;
 
+	/* Expand viewport by a margin so sprites at screen edges are drawn.
+	 * 3 tiles * TILE_PIXELS(32) * 2 (isometric width) ≈ 192px at zoom 0. */
+	static constexpr int SNAP_MARGIN = 192;
+
+	int real_w = _screen.width;
+	int real_h = _screen.height;
+	int real_pitch = _screen.pitch;
+	int expanded_w = real_w + SNAP_MARGIN * 2;
+	int expanded_h = real_h + SNAP_MARGIN * 2;
+
 	static std::vector<uint8_t> dummy_buf;
-	size_t needed = (size_t)_screen.width * _screen.height * 4;
+	size_t needed = (size_t)expanded_w * expanded_h * 4;
 	if (dummy_buf.size() < needed) dummy_buf.resize(needed);
 
+	Window *mw = GetMainWindow();
+
+	/* Now expand screen and viewport for drawing with margin. */
 	_screen.dst_ptr = dummy_buf.data();
+	_screen.width = expanded_w;
+	_screen.height = expanded_h;
+	_screen.pitch = expanded_w;
 	_cur_dpi = &_screen;
 
-	/* Set recording buffer on the snapshot blitter (already active). */
 	auto *snap_blitter = dynamic_cast<Blitter_Snapshot *>(BlitterFactory::GetActiveBlitter().get());
-	if (snap_blitter != nullptr) snap_blitter->SetRecordingBuffer(dummy_buf.data(), _screen.pitch);
+	if (snap_blitter != nullptr) snap_blitter->SetRecordingBuffer(dummy_buf.data(), expanded_w);
 
-	/* Update viewport positions (interpolate scrollpos, mark dirty blocks).
-	 * This mirrors UpdateWindows() but only the viewport update part. */
-	static int prev_scrollpos_x = 0, prev_scrollpos_y = 0;
-	for (Window *w : Window::Iterate()) {
-		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, MILLISECONDS_PER_TICK);
-	}
-
-	/* Force full redraw when camera moves — FBO content is position-dependent. */
-	Window *mw = GetMainWindow();
+	int save_vp_width = 0, save_vp_height = 0;
+	int save_vp_vleft = 0, save_vp_vtop = 0, save_vp_vwidth = 0, save_vp_vheight = 0;
+	int save_win_width = 0, save_win_height = 0;
 	if (mw != nullptr && mw->viewport != nullptr) {
-		int sx = mw->viewport->scrollpos_x;
-		int sy = mw->viewport->scrollpos_y;
-		if (sx != prev_scrollpos_x || sy != prev_scrollpos_y) {
-			MarkWholeScreenDirty();
-			prev_scrollpos_x = sx;
-			prev_scrollpos_y = sy;
-		}
+		auto *vp = mw->viewport.get();
+		save_vp_width = vp->width;
+		save_vp_height = vp->height;
+		save_vp_vleft = vp->virtual_left;
+		save_vp_vtop = vp->virtual_top;
+		save_vp_vwidth = vp->virtual_width;
+		save_vp_vheight = vp->virtual_height;
+		save_win_width = mw->width;
+		save_win_height = mw->height;
+
+		/* Expand viewport screen dimensions and recalculate virtual area
+		 * to cover the margin while keeping scrollpos as center. */
+		int margin_virtual = ScaleByZoom(SNAP_MARGIN, vp->zoom);
+		vp->width = expanded_w;
+		vp->height = expanded_h;
+		vp->virtual_left -= margin_virtual;
+		vp->virtual_top -= margin_virtual;
+		vp->virtual_width += margin_virtual * 2;
+		vp->virtual_height += margin_virtual * 2;
+		mw->width = expanded_w;
+		mw->height = expanded_h;
 	}
 
-	MarkWholeScreenDirty();
 	StartRecording(snap);
 	auto t_rec0 = std::chrono::steady_clock::now();
-	DrawDirtyBlocks();
+	/* Bypass dirty-block system (its grid is sized to real screen).
+	 * Directly redraw the full expanded area. */
+	RedrawScreenRect(0, 0, expanded_w, expanded_h);
 	auto t_rec1 = std::chrono::steady_clock::now();
 	StopRecording();
 
-	/* Restore only what we changed. Do NOT restore width/height/pitch —
-	 * a concurrent resize on the draw thread must not be overwritten. */
-	_screen.dst_ptr = save_dst;
-	_cur_dpi = save_dpi;
-
-	static int snap_log_ctr = 0;
-	if (snap_log_ctr++ % 30 == 0) {
-		Debug(driver, 0, "SNAP: cmds={} dirty_rects={} screen={}x{}",
-			snap.commands.size(), snap.dirty_rects.size(), _screen.width, _screen.height);
+	/* Shift draw commands back to real screen coords (undo margin offset). */
+	for (auto &cmd : snap.commands) {
+		cmd.x -= SNAP_MARGIN;
+		cmd.y -= SNAP_MARGIN;
 	}
+
+	/* Restore viewport and window dimensions. */
+	if (mw != nullptr && mw->viewport != nullptr) {
+		mw->viewport->width = save_vp_width;
+		mw->viewport->height = save_vp_height;
+		mw->viewport->virtual_left = save_vp_vleft;
+		mw->viewport->virtual_top = save_vp_vtop;
+		mw->viewport->virtual_width = save_vp_vwidth;
+		mw->viewport->virtual_height = save_vp_vheight;
+		mw->width = save_win_width;
+		mw->height = save_win_height;
+	}
+	_screen.dst_ptr = save_dst;
+	_screen.width = real_w;
+	_screen.height = real_h;
+	_screen.pitch = real_pitch;
+	_cur_dpi = save_dpi;
 
 	/* Validate coordinates before publishing to GPU thread. */
 	auto t_val0 = std::chrono::steady_clock::now();

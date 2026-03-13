@@ -92,6 +92,7 @@ private:
 	int remap_table_idx = 0;            ///< Current remap table texture index (0 or 1).
 	const uint8_t *last_remap_ptr = nullptr; ///< Last uploaded remap table pointer (cache).
 	GLuint vbo = 0;              ///< Vertex buffer for batched quads.
+	GLuint blit_vbo = 0;         ///< Static vertex buffer for fullscreen blit quad.
 
 	GLuint fbo = 0;              ///< Persistent framebuffer object for accumulation.
 	GLuint fbo_tex = 0;          ///< Colour attachment for the FBO (attachment 0).

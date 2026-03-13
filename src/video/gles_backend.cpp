@@ -73,6 +73,7 @@ GLESBackend::~GLESBackend()
 	if (this->fbo_idx_tex != 0) glDeleteTextures(1, &this->fbo_idx_tex);
 	if (this->fbo != 0) glDeleteFramebuffers(1, &this->fbo);
 	if (this->vbo != 0) glDeleteBuffers(1, &this->vbo);
+	if (this->blit_vbo != 0) glDeleteBuffers(1, &this->blit_vbo);
 	if (this->has_timer_query && _glDeleteQueriesEXT) _glDeleteQueriesEXT(2, this->gpu_query);
 	this->sprite_atlas.Destroy();
 }
@@ -309,7 +310,7 @@ void GLESBackend::RecoverGPUState()
 	this->prog_palette = 0; this->prog_solid = 0; this->prog_resolve = 0; this->prog_blit = 0;
 	this->palette_tex = 0;
 	this->remap_table_tex[0] = 0; this->remap_table_tex[1] = 0;
-	this->vbo = 0;
+	this->vbo = 0; this->blit_vbo = 0;
 	this->fbo = 0; this->fbo_tex = 0; this->fbo_idx_tex = 0;
 	this->palette_dirty = false;
 	this->fbo_has_content = false;
@@ -416,6 +417,17 @@ void GLESBackend::Resize(int w, int h)
 
 	this->palette_dirty = false;
 	this->fbo_has_content = false;
+
+	/* (Re)create static blit quad VBO for fullscreen FBO→screen blit. */
+	if (this->blit_vbo == 0) glGenBuffers(1, &this->blit_vbo);
+	float fw = static_cast<float>(w);
+	float fh = static_cast<float>(h);
+	GLESVertex blit_quad[6] = {
+		{0,  0,  0, 1, 0, 0, 0, 0}, {fw, 0,  1, 1, 0, 0, 0, 0}, {0,  fh, 0, 0, 0, 0, 0, 0},
+		{fw, 0,  1, 1, 0, 0, 0, 0}, {fw, fh, 1, 0, 0, 0, 0, 0}, {0,  fh, 0, 0, 0, 0, 0, 0},
+	};
+	glBindBuffer(GL_ARRAY_BUFFER, this->blit_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(blit_quad), blit_quad, GL_STATIC_DRAW);
 
 	/* Bind back to default framebuffer. */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1289,9 +1301,6 @@ void GLESBackend::BlitToScreen(float u_offset, float v_offset)
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 
-	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-	glClear(GL_COLOR_BUFFER_BIT);
-
 	glDisable(GL_BLEND);
 	glUseProgram(this->prog_blit);
 	glUniform2f(this->blit_screen_loc,
@@ -1301,23 +1310,7 @@ void GLESBackend::BlitToScreen(float u_offset, float v_offset)
 	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
 	glUniform1i(this->blit_tex_loc, 0);
 
-	/* UV coordinates with camera interpolation offset.
-	 * FBO is flipped vertically (v=1 at top, v=0 at bottom).
-	 * u_offset shifts right, v_offset shifts down (in screen space). */
-	float u0 = 0.0f + u_offset;
-	float u1 = 1.0f + u_offset;
-	float v0 = 1.0f - v_offset;  /* top of screen (flipped) */
-	float v1 = 0.0f - v_offset;  /* bottom of screen (flipped) */
-
-	float w = static_cast<float>(this->screen_width);
-	float h = static_cast<float>(this->screen_height);
-	GLESVertex quad[6] = {
-		{0, 0, u0, v0, 0, 0, 0, 0}, {w, 0, u1, v0, 0, 0, 0, 0}, {0, h, u0, v1, 0, 0, 0, 0},
-		{w, 0, u1, v0, 0, 0, 0, 0}, {w, h, u1, v1, 0, 0, 0, 0}, {0, h, u0, v1, 0, 0, 0, 0},
-	};
-
-	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
-	glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+	glBindBuffer(GL_ARRAY_BUFFER, this->blit_vbo);
 
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
