@@ -93,6 +93,12 @@ void VideoDriver::GameLoop()
 		auto t_gl1 = std::chrono::steady_clock::now();
 
 		if (this->snapshot_buffer != nullptr && _screen.width > 0 && _screen.height > 0) {
+			/* Update viewport scroll position before recording so POI jumps
+			 * (set from GL thread) take effect in the next snapshot. */
+			Window *mw = GetMainWindow();
+			if (mw != nullptr && mw->viewport != nullptr) {
+				UpdateViewportPosition(mw, this->GetGameInterval().count());
+			}
 			this->RecordSnapshot(t_gl0, t_gl1);
 		}
 	}
