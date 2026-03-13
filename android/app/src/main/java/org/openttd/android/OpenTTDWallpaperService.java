@@ -4,6 +4,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.Handler;
+import android.os.Looper;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
 import android.view.MotionEvent;
@@ -82,6 +84,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
         private Surface mEngineSurface;
         private int mSurfaceWidth = 1;
         private int mSurfaceHeight = 1;
+        private final Handler mPauseHandler = new Handler(Looper.getMainLooper());
+        private static final long PAUSE_DELAY_MS = 1000;
         private boolean mVisible = false;
 
         @Override
@@ -163,6 +167,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 SDLActivity.onNativeSurfaceDestroyed();
             }
             mEngineSurface = null;
+            mPauseHandler.removeCallbacksAndMessages(null);
             Log.i(TAG, "onSurfaceDestroyed: setting state=PAUSED");
             SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
             SDLActivity.handleNativeState();
@@ -196,17 +201,27 @@ public class OpenTTDWallpaperService extends WallpaperService {
                     SDLActivity.onNativeResize();
                     SDLActivity.onNativeSurfaceChanged();
                 }
-                Log.i(TAG, "onVisibilityChanged: setting state=RESUMED");
+                mPauseHandler.removeCallbacksAndMessages(null);
+                Log.i(TAG, "onVisibilityChanged: resuming, cancelling pending pause");
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                /* Don't pause SDL on visibility change. Android shows wallpaper
-                 * through transparent settings activity without sending visible=true,
-                 * so pausing here causes permanent freeze. Just prepare next POI. */
-                Log.i(TAG, "onVisibilityChanged: preparing next POI (SDL stays running)");
                 nativePrepareBackground();
+                mPauseHandler.removeCallbacksAndMessages(null);
+                Log.i(TAG, "onVisibilityChanged: scheduling pause in " + PAUSE_DELAY_MS + "ms");
+                mPauseHandler.postDelayed(mPauseSdl, PAUSE_DELAY_MS);
             }
         }
+
+        private final Runnable mPauseSdl = () -> {
+            if (mVisible) {
+                Log.i(TAG, "Deferred pause: CANCELLED (now visible)");
+                return;
+            }
+            Log.i(TAG, "Deferred pause: pausing SDL");
+            SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
+            SDLActivity.handleNativeState();
+        };
 
     }
 }
