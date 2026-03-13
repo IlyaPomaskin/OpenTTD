@@ -17,6 +17,7 @@
 #include "../debug.h"
 #include "../framerate_type.h"
 #include "../window_func.h"
+#include "../window_gui.h"
 #include "../viewport_type.h"
 #include "../zoom_func.h"
 #include "sdl2_gles_v.h"
@@ -38,10 +39,6 @@
 
 /** Set to true from Java on hide; processed in Paint() to advance camera to next POI. */
 static std::atomic<bool> _gles_jump_waypoint{false};
-/** Counts down frames after POI jump; when 0 the new area is rendered and ready to pause. */
-static std::atomic<int> _gles_frames_until_pause{-1};
-/** Set to true when new POI is fully rendered and sprites loaded; Java polls this. */
-static std::atomic<bool> _gles_ready_to_pause{false};
 
 #ifdef __ANDROID__
 #include "../wallpaper.h"
@@ -50,14 +47,6 @@ extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
 {
 	_gles_jump_waypoint = true;
-	_gles_ready_to_pause = false;
-	_gles_frames_until_pause = -1;
-}
-
-extern "C" JNIEXPORT jboolean JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeIsReadyToPause(JNIEnv *, jclass)
-{
-	return _gles_ready_to_pause.load() ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -232,47 +221,82 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	GLESBackend *backend = GLESBackend::Get();
 	if (backend == nullptr) return false;
 
-	/* Read from triple buffer. */
-	this->snapshot_buffer->Acquire();
+	/* Try to acquire a new snapshot from triple buffer. */
+	bool new_snapshot = this->snapshot_buffer->Acquire();
 	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
-	if (snap.commands.empty()) return false;
 
-	/* Process deferred atlas clear before replaying (e.g. after context loss).
-	 * Must run before LookupOrUpload to avoid stale texture handles. */
-	backend->GetSpriteAtlas().ProcessPendingClear();
+	if (new_snapshot && !snap.commands.empty()) {
+		/* Process deferred atlas clear before replaying. */
+		backend->GetSpriteAtlas().ProcessPendingClear();
 
-	/* Replay from triple buffer. */
-	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-	backend->ClearQueue();
+		/* Replay draw commands into the GPU queue. */
+		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+		backend->ClearQueue();
 
-	for (const auto &cmd : snap.commands) {
-		GLESSpriteID key = MakeGLESSpriteKey(cmd.sprite, cmd.zoom);
-		const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
-		if (entry == nullptr) continue;
+		for (const auto &cmd : snap.commands) {
+			GLESSpriteID key = MakeGLESSpriteKey(cmd.sprite, cmd.zoom);
+			const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
+			if (entry == nullptr) continue;
 
-		GLESDrawCommand gcmd;
-		gcmd.sprite_key = key;
-		gcmd.screen_x = cmd.x;
-		gcmd.screen_y = cmd.y;
-		gcmd.width = cmd.width;
-		gcmd.height = cmd.height;
-		gcmd.skip_left = cmd.skip_left;
-		gcmd.skip_top = cmd.skip_top;
-		gcmd.sprite_width = cmd.sprite_width;
-		gcmd.sprite_height = cmd.sprite_height;
-		gcmd.zoom = cmd.zoom;
-		gcmd.mode = cmd.mode;
-		gcmd.remap_idx = 0;
-		gcmd.remap = cmd.remap;
-		gcmd.palette_only = entry->palette_only;
+			GLESDrawCommand gcmd;
+			gcmd.sprite_key = key;
+			gcmd.screen_x = cmd.x;
+			gcmd.screen_y = cmd.y;
+			gcmd.width = cmd.width;
+			gcmd.height = cmd.height;
+			gcmd.skip_left = cmd.skip_left;
+			gcmd.skip_top = cmd.skip_top;
+			gcmd.sprite_width = cmd.sprite_width;
+			gcmd.sprite_height = cmd.sprite_height;
+			gcmd.zoom = cmd.zoom;
+			gcmd.mode = cmd.mode;
+			gcmd.remap_idx = 0;
+			gcmd.remap = cmd.remap;
+			gcmd.palette_only = entry->palette_only;
 
-		backend->QueueDraw(gcmd);
+			backend->QueueDraw(gcmd);
+		}
+
+		backend->AddDirtyRect(0, 0, _screen.width, _screen.height);
+
+		this->CheckPaletteAnim();
+
+		/* Upload palette and render sprites into FBO. */
+		GLESBackend::Get()->UpdatePalette(this->local_palette.palette, 0, 256);
+		GLESBackend::Get()->SetPaletteDirty(true);
+		this->local_palette.count_dirty = 0;
+
+		_gles_perf.gpu_draw_cmds += static_cast<int>(backend->GetDrawQueueSize());
+		auto t_fbo0 = std::chrono::steady_clock::now();
+		backend->PaintFBO();
+		auto t_fbo1 = std::chrono::steady_clock::now();
+		_gles_perf.gpu_paint_us += std::chrono::duration_cast<std::chrono::microseconds>(t_fbo1 - t_fbo0).count();
+
+		/* Record snapshot scroll state for interpolation.
+		 * prev = where we were (previous snapshot), curr = where FBO is now.
+		 * We interpolate from prev→curr over one tick, so at t=1 we match the FBO. */
+		this->snap_prev_scrollpos_x = this->snap_curr_scrollpos_x;
+		this->snap_prev_scrollpos_y = this->snap_curr_scrollpos_y;
+		this->snap_curr_scrollpos_x = snap.scrollpos_x;
+		this->snap_curr_scrollpos_y = snap.scrollpos_y;
+		this->snap_scroll_zoom = snap.scroll_zoom;
+		this->snap_time = std::chrono::steady_clock::now();
+	} else if (!backend->HasFBOContent()) {
+		return false;
 	}
 
-	backend->AddDirtyRect(0, 0, _screen.width, _screen.height);
+	auto t_blit0 = std::chrono::steady_clock::now();
+	backend->BlitToScreen(0.0f, 0.0f);
+	SDL_GL_SwapWindow(this->sdl_window);
+	auto t_blit1 = std::chrono::steady_clock::now();
 
-	this->CheckPaletteAnim();
+	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+	_gles_perf.swap_us += us(t_blit0, t_blit1);
+
+	/* Run Paint() for PERF logging, POI handling, context recovery.
+	 * It early-returns before GL work in snapshot mode. */
 	this->Paint();
+
 	return true;
 }
 
@@ -298,21 +322,7 @@ void VideoDriver_SDL_GLES::Paint()
 	/* Jump to next POI (requested from Java onVisibilityChanged hide). */
 	if (_gles_jump_waypoint.exchange(false)) {
 		PrepareBackground();
-		_gles_frames_until_pause = 5; /* render a few frames to load sprites */
 	}
-
-	/* Count down frames after POI jump; signal ready when sprites are loaded. */
-	if (_gles_frames_until_pause > 0) {
-		_gles_frames_until_pause--;
-		if (_gles_frames_until_pause == 0 && _gles_perf.gpu_sprites_missing == 0) {
-			_gles_ready_to_pause = true;
-			_gles_frames_until_pause = -1;
-		} else if (_gles_frames_until_pause == 0 && _gles_perf.gpu_sprites_missing > 0) {
-			/* Still loading sprites, wait a few more frames. */
-			_gles_frames_until_pause = 3;
-		}
-	}
-
 
 	/* Log EGL context state every 60 frames to detect context loss. */
 	static int paint_count = 0;
@@ -436,15 +446,16 @@ void VideoDriver_SDL_GLES::Paint()
 		fps_last = fps_now;
 	}
 
+	/* In snapshot mode, PaintFromSnapshot handles palette, FBO render, blit and swap. */
+	if (this->snapshot_buffer != nullptr) return;
+
 	/* Always upload full palette every frame — treat it as perpetually dirty. */
 	GLESBackend::Get()->UpdatePalette(this->local_palette.palette, 0, 256);
 	GLESBackend::Get()->SetPaletteDirty(true);
 	this->local_palette.count_dirty = 0;
 
-	/* Forward individual dirty rectangles to the GLES backend.
-	 * Skip in snapshot mode — dirty rects come from the snapshot buffer
-	 * (added in PaintFromSnapshot), not from gles_dirty_rects. */
-	if (this->snapshot_buffer == nullptr && GLESBackend::Get() != nullptr) {
+	/* Forward individual dirty rectangles to the GLES backend. */
+	if (GLESBackend::Get() != nullptr) {
 		for (const Rect &r : this->gles_dirty_rects) {
 			GLESBackend::Get()->AddDirtyRect(r.left, r.top, r.right, r.bottom);
 		}
