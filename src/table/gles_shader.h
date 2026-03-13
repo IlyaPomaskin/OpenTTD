@@ -173,6 +173,17 @@ static const char *_gles_frag_shader_transparent =
 	"  o_index = vec4(0.0);\n"
 	"}\n";
 
+/** Simple FBO blit fragment shader — single output, no MRT. */
+static const char *_gles_frag_shader_blit =
+	"#version 300 es\n"
+	"precision mediump float;\n"
+	"uniform sampler2D u_tex;\n"
+	"in vec2 v_colour_uv;\n"
+	"layout(location = 0) out vec4 o_colour;\n"
+	"void main() {\n"
+	"  o_colour = texture(u_tex, v_colour_uv);\n"
+	"}\n";
+
 /** Fragment shader for palette resolve pass.
  *  Reads the palette index from the FBO index attachment, looks up the
  *  current palette texture, and writes the resolved colour to attachment 0.

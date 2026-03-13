@@ -72,6 +72,12 @@ void RecordCommand(const DrawCommand &cmd) {
 	}
 }
 
+void RecordDirtyRect(int left, int top, int right, int bottom) {
+	if (_recording_snapshot != nullptr) {
+		_recording_snapshot->dirty_rects.push_back({left, top, right, bottom});
+	}
+}
+
 std::atomic<bool> _exit_game;
 GameMode _game_mode;
 SwitchMode _switch_mode;  ///< The next mainloop command.
@@ -1463,6 +1469,7 @@ void DrawMouseCursor()
 void RedrawScreenRect(int left, int top, int right, int bottom)
 {
 	assert(right <= _screen.width && bottom <= _screen.height);
+	RecordDirtyRect(left, top, right, bottom);
 	if (_cursor.visible) {
 		if (right > _cursor.draw_pos.x &&
 				left < _cursor.draw_pos.x + _cursor.draw_size.x &&

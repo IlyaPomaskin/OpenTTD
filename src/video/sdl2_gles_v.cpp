@@ -237,6 +237,10 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	DrawSnapshot &snap = this->snapshot_buffer->GetReadBuffer();
 	if (snap.commands.empty()) return false;
 
+	/* Process deferred atlas clear before replaying (e.g. after context loss).
+	 * Must run before LookupOrUpload to avoid stale texture handles. */
+	backend->GetSpriteAtlas().ProcessPendingClear();
+
 	/* Replay from triple buffer. */
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
 	backend->ClearQueue();

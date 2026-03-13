@@ -160,4 +160,7 @@ bool IsRecording();
 /** Append a draw command to the current recording snapshot. No-op if not recording. */
 void RecordCommand(const DrawCommand &cmd);
 
+/** Append a dirty rectangle to the current recording snapshot. No-op if not recording. */
+void RecordDirtyRect(int left, int top, int right, int bottom);
+
 #endif /* DRAW_SNAPSHOT_H */

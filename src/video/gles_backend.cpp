@@ -66,6 +66,7 @@ GLESBackend::~GLESBackend()
 	if (this->prog_palette != 0) glDeleteProgram(this->prog_palette);
 	if (this->prog_solid != 0) glDeleteProgram(this->prog_solid);
 	if (this->prog_resolve != 0) glDeleteProgram(this->prog_resolve);
+	if (this->prog_blit != 0) glDeleteProgram(this->prog_blit);
 	if (this->palette_tex != 0) glDeleteTextures(1, &this->palette_tex);
 	glDeleteTextures(2, this->remap_table_tex);
 	if (this->fbo_tex != 0) glDeleteTextures(1, &this->fbo_tex);
@@ -210,6 +211,18 @@ bool GLESBackend::InitShaders()
 		this->resolve_palette_tex_loc = glGetUniformLocation(this->prog_resolve, "palette_tex");
 	}
 
+	/* Blit fragment shader (single output). */
+	{
+		GLuint fs = CompileShader(GL_FRAGMENT_SHADER, _gles_frag_shader_blit);
+		if (fs == 0) { glDeleteShader(vs); return false; }
+		this->prog_blit = LinkProgram(vs, fs);
+		glDeleteShader(fs);
+		if (this->prog_blit == 0) { glDeleteShader(vs); return false; }
+
+		this->blit_screen_loc = glGetUniformLocation(this->prog_blit, "screen");
+		this->blit_tex_loc = glGetUniformLocation(this->prog_blit, "u_tex");
+	}
+
 	glDeleteShader(vs);
 
 	Debug(driver, 1, "GLES: All shaders compiled and linked successfully");
@@ -298,7 +311,7 @@ void GLESBackend::RecoverGPUState()
 	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
 	 * do NOT call glDelete* on them — that would inject errors into the new context. */
 	this->prog_normal = 0; this->prog_remap = 0; this->prog_transparent = 0;
-	this->prog_palette = 0; this->prog_solid = 0; this->prog_resolve = 0;
+	this->prog_palette = 0; this->prog_solid = 0; this->prog_resolve = 0; this->prog_blit = 0;
 	this->palette_tex = 0;
 	this->remap_table_tex[0] = 0; this->remap_table_tex[1] = 0;
 	this->vbo = 0;
@@ -493,6 +506,10 @@ bool GLESBackend::Paint()
 {
 	this->last_remap_ptr = nullptr;
 
+	/* Process deferred atlas clear (e.g. after EGL context loss).
+	 * Must run on GL thread before any LookupOrUpload / rendering. */
+	this->sprite_atlas.ProcessPendingClear();
+
 	/* GPU timer query: read previous frame's result (non-blocking). */
 	if (this->has_timer_query && this->gpu_query_active) {
 		int prev = this->gpu_query_idx ^ 1;
@@ -617,7 +634,6 @@ bool GLESBackend::Paint()
 		} else {
 			type = BT_NORMAL;
 		}
-
 		/* Batch break on shader type change or remap table change. */
 		bool need_break = !first && type != cur_type;
 		if (!need_break && !first && type == BT_REMAP && cmd.remap != cur_remap) {
@@ -933,28 +949,21 @@ bool GLESBackend::Paint()
 
 	this->DrawDebugDirtyOverlay(frame_dirty_rects);
 
-	/* === Phase 2: Blit FBO to the actual screen. === */
+	/* === Phase 2: Blit FBO to the actual screen using single-output shader. === */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 
-	/* Force alpha=1.0 on the output surface.  Sprite blending in the FBO
-	 * can reduce alpha below 1.0; the Android wallpaper compositor then
-	 * composites those pixels as semi-transparent, causing flickering.
-	 * Write only RGB from the FBO blit, keeping alpha=1 from the clear. */
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE);
 
 	glDisable(GL_BLEND);
-	glUseProgram(this->prog_normal);
-	glUniform2f(this->normal_screen_loc,
+	glUseProgram(this->prog_blit);
+	glUniform2f(this->blit_screen_loc,
 		static_cast<float>(this->screen_width), static_cast<float>(this->screen_height));
 
-	/* Bind FBO texture to unit 0, set both samplers to unit 0 (cpage=0). */
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
-	glUniform1i(this->normal_colour_tex_loc, 0);
-	glUniform1i(this->normal_colour_tex1_loc, 0);
+	glUniform1i(this->blit_tex_loc, 0);
 
 	float w = static_cast<float>(this->screen_width);
 	float h = static_cast<float>(this->screen_height);
@@ -972,11 +981,9 @@ bool GLESBackend::Paint()
 	glEnableVertexAttribArray(1);
 	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
 	                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
-	glVertexAttrib1f(3, 0.0f); /* cpage = 0 for FBO blit */
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
-	glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
 	/* GPU timer query: end this frame's query. */
 	if (this->has_timer_query) {

@@ -121,8 +121,28 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 	/* Set recording buffer on the snapshot blitter (already active). */
 	auto *snap_blitter = dynamic_cast<Blitter_Snapshot *>(BlitterFactory::GetActiveBlitter().get());
 	if (snap_blitter != nullptr) snap_blitter->SetRecordingBuffer(dummy_buf.data(), _screen.pitch);
-	StartRecording(snap);
+
+	/* Update viewport positions (interpolate scrollpos, mark dirty blocks).
+	 * This mirrors UpdateWindows() but only the viewport update part. */
+	static int prev_scrollpos_x = 0, prev_scrollpos_y = 0;
+	for (Window *w : Window::Iterate()) {
+		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, MILLISECONDS_PER_TICK);
+	}
+
+	/* Force full redraw when camera moves — FBO content is position-dependent. */
+	Window *mw = GetMainWindow();
+	if (mw != nullptr && mw->viewport != nullptr) {
+		int sx = mw->viewport->scrollpos_x;
+		int sy = mw->viewport->scrollpos_y;
+		if (sx != prev_scrollpos_x || sy != prev_scrollpos_y) {
+			MarkWholeScreenDirty();
+			prev_scrollpos_x = sx;
+			prev_scrollpos_y = sy;
+		}
+	}
+
 	MarkWholeScreenDirty();
+	StartRecording(snap);
 	auto t_rec0 = std::chrono::steady_clock::now();
 	DrawDirtyBlocks();
 	auto t_rec1 = std::chrono::steady_clock::now();
@@ -132,7 +152,12 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 	 * a concurrent resize on the draw thread must not be overwritten. */
 	_screen.dst_ptr = save_dst;
 	_cur_dpi = save_dpi;
-	snap.full_redraw = true;
+
+	static int snap_log_ctr = 0;
+	if (snap_log_ctr++ % 30 == 0) {
+		Debug(driver, 0, "SNAP: cmds={} dirty_rects={} screen={}x{}",
+			snap.commands.size(), snap.dirty_rects.size(), _screen.width, _screen.height);
+	}
 
 	/* Validate coordinates before publishing to GPU thread. */
 	auto t_val0 = std::chrono::steady_clock::now();
@@ -245,24 +270,17 @@ void VideoDriver::Tick()
 
 		auto t_tick0 = std::chrono::steady_clock::now();
 
-		/* Snapshot path: paint from triple buffer, skip mutex wait.
-		 * Do NOT call LockVideoBuffer here — it overwrites _screen.dst_ptr,
-		 * which races with the game thread's snapshot recording. */
+		/* Snapshot path: paint from triple buffer, skip mutex wait. */
 		if (this->snapshot_buffer != nullptr) {
-			/* Process SDL events to keep surface/EGL state in sync. */
 			this->DrainCommandQueue();
 			while (this->PollEvent()) {}
-
 			this->PaintFromSnapshot();
-
-			/* Log triple buffer metrics periodically. */
 			auto &tb = *this->snapshot_buffer;
 			if (tb.swap_count % 60 == 0 && tb.swap_count > 0) {
 				Debug(driver, 0, "TRIPLE_BUFFER: swaps={} cpu_ahead={} gpu_ahead={}",
 					tb.swap_count, tb.cpu_ahead_count, tb.gpu_ahead_count);
 				tb.ResetMetrics();
 			}
-
 			static bool first_draw_tick = true;
 			if (first_draw_tick) {
 				first_draw_tick = false;

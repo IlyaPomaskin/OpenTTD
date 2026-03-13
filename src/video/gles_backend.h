@@ -52,6 +52,7 @@ private:
 	GLuint prog_palette = 0;     ///< Shader program for palette-only sprites (M → palette lookup).
 	GLuint prog_solid = 0;       ///< Shader program for debug solid colour.
 	GLuint prog_resolve = 0;     ///< Shader program for palette resolve (index -> RGBA).
+	GLuint prog_blit = 0;        ///< Shader program for FBO->screen blit (single output).
 
 	/* Normal program uniforms. */
 	GLint normal_screen_loc = -1;
@@ -86,6 +87,10 @@ private:
 	GLint resolve_screen_loc = -1;
 	GLint resolve_idx_tex_loc = -1;
 	GLint resolve_palette_tex_loc = -1;
+
+	/* Blit program uniforms. */
+	GLint blit_screen_loc = -1;
+	GLint blit_tex_loc = -1;
 
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
 	GLuint remap_table_tex[2] = {0, 0}; ///< Double-buffered 256x1 remap table textures.

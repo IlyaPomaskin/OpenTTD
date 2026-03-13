@@ -90,6 +90,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
         private static final long PAUSE_POLL_INTERVAL_MS = 100;
         private static final long PAUSE_TIMEOUT_MS = 3000;
         private long mPauseRequestTime = 0;
+        private boolean mVisible = false;
 
         @Override
         public void onCreate(SurfaceHolder surfaceHolder) {
@@ -184,6 +185,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 + " mNextNativeState=" + SDLActivity.mNextNativeState);
             super.onVisibilityChanged(visible);
             if (!sSDLInitialized) return;
+            mVisible = visible;
             if (visible) {
                 // Re-inject surface if lost during engine transition
                 Surface currentSurface = getSurfaceHolder().getSurface();
@@ -218,6 +220,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         private final Runnable mPausePoller = new Runnable() {
             @Override
             public void run() {
+                if (mVisible) {
+                    Log.i(TAG, "Deferred pause: CANCELLED (now visible)");
+                    return;
+                }
                 boolean ready = nativeIsReadyToPause();
                 boolean timeout = System.currentTimeMillis() - mPauseRequestTime > PAUSE_TIMEOUT_MS;
                 if (ready || timeout) {
