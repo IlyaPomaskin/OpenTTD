@@ -50,7 +50,6 @@ bool _screen_disable_anim = false;   ///< Disable palette animation (important f
 bool _gles_video_active = false;     ///< When true, GLES video driver is active (enables dirty block coalescing).
 bool _gles_context_lost = false;     ///< Set on SDL_RENDER_DEVICE_RESET; consumed by GLES Paint() to trigger GPU rebuild.
 GLESPerfCounters _gles_perf;         ///< Per-frame rendering performance counters.
-SpriteID _gles_encoding_sprite_id = 0; ///< SpriteID currently being encoded (set before Encode(), read by GLES blitter).
 
 /** Snapshot recording state for two-thread rendering. */
 static DrawSnapshot *_recording_snapshot = nullptr;

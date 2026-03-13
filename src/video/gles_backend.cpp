@@ -491,8 +491,9 @@ void GLESBackend::QueueDraw(const GLESDrawCommand &cmd)
 {
 	this->draw_queue.push_back(cmd);
 
-	/* Stamp palette_only from the sprite entry for sort/batch routing. */
-	const GLESSpriteEntry *entry = this->sprite_atlas.LookupOrUpload(cmd.sprite_key);
+	/* Stamp palette_only from the sprite entry if available.
+	 * May be nullptr for PBO-inflight sprites — corrected during Paint batching. */
+	const GLESSpriteEntry *entry = this->sprite_atlas.Lookup(cmd.sprite_key);
 	this->draw_queue.back().palette_only = (entry != nullptr && entry->palette_only);
 }
 
@@ -503,6 +504,9 @@ bool GLESBackend::Paint()
 	/* Process deferred atlas clear (e.g. after EGL context loss).
 	 * Must run on GL thread before any LookupOrUpload / rendering. */
 	this->sprite_atlas.ProcessPendingClear();
+
+	/* Process PBO async sprite uploads before rendering. */
+	this->sprite_atlas.ProcessPBOUploads();
 
 	/* GPU timer query: read previous frame's result (non-blocking). */
 	if (this->has_timer_query && this->gpu_query_active) {
@@ -932,7 +936,356 @@ bool GLESBackend::Paint()
 
 	this->DrawDebugDirtyOverlay(frame_dirty_rects);
 
-	/* === Phase 2: Blit FBO to the actual screen using single-output shader. === */
+	/* GPU timer query: end this frame's query. */
+	if (this->has_timer_query) {
+		_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+		this->gpu_query_idx ^= 1;
+		this->gpu_query_active = true;
+	}
+
+	/* === Phase 2: Blit FBO to screen (no UV offset in legacy path). === */
+	this->BlitToScreen(0.0f, 0.0f);
+	return true;
+}
+
+bool GLESBackend::PaintFBO()
+{
+	this->last_remap_ptr = nullptr;
+
+	/* Process deferred atlas clear. */
+	this->sprite_atlas.ProcessPendingClear();
+
+	/* Process PBO async sprite uploads before rendering. */
+	this->sprite_atlas.ProcessPBOUploads();
+
+	/* GPU timer query: read previous frame's result. */
+	if (this->has_timer_query && this->gpu_query_active) {
+		int prev = this->gpu_query_idx ^ 1;
+		GLint available = 0;
+		_glGetQueryObjectivEXT(this->gpu_query[prev], GL_QUERY_RESULT_AVAILABLE_EXT, &available);
+		if (available) {
+			GLint disjoint = 0;
+			glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
+			if (!disjoint) {
+				GLuint64 elapsed_ns = 0;
+				_glGetQueryObjectui64vEXT(this->gpu_query[prev], GL_QUERY_RESULT_EXT, &elapsed_ns);
+				_gles_perf.gpu_time_us = static_cast<int64_t>(elapsed_ns / 1000);
+			}
+		}
+	}
+
+	/* GPU timer query: begin new query. */
+	if (this->has_timer_query) {
+		_glBeginQueryEXT(GL_TIME_ELAPSED_EXT, this->gpu_query[this->gpu_query_idx]);
+	}
+
+	bool did_full_render = !this->draw_queue.empty();
+	bool did_resolve = false;
+
+	if (did_full_render) {
+		/* Delegate to existing Paint() logic for the FBO phase.
+		 * We call the full Paint() path but it will now end with BlitToScreen
+		 * which we don't want here. Instead, inline the FBO portion. */
+	}
+
+	/* --- Inline FBO rendering (same as Paint Phase 1) --- */
+	glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+	glViewport(0, 0, this->screen_width, this->screen_height);
+
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
+
+	/* Clear dirty regions. */
+	if (!this->dirty_rects.empty()) {
+		glEnable(GL_SCISSOR_TEST);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+		for (const Rect &r : this->dirty_rects) {
+			int gl_y = this->screen_height - r.bottom;
+			glScissor(r.left, gl_y, r.right - r.left, r.bottom - r.top);
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
+		glDisable(GL_SCISSOR_TEST);
+		this->dirty_rects.clear();
+	}
+
+	if (did_full_render) {
+		/* Full sprite render into FBO — reuse existing batch logic from Paint(). */
+		/* NOTE: This duplicates the batching code from Paint(). A future refactor
+		 * could extract it, but for now we call Paint() for the legacy path and
+		 * PaintFBO()+BlitToScreen() for the snapshot interpolation path. */
+
+		/* For now, just call through to the internal rendering.
+		 * The draw_queue is consumed, FBO updated. */
+		enum BatchType : uint8_t { BT_NORMAL, BT_REMAP, BT_TRANSPARENT, BT_PALETTE };
+		struct BatchRange {
+			size_t start, count;
+			BatchType type;
+			const uint8_t *remap = nullptr;
+		};
+
+		this->vertex_buf.clear();
+		std::vector<BatchRange> batches;
+		batches.reserve(16);
+
+		BatchType cur_type = BT_NORMAL;
+		const uint8_t *cur_remap = nullptr;
+		size_t batch_start = 0;
+		bool first = true;
+
+		for (const GLESDrawCommand &cmd : this->draw_queue) {
+			const GLESSpriteEntry *entry = this->sprite_atlas.LookupOrUpload(cmd.sprite_key);
+			if (entry == nullptr) continue;
+			bool gpu_scaled = (cmd.zoom != kGPUScaleBaseZoom);
+
+			if (gpu_scaled) _gles_perf.gpu_scaled_hits++;
+			else _gles_perf.gpu_scaled_fallbacks++;
+
+			BatchType type;
+			if (cmd.mode == BlitterMode::Transparent || cmd.mode == BlitterMode::TransparentRemap) {
+				type = BT_TRANSPARENT;
+			} else if ((cmd.mode == BlitterMode::ColourRemap || cmd.mode == BlitterMode::CrashRemap ||
+			            cmd.mode == BlitterMode::BlackRemap) && entry->has_remap) {
+				type = BT_REMAP;
+			} else if (entry->palette_only) {
+				type = BT_PALETTE;
+			} else {
+				type = BT_NORMAL;
+			}
+
+			bool need_break = !first && type != cur_type;
+			if (!need_break && !first && type == BT_REMAP && cmd.remap != cur_remap) need_break = true;
+			if (need_break) {
+				size_t cnt = this->vertex_buf.size() - batch_start;
+				if (cnt > 0) batches.push_back({batch_start, cnt, cur_type, cur_remap});
+				batch_start = this->vertex_buf.size();
+			}
+
+			cur_type = type;
+			if (type == BT_REMAP) cur_remap = cmd.remap;
+			first = false;
+
+			float cp = static_cast<float>(entry->colour.atlas_idx);
+			float rp = entry->has_remap ? static_cast<float>(entry->remap.atlas_idx) : 0.0f;
+
+			float x0 = static_cast<float>(cmd.screen_x);
+			float y0 = static_cast<float>(cmd.screen_y);
+			float x1 = x0 + static_cast<float>(cmd.width);
+			float y1 = y0 + static_cast<float>(cmd.height);
+
+			float sprite_w = static_cast<float>(entry->colour.w);
+			float sprite_h = static_cast<float>(entry->colour.h);
+
+			float uv_skip_l, uv_skip_t, uv_w, uv_h;
+			bool full_sprite = (cmd.skip_left == 0 && cmd.skip_top == 0 &&
+			                    cmd.width == cmd.sprite_width && cmd.height == cmd.sprite_height);
+
+			if (full_sprite) {
+				uv_skip_l = 0.0f; uv_skip_t = 0.0f; uv_w = 1.0f; uv_h = 1.0f;
+			} else {
+				float zoom_scale = gpu_scaled
+					? static_cast<float>(1 << to_underlying(cmd.zoom)) /
+					  static_cast<float>(1 << to_underlying(kGPUScaleBaseZoom))
+					: 1.0f;
+				uv_skip_l = (static_cast<float>(cmd.skip_left) * zoom_scale) / sprite_w;
+				uv_skip_t = (static_cast<float>(cmd.skip_top)  * zoom_scale) / sprite_h;
+				uv_w      = (static_cast<float>(cmd.width)     * zoom_scale) / sprite_w;
+				uv_h      = (static_cast<float>(cmd.height)    * zoom_scale) / sprite_h;
+				if (uv_skip_l + uv_w > 1.0f) uv_w = 1.0f - uv_skip_l;
+				if (uv_skip_t + uv_h > 1.0f) uv_h = 1.0f - uv_skip_t;
+			}
+
+			float cu0 = entry->colour.u0 + uv_skip_l * (entry->colour.u1 - entry->colour.u0);
+			float cv0 = entry->colour.v0 + uv_skip_t * (entry->colour.v1 - entry->colour.v0);
+			float cu1 = cu0 + uv_w * (entry->colour.u1 - entry->colour.u0);
+			float cv1 = cv0 + uv_h * (entry->colour.v1 - entry->colour.v0);
+
+			float ru0 = cu0, rv0 = cv0, ru1 = cu1, rv1 = cv1;
+			if (entry->has_remap) {
+				ru0 = entry->remap.u0 + uv_skip_l * (entry->remap.u1 - entry->remap.u0);
+				rv0 = entry->remap.v0 + uv_skip_t * (entry->remap.v1 - entry->remap.v0);
+				ru1 = ru0 + uv_w * (entry->remap.u1 - entry->remap.u0);
+				rv1 = rv0 + uv_h * (entry->remap.v1 - entry->remap.v0);
+			}
+
+			GLESVertex v;
+			v = {x0, y0, cu0, cv0, ru0, rv0, cp, rp}; this->vertex_buf.push_back(v);
+			v = {x1, y0, cu1, cv0, ru1, rv0, cp, rp}; this->vertex_buf.push_back(v);
+			v = {x0, y1, cu0, cv1, ru0, rv1, cp, rp}; this->vertex_buf.push_back(v);
+			v = {x1, y0, cu1, cv0, ru1, rv0, cp, rp}; this->vertex_buf.push_back(v);
+			v = {x1, y1, cu1, cv1, ru1, rv1, cp, rp}; this->vertex_buf.push_back(v);
+			v = {x0, y1, cu0, cv1, ru0, rv1, cp, rp}; this->vertex_buf.push_back(v);
+		}
+
+		if (this->vertex_buf.size() > batch_start) {
+			batches.push_back({batch_start, this->vertex_buf.size() - batch_start, cur_type, cur_remap});
+		}
+
+		/* Upload vertices. */
+		glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0,
+			this->vertex_buf.size() * sizeof(GLESVertex), this->vertex_buf.data());
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, x)));
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
+		glEnableVertexAttribArray(2);
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, ru)));
+		glEnableVertexAttribArray(3);
+		glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, cpage)));
+		glEnableVertexAttribArray(4);
+		glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, rpage)));
+
+		glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D_ARRAY, this->sprite_atlas.GetColourTexture());
+		glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D_ARRAY, this->sprite_atlas.GetRemapTexture());
+		glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+		glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		float sw = static_cast<float>(this->screen_width);
+		float sh = static_cast<float>(this->screen_height);
+		BatchType prev_type = BT_NORMAL;
+		bool first_batch = true;
+
+		for (const BatchRange &b : batches) {
+			_gles_perf.gpu_batches++;
+
+			if (first_batch || b.type != prev_type) {
+				if (!first_batch && prev_type == BT_TRANSPARENT) {
+					glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+				}
+
+				switch (b.type) {
+				case BT_NORMAL:
+					glUseProgram(this->prog_normal);
+					glUniform2f(this->normal_screen_loc, sw, sh);
+					glUniform1i(this->normal_colour_tex_loc, 0);
+					break;
+				case BT_TRANSPARENT:
+					glUseProgram(this->prog_transparent);
+					glUniform2f(this->trans_screen_loc, sw, sh);
+					glUniform1i(this->trans_colour_tex_loc, 0);
+					glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+					break;
+				case BT_REMAP:
+					glUseProgram(this->prog_remap);
+					glUniform2f(this->remap_screen_loc, sw, sh);
+					glUniform1i(this->remap_colour_tex_loc, 0);
+					glUniform1i(this->remap_remap_tex_loc, 1);
+					glUniform1i(this->remap_palette_tex_loc, 2);
+					glUniform1i(this->remap_table_tex_loc, 3);
+					break;
+				case BT_PALETTE:
+					glUseProgram(this->prog_palette);
+					glUniform2f(this->pal_screen_loc, sw, sh);
+					glUniform1i(this->pal_remap_tex_loc, 1);
+					glUniform1i(this->pal_palette_tex_loc, 2);
+					break;
+				}
+			}
+
+			if (b.type == BT_REMAP && b.remap != nullptr && b.remap != this->last_remap_ptr) {
+				this->remap_table_idx ^= 1;
+				glActiveTexture(GL_TEXTURE3);
+				glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[this->remap_table_idx]);
+				glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 1, GL_RED, GL_UNSIGNED_BYTE, b.remap);
+				this->last_remap_ptr = b.remap;
+			}
+
+			prev_type = b.type;
+			first_batch = false;
+			glDrawArrays(GL_TRIANGLES, static_cast<GLint>(b.start), static_cast<GLsizei>(b.count));
+		}
+
+		if (prev_type == BT_TRANSPARENT) glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glDisable(GL_BLEND);
+		for (int i = 0; i < 5; i++) glDisableVertexAttribArray(i);
+		this->draw_queue.clear();
+
+		this->fbo_has_content = true;
+		this->palette_dirty = false;
+		_gles_perf.full_renders++;
+	} else if (this->palette_dirty && this->fbo_has_content) {
+		/* Palette resolve pass (same as Paint). */
+		glBindFramebuffer(GL_FRAMEBUFFER, this->fbo);
+		glViewport(0, 0, this->screen_width, this->screen_height);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, 0, 0);
+		GLenum single_buf = GL_COLOR_ATTACHMENT0;
+		glDrawBuffers(1, &single_buf);
+
+		glUseProgram(this->prog_resolve);
+		float sw = static_cast<float>(this->screen_width);
+		float sh = static_cast<float>(this->screen_height);
+		glUniform2f(this->resolve_screen_loc, sw, sh);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, this->fbo_idx_tex);
+		glUniform1i(this->resolve_idx_tex_loc, 0);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+		glUniform1i(this->resolve_palette_tex_loc, 1);
+
+		glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+		GLESVertex resolve_quad[6] = {
+			{0, 0, 0, 1, 0, 0, 0, 0}, {sw, 0, 1, 1, 0, 0, 0, 0}, {0, sh, 0, 0, 0, 0, 0, 0},
+			{sw, 0, 1, 1, 0, 0, 0, 0}, {sw, sh, 1, 0, 0, 0, 0, 0}, {0, sh, 0, 0, 0, 0, 0, 0},
+		};
+
+		glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+		glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(resolve_quad), resolve_quad);
+
+		glEnableVertexAttribArray(0);
+		glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, x)));
+		glEnableVertexAttribArray(1);
+		glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(GLESVertex),
+		                      reinterpret_cast<void *>(offsetof(GLESVertex, u)));
+		glVertexAttrib1f(3, 0.0f);
+		glDrawArrays(GL_TRIANGLES, 0, 6);
+
+		glDisableVertexAttribArray(0);
+		glDisableVertexAttribArray(1);
+		glDisable(GL_BLEND);
+
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, this->fbo_idx_tex, 0);
+		GLenum mrt_bufs[] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+		glDrawBuffers(2, mrt_bufs);
+
+		this->palette_dirty = false;
+		_gles_perf.gpu_batches++;
+		_gles_perf.resolve_passes++;
+		did_resolve = true;
+	} else {
+		/* Nothing changed. */
+		if (this->has_timer_query) {
+			_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+			this->gpu_query_idx ^= 1;
+			this->gpu_query_active = true;
+		}
+		return false;
+	}
+
+	/* End timer query. */
+	if (this->has_timer_query) {
+		_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
+		this->gpu_query_idx ^= 1;
+		this->gpu_query_active = true;
+	}
+	return true;
+}
+
+void GLESBackend::BlitToScreen(float u_offset, float v_offset)
+{
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, this->screen_width, this->screen_height);
 
@@ -948,11 +1301,19 @@ bool GLESBackend::Paint()
 	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
 	glUniform1i(this->blit_tex_loc, 0);
 
+	/* UV coordinates with camera interpolation offset.
+	 * FBO is flipped vertically (v=1 at top, v=0 at bottom).
+	 * u_offset shifts right, v_offset shifts down (in screen space). */
+	float u0 = 0.0f + u_offset;
+	float u1 = 1.0f + u_offset;
+	float v0 = 1.0f - v_offset;  /* top of screen (flipped) */
+	float v1 = 0.0f - v_offset;  /* bottom of screen (flipped) */
+
 	float w = static_cast<float>(this->screen_width);
 	float h = static_cast<float>(this->screen_height);
 	GLESVertex quad[6] = {
-		{0, 0, 0, 1, 0, 0, 0, 0}, {w, 0, 1, 1, 0, 0, 0, 0}, {0, h, 0, 0, 0, 0, 0, 0},
-		{w, 0, 1, 1, 0, 0, 0, 0}, {w, h, 1, 0, 0, 0, 0, 0}, {0, h, 0, 0, 0, 0, 0, 0},
+		{0, 0, u0, v0, 0, 0, 0, 0}, {w, 0, u1, v0, 0, 0, 0, 0}, {0, h, u0, v1, 0, 0, 0, 0},
+		{w, 0, u1, v0, 0, 0, 0, 0}, {w, h, u1, v1, 0, 0, 0, 0}, {0, h, u0, v1, 0, 0, 0, 0},
 	};
 
 	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
@@ -967,12 +1328,4 @@ bool GLESBackend::Paint()
 	glDrawArrays(GL_TRIANGLES, 0, 6);
 	glDisableVertexAttribArray(0);
 	glDisableVertexAttribArray(1);
-
-	/* GPU timer query: end this frame's query. */
-	if (this->has_timer_query) {
-		_glEndQueryEXT(GL_TIME_ELAPSED_EXT);
-		this->gpu_query_idx ^= 1;
-		this->gpu_query_active = true;
-	}
-	return true;
 }

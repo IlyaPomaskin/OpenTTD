@@ -80,6 +80,13 @@ struct DrawSnapshot {
 	int viewport_height{0};         ///< Viewport height in pixels
 	ZoomLevel zoom{};               ///< Current zoom level
 
+	/* Scroll state for GPU-side camera interpolation (virtual coords). */
+	int scrollpos_x{0};            ///< Viewport scroll X at render time
+	int scrollpos_y{0};            ///< Viewport scroll Y at render time
+	int dest_scrollpos_x{0};       ///< Target scroll X (smooth scroll destination)
+	int dest_scrollpos_y{0};       ///< Target scroll Y (smooth scroll destination)
+	ZoomLevel scroll_zoom{};       ///< Zoom level for converting virtual→screen pixels
+
 	void Clear() {
 		commands.clear();
 		dirty_rects.clear();

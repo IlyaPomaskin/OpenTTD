@@ -9,3 +9,4 @@ docs/source/*
 .claude/
 .idea/
 sprites-original/
+.cache

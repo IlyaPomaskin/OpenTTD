@@ -326,6 +326,9 @@ protected:
 
 		TicToc::Tick("GameTick");
 
+		/* Wallpaper mode: 60fps simulation for smooth vehicle movement. */
+		if (_game_mode == GM_WALLPAPER) return std::chrono::milliseconds(16);
+
 		/* If we are paused, run on normal speed. */
 		if (_pause_mode.Any()) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
 		/* Infinite speed, as quickly as you can. */
@@ -338,9 +341,11 @@ protected:
 	{
 		TicToc::Tick("DrawTick");
 
-		/* Match draw rate to game tick rate — no point drawing faster
-		 * than game state updates (~37 Hz). */
-		if (this->snapshot_buffer != nullptr) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
+		/* Snapshot mode: match draw rate to game tick rate. */
+		if (this->snapshot_buffer != nullptr) {
+			if (_game_mode == GM_WALLPAPER) return std::chrono::milliseconds(16);
+			return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
+		}
 
 		/* If vsync, draw interval is decided by the display driver */
 		if (_video_vsync && this->uses_hardware_acceleration) return std::chrono::microseconds(0);

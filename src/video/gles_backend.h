@@ -144,6 +144,15 @@ public:
 	 *          false if idle (nothing changed, no need to swap). */
 	bool Paint();
 
+	/** Phase 1 only: render sprites into FBO (+ palette resolve).
+	 *  @return true if FBO was updated (full render or resolve). */
+	bool PaintFBO();
+
+	/** Phase 2 only: blit FBO to screen with UV offset for camera interpolation.
+	 *  @param u_offset Horizontal UV shift (pixels / screen_width).
+	 *  @param v_offset Vertical UV shift (pixels / screen_height). */
+	void BlitToScreen(float u_offset, float v_offset);
+
 	/** Recover all GPU state after EGL context loss (SDL_RENDER_DEVICE_RESET).
 	 *  Old GL handles are silently abandoned (freed by OS when context is destroyed).
 	 *  New objects are created in the replacement context. Sprites are reloaded

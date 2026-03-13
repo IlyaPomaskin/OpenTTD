@@ -178,6 +178,15 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 		Debug(driver, 0, "SNAP_VALIDATE: dropped {} commands with out-of-range coords (screen {}x{})", bad, sw, sh);
 	}
 
+	/* Record scroll state for GPU-side camera interpolation. */
+	if (mw != nullptr && mw->viewport != nullptr) {
+		snap.scrollpos_x = mw->viewport->scrollpos_x;
+		snap.scrollpos_y = mw->viewport->scrollpos_y;
+		snap.dest_scrollpos_x = mw->viewport->dest_scrollpos_x;
+		snap.dest_scrollpos_y = mw->viewport->dest_scrollpos_y;
+		snap.scroll_zoom = mw->viewport->zoom;
+	}
+
 	this->snapshot_buffer->Publish();
 	auto t_snap1 = std::chrono::steady_clock::now();
 

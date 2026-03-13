@@ -10,8 +10,10 @@
 #include "../stdafx.h"
 #include "gles_sprite.h"
 #include "../debug.h"
+#include "../gfx_func.h"
 #include <GLES3/gl3.h>
 #include <algorithm>
+#include <chrono>
 
 #include "../safeguards.h"
 
@@ -26,7 +28,43 @@ void GLESSpriteAtlas::Init()
 	 * where row byte count may not be a multiple of the default alignment 4). */
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
-	Debug(driver, 1, "GLES: Atlas page size {}x{}", this->atlas_size, this->atlas_size);
+	/* Create double-buffered PBOs for async sprite upload. */
+	GLuint pbos[2];
+	glGenBuffers(2, pbos);
+	for (int i = 0; i < 2; i++) {
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbos[i]);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER, PBO_SIZE, nullptr, GL_STREAM_DRAW);
+	}
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	this->pbo_current.pbo = pbos[0];
+	this->pbo_inflight.pbo = pbos[1];
+	/* Create 1x1 semi-transparent black placeholder sprite for missing atlas entries. */
+	{
+		uint8_t pink_rgba[4] = { 0, 0, 0, 128 };
+		uint8_t pink_m[1] = { 0 };
+		GLESSpriteRegion region;
+		if (PackRegion(this->colour_pages, false, 1, 1, region)) {
+			glBindTexture(GL_TEXTURE_2D_ARRAY, this->colour_array_tex);
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, region.x, region.y, region.atlas_idx,
+			                1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pink_rgba);
+			this->placeholder_entry.colour = region;
+			this->placeholder_entry.has_remap = false;
+			this->placeholder_entry.palette_only = false;
+			if (PackRegion(this->remap_pages, true, 1, 1, this->placeholder_entry.remap)) {
+				glBindTexture(GL_TEXTURE_2D_ARRAY, this->remap_array_tex);
+				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+				                this->placeholder_entry.remap.x, this->placeholder_entry.remap.y,
+				                this->placeholder_entry.remap.atlas_idx,
+				                1, 1, 1, GL_RED, GL_UNSIGNED_BYTE, pink_m);
+			}
+			this->placeholder_ready = true;
+			Debug(driver, 0, "GLES: Placeholder sprite created at atlas ({},{}) page {}",
+			      region.x, region.y, region.atlas_idx);
+		}
+	}
+
+	Debug(driver, 0, "GLES: Atlas page size {}x{}, PBO async upload: 2x{}KB no-budget",
+	      this->atlas_size, this->atlas_size, PBO_SIZE / 1024);
 }
 
 void GLESSpriteAtlas::Destroy()
@@ -38,6 +76,13 @@ void GLESSpriteAtlas::Destroy()
 	this->colour_pages.clear();
 	this->remap_pages.clear();
 	this->sprites.clear();
+
+	GLuint pbos[2] = { this->pbo_current.pbo, this->pbo_inflight.pbo };
+	if (pbos[0] != 0 || pbos[1] != 0) glDeleteBuffers(2, pbos);
+	if (this->pbo_inflight.fence != nullptr) glDeleteSync(this->pbo_inflight.fence);
+	this->pbo_current = {};
+	this->pbo_inflight = {};
+	this->pbo_inflight_keys.clear();
 }
 
 void GLESSpriteAtlas::ProcessPendingClear()
@@ -48,6 +93,7 @@ void GLESSpriteAtlas::ProcessPendingClear()
 			std::chrono::steady_clock::now() - this->clear_time).count();
 		Debug(driver, 0, "GLES: Reload complete: {} sprites in {}ms",
 		      this->sprites_after_clear, elapsed);
+		this->EstimateAtlasPages();
 		this->measuring_reload = false;
 	}
 
@@ -58,9 +104,9 @@ void GLESSpriteAtlas::ProcessPendingClear()
 void GLESSpriteAtlas::ClearSprites()
 {
 	/* Delete GPU textures and reset atlas layout.
-	 * Keep stored_pixels and staged — they may already contain data for the
-	 * new map (staged from the game thread between RequestClear and this call).
-	 * LookupOrUpload will re-upload them on demand. */
+	 * Keep upload_queue — it may already contain data for the new map
+	 * (enqueued from the game thread between RequestClear and this call).
+	 * ProcessPBOUploads will upload them on demand. */
 	if (this->colour_array_tex != 0) glDeleteTextures(1, &this->colour_array_tex);
 	if (this->remap_array_tex != 0) glDeleteTextures(1, &this->remap_array_tex);
 	this->colour_array_tex = 0;
@@ -73,11 +119,400 @@ void GLESSpriteAtlas::ClearSprites()
 	this->remap_pages.clear();
 	this->sprites.clear();
 
+	/* Clear PBO inflight state — sprites no longer valid after atlas clear.
+	 * Keep PBO buffers themselves (reuse across clears). */
+	if (this->pbo_inflight.fence != nullptr) {
+		glDeleteSync(this->pbo_inflight.fence);
+		this->pbo_inflight.fence = nullptr;
+	}
+	this->pbo_inflight.entries.clear();
+	this->pbo_inflight.used_bytes = 0;
+	this->pbo_current.entries.clear();
+	this->pbo_current.used_bytes = 0;
+	this->pbo_inflight_keys.clear();
+
+	this->placeholder_ready = false;
+
 	this->clear_time = std::chrono::steady_clock::now();
 	this->sprites_after_clear = 0;
 	this->measuring_reload = true;
-	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, {} staged",
-	      old_pages, old_sprites, this->staged.size());
+
+	/* Signal game thread to clear known_sprites.
+	 * Sprites still in upload_queue will be re-added on next Enqueue. */
+	this->known_clear_pending.store(true);
+
+	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, {} queued",
+	      old_pages, old_sprites, this->upload_queue.size());
+}
+
+/* ---- PBO async upload pipeline ---- */
+
+void GLESSpriteAtlas::PBOCheckInflight()
+{
+	if (this->pbo_inflight.fence == nullptr) return;
+
+	GLenum result = glClientWaitSync(this->pbo_inflight.fence, 0, 0);
+	if (result == GL_TIMEOUT_EXPIRED) {
+		_gles_perf.pbo_fence_waits++;
+		return; /* Not ready yet, try next frame. */
+	}
+
+	/* Fence signaled (ALREADY_SIGNALED or CONDITION_SATISFIED) — sprites are uploaded. */
+	glDeleteSync(this->pbo_inflight.fence);
+	this->pbo_inflight.fence = nullptr;
+
+	for (const auto &pe : this->pbo_inflight.entries) {
+		this->sprites[pe.key] = pe.entry;
+		_gles_perf.gpu_sprites_new++;
+
+		if (this->measuring_reload) {
+			this->sprites_after_clear++;
+		}
+	}
+
+	size_t count = this->pbo_inflight.entries.size();
+	_gles_perf.pbo_batches_completed++;
+	_gles_perf.pbo_sprites_uploaded += count;
+	this->pbo_inflight.entries.clear();
+	this->pbo_inflight.used_bytes = 0;
+	this->pbo_inflight_keys.clear();
+
+	if (count > 0) {
+		Debug(driver, 2, "GLES: PBO inflight batch completed: {} sprites", count);
+	}
+}
+
+void GLESSpriteAtlas::PBOFillBatch()
+{
+	auto t0 = std::chrono::steady_clock::now();
+
+	/* Drain upload queue in one swap (O(1), no per-sprite locking). */
+	std::vector<GLESUploadRequest> batch;
+	{
+		std::lock_guard<std::mutex> lock(this->queue_mutex);
+		batch = std::move(this->upload_queue);
+	}
+
+	if (batch.empty()) return;
+
+	/* Two-pass approach: PackRegion first (may call AllocPage → glTexImage3D),
+	 * then map PBO and write pixels. This avoids the GLES bug where
+	 * glTexImage3D(..., nullptr) with a bound PBO reads from PBO offset 0
+	 * instead of creating an empty texture, corrupting atlas layers. */
+
+	/* --- Pass 1: pack atlas regions (no PBO bound) --- */
+	struct PreparedSprite {
+		size_t batch_idx;
+		PBOPendingEntry pe;
+		size_t npixels;
+	};
+	std::vector<PreparedSprite> prepared;
+	size_t total_bytes = 0;
+	int skipped_uploaded = 0, skipped_full = 0;
+	int fail_colour = 0, fail_remap = 0;
+	int n_palette_only = 0, n_no_remap = 0;
+	size_t colour_pages_before = this->colour_pages.size();
+	size_t remap_pages_before = this->remap_pages.size();
+
+	for (size_t bi = 0; bi < batch.size(); bi++) {
+		auto &req = batch[bi];
+
+		if (this->sprites.count(req.key)) {
+			skipped_uploaded++;
+			continue;
+		}
+
+		size_t npixels = static_cast<size_t>(req.width) * req.height;
+		if (req.pixels.size() != npixels) {
+			Debug(driver, 0, "GLES: PBO PIXEL COUNT MISMATCH sprite={} key={:#x} {}x{}={} but pixels.size={}",
+			      static_cast<SpriteID>(req.key >> 4), req.key, req.width, req.height, npixels, req.pixels.size());
+			continue;
+		}
+		size_t need = npixels * 4 + (req.has_remap ? npixels : 0);
+		if (total_bytes + need > PBO_SIZE) {
+			skipped_full++;
+			/* Put overflow back into queue for next round. */
+			std::lock_guard<std::mutex> lock(this->queue_mutex);
+			for (size_t oi = bi; oi < batch.size(); oi++) {
+				this->upload_queue.push_back(std::move(batch[oi]));
+			}
+			break;
+		}
+
+		PBOPendingEntry pe;
+		pe.key = req.key;
+		pe.width = req.width;
+		pe.height = req.height;
+		pe.has_remap = req.has_remap;
+		pe.entry.has_remap = req.has_remap;
+		pe.entry.palette_only = req.has_remap && !req.has_rgb;
+
+		if (pe.entry.palette_only) n_palette_only++;
+		if (!req.has_remap) n_no_remap++;
+
+		/* Pack atlas regions NOW — no PBO bound, so AllocPage is safe. */
+		if (!PackRegion(this->colour_pages, false, req.width, req.height, pe.entry.colour)) {
+			fail_colour++;
+			Debug(driver, 0, "GLES: PBO PackRegion FAIL colour sprite={} key={:#x} {}x{}",
+			      static_cast<SpriteID>(req.key >> 4), req.key, req.width, req.height);
+			continue;
+		}
+
+		pe.colour_offset = total_bytes;
+		total_bytes += npixels * 4;
+
+		if (req.has_remap) {
+			if (!PackRegion(this->remap_pages, true, req.width, req.height, pe.entry.remap)) {
+				fail_remap++;
+				Debug(driver, 0, "GLES: PBO PackRegion FAIL remap sprite={} key={:#x} {}x{}",
+				      static_cast<SpriteID>(req.key >> 4), req.key, req.width, req.height);
+				continue;
+			}
+			pe.remap_offset = total_bytes;
+			total_bytes += npixels;
+		} else {
+			pe.entry.remap = pe.entry.colour;
+			pe.remap_offset = 0;
+		}
+
+		prepared.push_back({bi, pe, npixels});
+	}
+
+	_gles_perf.pbo_candidates += batch.size();
+	_gles_perf.pbo_already_uploaded += skipped_uploaded;
+	_gles_perf.pbo_pbo_full += skipped_full;
+	_gles_perf.pbo_pack_colour_fail += fail_colour;
+	_gles_perf.pbo_pack_remap_fail += fail_remap;
+	_gles_perf.pbo_palette_only += n_palette_only;
+	_gles_perf.pbo_no_remap += n_no_remap;
+	_gles_perf.pbo_alloc_pages += (this->colour_pages.size() - colour_pages_before)
+	                             + (this->remap_pages.size() - remap_pages_before);
+
+	if (prepared.empty()) return;
+
+	/* --- Pass 2: map PBO and write pixel data (no PackRegion/AllocPage calls) --- */
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, this->pbo_current.pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, PBO_SIZE, nullptr, GL_STREAM_DRAW); /* Orphan. */
+	void *mapped = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, PBO_SIZE,
+	                                GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
+	if (mapped == nullptr) {
+		Debug(driver, 0, "GLES: PBO glMapBufferRange failed!");
+		_gles_perf.pbo_map_fail++;
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+		return;
+	}
+
+	uint8_t *ptr = static_cast<uint8_t *>(mapped);
+
+	for (auto &prep : prepared) {
+		const auto &pixels = batch[prep.batch_idx].pixels;
+
+		/* Write RGBA. */
+		uint8_t *rgba = ptr + prep.pe.colour_offset;
+		for (size_t i = 0; i < prep.npixels; i++) {
+			rgba[i * 4 + 0] = pixels[i].r;
+			rgba[i * 4 + 1] = pixels[i].g;
+			rgba[i * 4 + 2] = pixels[i].b;
+			rgba[i * 4 + 3] = pixels[i].a;
+		}
+
+		/* Write remap. */
+		if (prep.pe.has_remap) {
+			uint8_t *m = ptr + prep.pe.remap_offset;
+			for (size_t i = 0; i < prep.npixels; i++) {
+				m[i] = pixels[i].m;
+			}
+		}
+
+		this->pbo_current.entries.push_back(prep.pe);
+	}
+
+	glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+	this->pbo_current.used_bytes = total_bytes;
+
+	auto t1 = std::chrono::steady_clock::now();
+	_gles_perf.pbo_fill_us += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+}
+
+void GLESSpriteAtlas::PBOSubmitBatch()
+{
+	auto t0 = std::chrono::steady_clock::now();
+
+	if (this->pbo_current.entries.empty()) {
+		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+		return;
+	}
+
+	/* PBO is already bound from FillBatch. Issue async glTexSubImage3D calls. */
+	for (const auto &pe : this->pbo_current.entries) {
+		/* Validate atlas region before GL call. */
+		if (pe.entry.colour.atlas_idx >= this->colour_pages.size()) {
+			Debug(driver, 0, "GLES: PBO SUBMIT BAD colour atlas_idx={} >= pages={} sprite={} key={:#x}",
+			      pe.entry.colour.atlas_idx, this->colour_pages.size(),
+			      static_cast<SpriteID>(pe.key >> 4), pe.key);
+			continue;
+		}
+
+		glBindTexture(GL_TEXTURE_2D_ARRAY, this->colour_array_tex);
+		glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+		                pe.entry.colour.x, pe.entry.colour.y, pe.entry.colour.atlas_idx,
+		                pe.width, pe.height, 1,
+		                GL_RGBA, GL_UNSIGNED_BYTE,
+		                reinterpret_cast<const void *>(static_cast<uintptr_t>(pe.colour_offset)));
+
+		GLenum err = glGetError();
+		if (err != GL_NO_ERROR) {
+			Debug(driver, 0, "GLES: PBO glTexSubImage3D colour ERROR {:#x} sprite={} key={:#x} pos=({},{},{}) size={}x{} offset={}",
+			      err, static_cast<SpriteID>(pe.key >> 4), pe.key,
+			      pe.entry.colour.x, pe.entry.colour.y, pe.entry.colour.atlas_idx,
+			      pe.width, pe.height, pe.colour_offset);
+		}
+
+		if (pe.has_remap) {
+			if (pe.entry.remap.atlas_idx >= this->remap_pages.size()) {
+				Debug(driver, 0, "GLES: PBO SUBMIT BAD remap atlas_idx={} >= pages={} sprite={} key={:#x}",
+				      pe.entry.remap.atlas_idx, this->remap_pages.size(),
+				      static_cast<SpriteID>(pe.key >> 4), pe.key);
+				continue;
+			}
+
+			glBindTexture(GL_TEXTURE_2D_ARRAY, this->remap_array_tex);
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+			                pe.entry.remap.x, pe.entry.remap.y, pe.entry.remap.atlas_idx,
+			                pe.width, pe.height, 1,
+			                GL_RED, GL_UNSIGNED_BYTE,
+			                reinterpret_cast<const void *>(static_cast<uintptr_t>(pe.remap_offset)));
+
+			err = glGetError();
+			if (err != GL_NO_ERROR) {
+				Debug(driver, 0, "GLES: PBO glTexSubImage3D remap ERROR {:#x} sprite={} key={:#x} pos=({},{},{}) size={}x{} offset={}",
+				      err, static_cast<SpriteID>(pe.key >> 4), pe.key,
+				      pe.entry.remap.x, pe.entry.remap.y, pe.entry.remap.atlas_idx,
+				      pe.width, pe.height, pe.remap_offset);
+			}
+		}
+	}
+
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+	_gles_perf.pbo_batches_submitted++;
+	_gles_perf.pbo_bytes_uploaded += this->pbo_current.used_bytes;
+
+	/* Register sprites immediately — GL command stream is serialized, so
+	 * glTexSubImage3D DMA will complete before any subsequent draw calls
+	 * that reference these sprites. No fence needed. */
+	for (const auto &pe : this->pbo_current.entries) {
+		/* Check for dimension mismatch between PBO entry and atlas region. */
+		if (pe.width != pe.entry.colour.w || pe.height != pe.entry.colour.h) {
+			Debug(driver, 0, "GLES: PBO DIM MISMATCH sprite={} key={:#x} pbo={}x{} atlas={}x{}",
+			      static_cast<SpriteID>(pe.key >> 4), pe.key,
+			      pe.width, pe.height, pe.entry.colour.w, pe.entry.colour.h);
+		}
+		/* Check if this overwrites an existing entry with different coords. */
+		auto prev = this->sprites.find(pe.key);
+		if (prev != this->sprites.end()) {
+			const auto &old = prev->second;
+			if (old.colour.x != pe.entry.colour.x || old.colour.y != pe.entry.colour.y ||
+			    old.colour.atlas_idx != pe.entry.colour.atlas_idx ||
+			    old.colour.w != pe.entry.colour.w || old.colour.h != pe.entry.colour.h) {
+				Debug(driver, 0, "GLES: PBO OVERWRITE sprite={} key={:#x} old=({},{} {}x{} p{}) new=({},{} {}x{} p{})",
+				      static_cast<SpriteID>(pe.key >> 4), pe.key,
+				      old.colour.x, old.colour.y, old.colour.w, old.colour.h, old.colour.atlas_idx,
+				      pe.entry.colour.x, pe.entry.colour.y, pe.entry.colour.w, pe.entry.colour.h, pe.entry.colour.atlas_idx);
+			}
+		}
+		this->sprites[pe.key] = pe.entry;
+		_gles_perf.gpu_sprites_new++;
+		_gles_perf.pbo_sprites_uploaded++;
+		if (this->measuring_reload) {
+			this->sprites_after_clear++;
+		}
+	}
+
+	this->pbo_current.entries.clear();
+	this->pbo_current.used_bytes = 0;
+
+	auto t1 = std::chrono::steady_clock::now();
+	_gles_perf.pbo_submit_us += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+}
+
+void GLESSpriteAtlas::ProcessPBOUploads()
+{
+	/* Skip if PBOs not initialized (e.g. context lost and not yet recovered). */
+	if (this->pbo_current.pbo == 0) {
+		Debug(driver, 0, "GLES: ProcessPBOUploads SKIP: pbo=0");
+		return;
+	}
+
+	/* Check previous inflight batch fence (from double-buffer era, kept for safety). */
+	PBOCheckInflight();
+
+	/* Re-create placeholder after atlas clear (textures were deleted). */
+	if (!this->placeholder_ready && this->colour_array_tex == 0) {
+		/* Trigger atlas creation by packing a 1x1 region, then write placeholder pixel. */
+		GLESSpriteRegion region;
+		if (PackRegion(this->colour_pages, false, 1, 1, region)) {
+			uint8_t pink_rgba[4] = { 0, 0, 0, 128 };
+			glBindTexture(GL_TEXTURE_2D_ARRAY, this->colour_array_tex);
+			glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, region.x, region.y, region.atlas_idx,
+			                1, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pink_rgba);
+			this->placeholder_entry.colour = region;
+			this->placeholder_entry.has_remap = false;
+			this->placeholder_entry.palette_only = false;
+			if (PackRegion(this->remap_pages, true, 1, 1, this->placeholder_entry.remap)) {
+				uint8_t zero_m[1] = { 0 };
+				glBindTexture(GL_TEXTURE_2D_ARRAY, this->remap_array_tex);
+				glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+				                this->placeholder_entry.remap.x, this->placeholder_entry.remap.y,
+				                this->placeholder_entry.remap.atlas_idx,
+				                1, 1, 1, GL_RED, GL_UNSIGNED_BYTE, zero_m);
+			}
+			this->placeholder_ready = true;
+		}
+	}
+
+	/* Upload ALL queued sprites. Loop to handle data exceeding PBO_SIZE. */
+	int rounds = 0;
+	size_t sprites_before = this->sprites.size();
+	for (;;) {
+		PBOFillBatch();
+		if (this->pbo_current.entries.empty()) break;
+		PBOSubmitBatch();
+		rounds++;
+	}
+	_gles_perf.pbo_rounds += rounds;
+
+	/* One-time atlas overlap check after first batch of uploads completes. */
+	static bool overlap_checked = false;
+	if (!overlap_checked && this->sprites.size() > 100 && this->sprites.size() > sprites_before) {
+		overlap_checked = true;
+		/* Build list of colour regions and check for overlaps. */
+		struct RegionInfo { GLESSpriteID key; uint16_t x, y, w, h, page; };
+		std::vector<RegionInfo> regions;
+		for (const auto &[key, entry] : this->sprites) {
+			regions.push_back({key, entry.colour.x, entry.colour.y,
+			                   entry.colour.w, entry.colour.h, entry.colour.atlas_idx});
+		}
+		int overlaps = 0;
+		for (size_t i = 0; i < regions.size() && overlaps < 20; i++) {
+			for (size_t j = i + 1; j < regions.size() && overlaps < 20; j++) {
+				const auto &a = regions[i];
+				const auto &b = regions[j];
+				if (a.page != b.page) continue;
+				/* Skip 1x1 placeholder. */
+				if ((a.w == 1 && a.h == 1) || (b.w == 1 && b.h == 1)) continue;
+				/* AABB overlap test. */
+				if (a.x < b.x + b.w && a.x + a.w > b.x &&
+				    a.y < b.y + b.h && a.y + a.h > b.y) {
+					Debug(driver, 0, "GLES: ATLAS OVERLAP! sprite_a={} ({},{} {}x{} p{}) sprite_b={} ({},{} {}x{} p{})",
+					      static_cast<SpriteID>(a.key >> 4), a.x, a.y, a.w, a.h, a.page,
+					      static_cast<SpriteID>(b.key >> 4), b.x, b.y, b.w, b.h, b.page);
+					overlaps++;
+				}
+			}
+		}
+		Debug(driver, 0, "GLES: Atlas overlap check: {} sprites, {} overlaps found", regions.size(), overlaps);
+	}
 }
 
 GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance)
@@ -226,6 +661,7 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
                                       uint16_t width, uint16_t height,
                                       bool has_rgb, bool has_remap)
 {
+	auto t_upload0 = std::chrono::steady_clock::now();
 	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
 
 	size_t npixels = static_cast<size_t>(width) * height;
@@ -333,55 +769,65 @@ GLESSpriteID GLESSpriteAtlas::Upload(SpriteID sprite_id, ZoomLevel zoom,
 		}
 	}
 
+	_gles_perf.sprite_upload_count++;
+	_gles_perf.sprite_upload_us += std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - t_upload0).count();
+
 	return key;
 }
 
-GLESSpriteID GLESSpriteAtlas::Stage(SpriteID sprite_id, ZoomLevel zoom,
-                                     const SpriteLoader::CommonPixel *pixels,
-                                     uint16_t width, uint16_t height,
-                                     bool has_rgb, bool has_remap)
+GLESSpriteID GLESSpriteAtlas::Enqueue(SpriteID sprite_id, ZoomLevel zoom,
+                                       const SpriteLoader::CommonPixel *pixels,
+                                       uint16_t width, uint16_t height,
+                                       bool has_rgb, bool has_remap)
 {
 	GLESSpriteID key = MakeGLESSpriteKey(sprite_id, zoom);
+
+	/* Process deferred clear from GL thread. */
+	if (this->known_clear_pending.exchange(false)) {
+		this->known_sprites.clear();
+	}
+
+	/* Skip if sprite is already in the pipeline (queued/PBO/uploaded). */
+	if (this->known_sprites.count(sprite_id)) {
+		_gles_perf.sprite_cache_hits++;
+		return key;
+	}
+	this->known_sprites.insert(sprite_id);
+
+	auto t0 = std::chrono::steady_clock::now();
+
 	size_t count = static_cast<size_t>(width) * height;
 
-	GLESStagedPixels sp;
-	sp.pixels.assign(pixels, pixels + count);
-	sp.width = width;
-	sp.height = height;
-	sp.has_rgb = has_rgb;
-	sp.has_remap = has_remap;
+	GLESUploadRequest req;
+	req.key = key;
+	req.pixels.assign(pixels, pixels + count);
+	req.width = width;
+	req.height = height;
+	req.has_rgb = has_rgb;
+	req.has_remap = has_remap;
 
-	std::lock_guard<std::mutex> lock(this->staged_mutex);
-	this->staged[key] = std::move(sp);
+	{
+		std::lock_guard<std::mutex> lock(this->queue_mutex);
+		this->upload_queue.push_back(std::move(req));
+	}
+
+	auto t1 = std::chrono::steady_clock::now();
+	_gles_perf.sprite_stage_us += std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+
 	return key;
 }
 
 const GLESSpriteEntry *GLESSpriteAtlas::LookupOrUpload(GLESSpriteID key)
 {
-	/* Fast path: already uploaded to GPU. */
+	/* Fast path: already uploaded to GPU via PBO. */
 	auto it = this->sprites.find(key);
 	if (it != this->sprites.end()) return &it->second;
 
-	/* Check staged data (written by game thread via Stage()).
-	 * Copy instead of move — keep staged data so it survives ClearSprites()
-	 * and can be re-uploaded if the atlas is cleared during map switches.
-	 * Mutex required in snapshot mode: Stage() runs on game thread
-	 * concurrently with LookupOrUpload on the GPU thread. */
-	GLESStagedPixels sp;
-	{
-		std::lock_guard<std::mutex> lock(this->staged_mutex);
-		auto sit = this->staged.find(key);
-		if (sit == this->staged.end()) return nullptr;
-		sp = sit->second;
-	}
-
-	/* Upload to GPU (we're on the GL thread). */
-	SpriteID sprite_id = static_cast<SpriteID>(key >> 4);
-	ZoomLevel zoom = static_cast<ZoomLevel>(key & 0xF);
-	this->Upload(sprite_id, zoom, sp.pixels.data(), sp.width, sp.height, sp.has_rgb, sp.has_remap);
-
-	it = this->sprites.find(key);
-	if (it != this->sprites.end()) return &it->second;
+	/* Sprite not yet uploaded — return placeholder so the draw is visible.
+	 * ProcessPBOUploads() will upload the real sprite next frame. */
+	_gles_perf.gpu_sprites_missing++;
+	if (this->placeholder_ready) return &this->placeholder_entry;
 	return nullptr;
 }
 
@@ -390,6 +836,31 @@ const GLESSpriteEntry *GLESSpriteAtlas::Lookup(GLESSpriteID key) const
 	auto it = this->sprites.find(key);
 	if (it == this->sprites.end()) return nullptr;
 	return &it->second;
+}
+
+bool GLESSpriteAtlas::IsKnown(SpriteID id)
+{
+	/* Process deferred clear from GL thread (ClearSprites / AbandonGLObjects). */
+	if (this->known_clear_pending.exchange(false)) {
+		this->known_sprites.clear();
+	}
+	return this->known_sprites.count(id) != 0;
+}
+
+void GLESSpriteAtlas::CacheMeta(SpriteID id, int16_t w, int16_t h, int16_t xo, int16_t yo)
+{
+	this->meta_cache[id] = {w, h, xo, yo};
+}
+
+bool GLESSpriteAtlas::GetCachedMeta(SpriteID id, int16_t &w, int16_t &h, int16_t &xo, int16_t &yo) const
+{
+	auto it = this->meta_cache.find(id);
+	if (it == this->meta_cache.end()) return false;
+	w = it->second.width;
+	h = it->second.height;
+	xo = it->second.x_offs;
+	yo = it->second.y_offs;
+	return true;
 }
 
 static int ComputeOccupancy(const std::vector<GLESAtlasPage> &pages)
@@ -407,3 +878,101 @@ static int ComputeOccupancy(const std::vector<GLESAtlasPage> &pages)
 
 int GLESSpriteAtlas::GetColourOccupancyPercent() const { return ComputeOccupancy(this->colour_pages); }
 int GLESSpriteAtlas::GetRemapOccupancyPercent() const { return ComputeOccupancy(this->remap_pages); }
+
+/** Simulate shelf packing for a list of sprite dimensions.
+ *  Returns {pages_needed, total_pixels_used}. */
+static std::pair<int, int64_t> SimulatePacking(const std::vector<std::pair<uint16_t, uint16_t>> &sizes, uint16_t page_size)
+{
+	std::vector<GLESAtlasPage> pages;
+	int64_t pixels = 0;
+
+	for (const auto &[w, h] : sizes) {
+		uint16_t pw = w + 1;
+		uint16_t ph = h + 1;
+		bool placed = false;
+
+		for (auto &page : pages) {
+			if (page.cursor_x + pw <= page.width && page.cursor_y + ph <= page.height) {
+				page.cursor_x += pw;
+				page.row_height = std::max(page.row_height, ph);
+				placed = true;
+				break;
+			}
+			uint16_t next_y = page.cursor_y + page.row_height;
+			if (pw <= page.width && next_y + ph <= page.height) {
+				page.cursor_x = pw;
+				page.cursor_y = next_y;
+				page.row_height = ph;
+				placed = true;
+				break;
+			}
+		}
+
+		if (!placed) {
+			if (pw > page_size || ph > page_size) continue;
+			GLESAtlasPage p;
+			p.width = page_size;
+			p.height = page_size;
+			p.cursor_x = pw;
+			p.cursor_y = 0;
+			p.row_height = ph;
+			pages.push_back(p);
+		}
+
+		pixels += static_cast<int64_t>(w) * h;
+	}
+
+	return {static_cast<int>(pages.size()), pixels};
+}
+
+void GLESSpriteAtlas::EstimateAtlasPages() const
+{
+	auto t0 = std::chrono::steady_clock::now();
+
+	std::vector<std::pair<uint16_t, uint16_t>> colour_sizes;
+	std::vector<std::pair<uint16_t, uint16_t>> remap_sizes;
+	int64_t staged_bytes = 0;
+
+	{
+		std::lock_guard<std::mutex> lock(const_cast<std::mutex &>(this->queue_mutex));
+		for (const auto &req : this->upload_queue) {
+			colour_sizes.emplace_back(req.width, req.height);
+			if (req.has_remap) remap_sizes.emplace_back(req.width, req.height);
+			staged_bytes += static_cast<int64_t>(req.pixels.capacity()) * sizeof(SpriteLoader::CommonPixel);
+		}
+	}
+
+	auto t_collect = std::chrono::steady_clock::now();
+
+	/* Sort largest-first for better packing estimate. */
+	auto cmp = [](const auto &a, const auto &b) {
+		return std::max(a.first, a.second) > std::max(b.first, b.second);
+	};
+	std::sort(colour_sizes.begin(), colour_sizes.end(), cmp);
+	std::sort(remap_sizes.begin(), remap_sizes.end(), cmp);
+
+	auto t_sort = std::chrono::steady_clock::now();
+
+	auto [col_pages, col_px] = SimulatePacking(colour_sizes, this->atlas_size);
+	auto [rem_pages, rem_px] = SimulatePacking(remap_sizes, this->atlas_size);
+
+	auto t_pack = std::chrono::steady_clock::now();
+
+	int64_t page_area = static_cast<int64_t>(this->atlas_size) * this->atlas_size;
+	int col_occ = (col_pages > 0 && page_area > 0) ? static_cast<int>(col_px * 100 / (page_area * col_pages)) : 0;
+	int rem_occ = (rem_pages > 0 && page_area > 0) ? static_cast<int>(rem_px * 100 / (page_area * rem_pages)) : 0;
+
+	int col_mb = static_cast<int>(page_area * col_pages * 4 / (1024 * 1024));
+	int rem_mb = static_cast<int>(page_area * rem_pages * 1 / (1024 * 1024));
+
+	int staged_mb = static_cast<int>(staged_bytes / (1024 * 1024));
+
+	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
+
+	Debug(driver, 0, "ATLAS_ESTIMATE: {} unique sprites ({} with remap) atlas={}x{}",
+	      colour_sizes.size(), remap_sizes.size(), this->atlas_size, this->atlas_size);
+	Debug(driver, 0, "ATLAS_ESTIMATE: colour: {} pages ({}% occ, {}MB) | remap: {} pages ({}% occ, {}MB) | gpu_total: {}MB | staged_ram: {}MB",
+	      col_pages, col_occ, col_mb, rem_pages, rem_occ, rem_mb, col_mb + rem_mb, staged_mb);
+	Debug(driver, 0, "ATLAS_ESTIMATE: timing: collect={}us sort={}us pack={}us total={}us",
+	      us(t0, t_collect), us(t_collect, t_sort), us(t_sort, t_pack), us(t0, t_pack));
+}

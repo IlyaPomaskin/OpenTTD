@@ -21,9 +21,9 @@
 static FBlitter_GLES iFBlitter_GLES;
 
 /** Early staging buffer for sprites encoded before GLESBackend is ready. */
-static std::unordered_map<GLESSpriteID, GLESStagedPixels> &GetEarlyStaged()
+static std::vector<GLESUploadRequest> &GetEarlyStaged()
 {
-	static std::unordered_map<GLESSpriteID, GLESStagedPixels> buf;
+	static std::vector<GLESUploadRequest> buf;
 	return buf;
 }
 
@@ -36,11 +36,11 @@ void FlushEarlyStaged()
 	if (backend == nullptr) return;
 
 	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-	for (auto &[key, sp] : early) {
-		SpriteID sprite_id = static_cast<SpriteID>(key >> 4);
-		ZoomLevel zoom = static_cast<ZoomLevel>(key & 0xF);
-		atlas.Stage(sprite_id, zoom, reinterpret_cast<const SpriteLoader::CommonPixel *>(sp.pixels.data()),
-		            sp.width, sp.height, sp.has_rgb, sp.has_remap);
+	for (auto &req : early) {
+		SpriteID sprite_id = static_cast<SpriteID>(req.key >> 4);
+		ZoomLevel zoom = static_cast<ZoomLevel>(req.key & 0xF);
+		atlas.Enqueue(sprite_id, zoom, req.pixels.data(),
+		              req.width, req.height, req.has_rgb, req.has_remap);
 	}
 	early.clear();
 }
@@ -61,6 +61,17 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 	dest_sprite->x_offs = root.x_offs;
 	dest_sprite->y_offs = root.y_offs;
 
+	/* Skip GPU staging for font glyphs. */
+	if (sprite_type == SpriteType::Font) return dest_sprite;
+
+	GLESBackend *backend = GLESBackend::Get();
+
+	/* Cache root dimensions for ReadSprite fast-path. */
+	if (backend != nullptr) {
+		backend->GetSpriteAtlas().CacheMeta(this->encoding_sprite_id_,
+			root.width, root.height, root.x_offs, root.y_offs);
+	}
+
 	/* Find the single best (largest) zoom variant for GPU scaling. */
 	const SpriteLoader::Sprite *best = nullptr;
 
@@ -78,21 +89,20 @@ Sprite *Blitter_GLES::Encode(SpriteType sprite_type, const SpriteLoader::SpriteC
 		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
 		bool has_remap = best->colours.Test(SpriteComponent::Palette);
 
-		GLESBackend *backend = GLESBackend::Get();
 		if (backend != nullptr) {
-			backend->GetSpriteAtlas().Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
-			                               best->width, best->height, has_rgb, has_remap);
+			backend->GetSpriteAtlas().Enqueue(this->encoding_sprite_id_, kGPUScaleBaseZoom, best->data,
+			                                  best->width, best->height, has_rgb, has_remap);
 		} else {
 			/* Backend not ready yet — save to early staging buffer. */
-			GLESStagedPixels sp;
+			GLESUploadRequest req;
 			size_t count = static_cast<size_t>(best->width) * best->height;
-			sp.pixels.assign(best->data, best->data + count);
-			sp.width = best->width;
-			sp.height = best->height;
-			sp.has_rgb = has_rgb;
-			sp.has_remap = has_remap;
-			GLESSpriteID key = MakeGLESSpriteKey(_gles_encoding_sprite_id, kGPUScaleBaseZoom);
-			GetEarlyStaged()[key] = std::move(sp);
+			req.key = MakeGLESSpriteKey(this->encoding_sprite_id_, kGPUScaleBaseZoom);
+			req.pixels.assign(best->data, best->data + count);
+			req.width = best->width;
+			req.height = best->height;
+			req.has_rgb = has_rgb;
+			req.has_remap = has_remap;
+			GetEarlyStaged().push_back(std::move(req));
 		}
 		_gles_perf.encode_uploaded++;
 	}

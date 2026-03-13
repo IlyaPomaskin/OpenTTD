@@ -11,6 +11,8 @@
 #define VIDEO_SDL2_GLES_V_H
 
 #include "sdl2_v.h"
+#include "../zoom_type.h"
+#include <chrono>
 
 /** The OpenGL ES video driver for Android. */
 class VideoDriver_SDL_GLES : public VideoDriver_SDL_Base {
@@ -42,6 +44,16 @@ private:
 	void *gl_context = nullptr;
 	std::vector<uint32_t> video_buffer; ///< CPU-side video buffer for non-GPU drawing (text, UI).
 	std::vector<Rect> gles_dirty_rects; ///< Individual dirty rects for GLES (not coalesced).
+
+	/* Camera interpolation state (GPU blit thread).
+	 * Interpolate between prev and curr scrollpos over one tick period.
+	 * At t=0 we show prev (= end of previous interval), at t=1 we show curr. */
+	int snap_prev_scrollpos_x = 0;
+	int snap_prev_scrollpos_y = 0;
+	int snap_curr_scrollpos_x = 0;
+	int snap_curr_scrollpos_y = 0;
+	ZoomLevel snap_scroll_zoom{};
+	std::chrono::steady_clock::time_point snap_time{};
 
 	std::optional<std::string_view> AllocateContext();
 	void DestroyContext();

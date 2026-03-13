@@ -150,6 +150,15 @@ public:
 	 */
 	virtual Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator) = 0;
 
+	/** Encode with known SpriteID. Sets encoding_sprite_id_ before calling virtual Encode(). */
+	Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator, SpriteID sprite_id)
+	{
+		this->encoding_sprite_id_ = sprite_id;
+		auto *result = this->Encode(sprite_type, sprite, allocator);
+		this->encoding_sprite_id_ = UINT32_MAX;
+		return result;
+	}
+
 	/**
 	 * Get the value which the height and width on a sprite have to be aligned by.
 	 * @return The needed alignment or 0 if any alignment is accepted.
@@ -158,5 +167,8 @@ public:
 	{
 		return 0;
 	}
+
+protected:
+	SpriteID encoding_sprite_id_ = UINT32_MAX; ///< SpriteID set by 4-arg Encode(), read by subclasses.
 };
 #endif /* SPRITELOADER_HPP */

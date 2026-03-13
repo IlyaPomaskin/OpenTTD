@@ -25,6 +25,7 @@
 #include "../object_map.h"
 #include "../object_type.h"
 #include "../vehicle_base.h"
+#include "../aircraft.h"
 #include "../openttd.h"
 #include "../wallpaper.h"
 #include "../landscape.h"
@@ -404,6 +405,24 @@ static void ScanMapPOIs()
 	_gles_poi_list.clear();
 	_gles_poi_map_tiles = Map::SizeX() * Map::SizeY();
 
+	/* DEBUG: find all airplanes (no helicopters), return first 5 as POIs. */
+	{
+		int count = 0;
+		for (const Vehicle *v : Vehicle::Iterate()) {
+			if (v->type != VEH_AIRCRAFT) continue;
+			if (!v->IsPrimaryVehicle()) continue;
+			if (Aircraft::From(v)->subtype == AIR_HELICOPTER) continue;
+			auto [fx, fy] = TileToFxy(v->tile);
+			_gles_poi_list.push_back({fx, fy, 100, 0, 8000,
+				fmt::format("DEBUG aircraft #{}", v->index)});
+			_gles_poi_list.back().follow_vehicle = v->index;
+			if (++count >= 5) break;
+		}
+		Debug(driver, 0, "GLES POI DEBUG: found {} aircraft POIs", count);
+		_gles_poi_idx = 0;
+		return;
+	}
+
 	std::vector<GlesPOI> candidates;
 	candidates.reserve(64);
 
@@ -515,22 +534,20 @@ static void ShowCurrentPOI()
 	vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);
 
 	if (poi.follow_vehicle != VehicleID::Invalid() && Vehicle::IsValidID(poi.follow_vehicle)) {
-		/* Follow vehicle mode: let the viewport track the vehicle automatically. */
+		/* Follow vehicle mode: set dest to vehicle position, let viewport interpolate. */
 		const Vehicle *veh = Vehicle::Get(poi.follow_vehicle);
 		vp.follow_vehicle = poi.follow_vehicle;
-		/* Set initial scroll position to vehicle's current location. */
 		Point pt = RemapCoords(veh->x_pos, veh->y_pos, veh->z_pos);
-		vp.scrollpos_x = pt.x - vp.virtual_width / 2;
-		vp.scrollpos_y = pt.y - vp.virtual_height / 2;
-		vp.dest_scrollpos_x = vp.scrollpos_x;
-		vp.dest_scrollpos_y = vp.scrollpos_y;
+		vp.dest_scrollpos_x = pt.x - vp.virtual_width / 2;
+		vp.dest_scrollpos_y = pt.y - vp.virtual_height / 2;
+		/* scrollpos stays at current position — viewport will smoothly interpolate. */
 	} else {
-		/* Static POI: cancel any vehicle following and scroll to position. */
+		/* Static POI: cancel any vehicle following, smooth scroll to position. */
 		vp.follow_vehicle = VehicleID::Invalid();
 
 		int world_x = (int)(poi.map_fx * Map::SizeX() * TILE_SIZE);
 		int world_y = (int)(poi.map_fy * Map::SizeY() * TILE_SIZE);
-		ScrollMainWindowTo(world_x, world_y, -1, true);
+		ScrollMainWindowTo(world_x, world_y, -1, false);
 	}
 
 	MarkWholeScreenDirty();

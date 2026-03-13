@@ -30,6 +30,17 @@ Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::Spr
 	dest_sprite->x_offs = root.x_offs;
 	dest_sprite->y_offs = root.y_offs;
 
+	/* Skip font glyphs — no valid this->encoding_sprite_id_. */
+	if (sprite_type == SpriteType::Font) return dest_sprite;
+
+	GLESBackend *backend = GLESBackend::Get();
+
+	/* Cache root dimensions for ReadSprite fast-path. */
+	if (backend != nullptr) {
+		backend->GetSpriteAtlas().CacheMeta(this->encoding_sprite_id_,
+			root.width, root.height, root.x_offs, root.y_offs);
+	}
+
 	/* Find the single best (largest) zoom variant for GPU scaling.
 	 * Prefer base zoom, then search toward more detail,
 	 * then toward less detail. */
@@ -49,10 +60,9 @@ Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::Spr
 		bool has_rgb = best->colours.Test(SpriteComponent::RGB) || best->colours.Test(SpriteComponent::Alpha);
 		bool has_remap = best->colours.Test(SpriteComponent::Palette);
 
-		GLESBackend *backend = GLESBackend::Get();
 		if (backend != nullptr) {
-			backend->GetSpriteAtlas().Stage(_gles_encoding_sprite_id, kGPUScaleBaseZoom, best->data,
-			                               best->width, best->height, has_rgb, has_remap);
+			backend->GetSpriteAtlas().Enqueue(this->encoding_sprite_id_, kGPUScaleBaseZoom, best->data,
+			                                  best->width, best->height, has_rgb, has_remap);
 		}
 		_gles_perf.encode_uploaded++;
 	}

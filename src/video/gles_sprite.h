@@ -13,6 +13,7 @@
 #include <GLES3/gl3.h>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -49,8 +50,27 @@ struct GLESSpriteEntry {
 	bool palette_only;        ///< True if sprite has only M channel (no RGB data).
 };
 
-/** Staged pixel data waiting for GPU upload. */
-struct GLESStagedPixels {
+/** Entry tracking a single sprite in a PBO upload batch. */
+struct PBOPendingEntry {
+	GLESSpriteID key;
+	GLESSpriteEntry entry;       ///< Pre-packed atlas regions (colour + remap).
+	size_t colour_offset;        ///< Byte offset in PBO for RGBA data.
+	size_t remap_offset;         ///< Byte offset in PBO for M channel data.
+	uint16_t width, height;
+	bool has_remap;
+};
+
+/** A batch of sprites uploaded via PBO, pending GPU fence. */
+struct PBOUploadBatch {
+	GLuint pbo = 0;
+	GLsync fence = nullptr;
+	std::vector<PBOPendingEntry> entries;
+	size_t used_bytes = 0;
+};
+
+/** Pixel data queued for GPU upload. */
+struct GLESUploadRequest {
+	GLESSpriteID key;
 	std::vector<SpriteLoader::CommonPixel> pixels;
 	uint16_t width, height;
 	bool has_rgb, has_remap;
@@ -79,11 +99,38 @@ private:
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
 
-	std::unordered_map<GLESSpriteID, GLESStagedPixels> staged; ///< Pixels awaiting GPU upload.
-	std::mutex staged_mutex; ///< Protects staged map (game thread writes, GPU thread reads).
+	std::vector<GLESUploadRequest> upload_queue; ///< Sprites queued for GPU upload.
+	std::mutex queue_mutex; ///< Protects upload_queue (game thread pushes, GL thread drains).
+
+	/** Sprites known to be in the pipeline (queued, PBO, or uploaded).
+	 *  Game thread only — GL thread signals clear via atomic flag. */
+	std::unordered_set<SpriteID> known_sprites;
+	std::atomic<bool> known_clear_pending{false}; ///< GL thread requests clear.
+
+	/** Cached Sprite root dimensions for ReadSprite fast-path.
+	 *  Never cleared — dimensions are constant per SpriteID. Game thread only. */
+	struct SpriteMeta { int16_t width, height, x_offs, y_offs; };
+	std::unordered_map<SpriteID, SpriteMeta> meta_cache;
 
 	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
 	std::vector<uint8_t> upload_m_buf;    ///< Reusable buffer for M channel extraction.
+
+	/* PBO async upload state.
+	 * Alternative strategies considered:
+	 *   1. Ring buffer: N fixed PBOs, cyclic reuse. Simple but fixed size per PBO.
+	 *   2. Pool of small PBOs: one per sprite, return to pool after fence. Flexible but many GL objects.
+	 *   3. (chosen) Single large PBO + offset: one large PBO per frame, write at offsets,
+	 *      fence on whole batch. Fewest GL objects, best throughput for batch upload. */
+	static constexpr size_t PBO_SIZE = 4 * 1024 * 1024;  ///< 4MB per PBO buffer.
+	/* Budget removed: PBO uploads are async (DMA) and don't stall GL thread,
+	 * so we upload ALL pending sprites each frame to avoid black-screen during map switch.
+	 * Alternative: fixed budget (e.g. 50/frame) spreads load but causes visible pop-in. */
+	PBOUploadBatch pbo_current;   ///< Batch being filled this frame.
+	PBOUploadBatch pbo_inflight;  ///< Batch submitted last frame, waiting fence.
+	std::unordered_set<GLESSpriteID> pbo_inflight_keys; ///< Fast lookup for inflight sprites.
+
+	GLESSpriteEntry placeholder_entry{}; ///< 1x1 semi-transparent black sprite for missing sprites.
+	bool placeholder_ready = false;
 
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
@@ -103,10 +150,22 @@ public:
 		this->colour_pages.clear();
 		this->remap_pages.clear();
 		this->sprites.clear();
+		this->pbo_current.pbo = 0;
+		this->pbo_inflight.pbo = 0;
+		/* Can't delete fence after context loss, just null it. */
+		this->pbo_inflight.fence = nullptr;
+		this->pbo_inflight.entries.clear();
+		this->pbo_current.entries.clear();
+		this->pbo_inflight_keys.clear();
+		/* Signal game thread to clear known_sprites on next access. */
+		this->known_clear_pending.store(true);
 	}
 
 	/** Process deferred clear. Must be called from GL thread (e.g. in Paint). */
 	void ProcessPendingClear();
+
+	/** Process PBO async uploads: check fence, fill batch, submit. GL thread only. */
+	void ProcessPBOUploads();
 
 private:
 	std::atomic<bool> clear_pending{false};
@@ -114,6 +173,9 @@ private:
 	size_t sprites_after_clear = 0;
 	bool measuring_reload = false;
 	void ClearSprites();
+	void PBOCheckInflight();
+	void PBOFillBatch();
+	void PBOSubmitBatch();
 
 public:
 	/** Upload a sprite to the atlas. Must be called from the GL thread. */
@@ -122,17 +184,27 @@ public:
 	                    uint16_t width, uint16_t height,
 	                    bool has_rgb, bool has_remap);
 
-	/** Stage pixel data for deferred GPU upload. Thread-safe, no GL calls. */
-	GLESSpriteID Stage(SpriteID sprite_id, ZoomLevel zoom,
-	                   const SpriteLoader::CommonPixel *pixels,
-	                   uint16_t width, uint16_t height,
-	                   bool has_rgb, bool has_remap);
+	/** Enqueue pixel data for GPU upload. Thread-safe, no GL calls.
+	 *  Skips if sprite already known to pipeline. */
+	GLESSpriteID Enqueue(SpriteID sprite_id, ZoomLevel zoom,
+	                     const SpriteLoader::CommonPixel *pixels,
+	                     uint16_t width, uint16_t height,
+	                     bool has_rgb, bool has_remap);
 
-	/** Look up a sprite, uploading from staged data if needed. GL thread only. */
+	/** Look up a sprite; returns placeholder if not yet uploaded. GL thread only. */
 	const GLESSpriteEntry *LookupOrUpload(GLESSpriteID key);
 
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;
+
+	/** Check if sprite is in the pipeline (queued/PBO/uploaded). Thread-safe. */
+	bool IsKnown(SpriteID id);
+
+	/** Cache root dimensions from Encode. Game thread only. */
+	void CacheMeta(SpriteID id, int16_t w, int16_t h, int16_t xo, int16_t yo);
+
+	/** Get cached root dimensions. Returns true if found. Game thread only. */
+	bool GetCachedMeta(SpriteID id, int16_t &w, int16_t &h, int16_t &xo, int16_t &yo) const;
 
 	/** Get the GL_TEXTURE_2D_ARRAY handle for the colour atlas. */
 	GLuint GetColourTexture() const { return colour_array_tex; }
@@ -145,9 +217,22 @@ public:
 	size_t GetRemapPageCount() const { return remap_pages.size(); }
 	size_t GetSpriteCount() const { return sprites.size(); }
 
+	/** Get queued sprite count and memory usage. */
+	size_t GetStagedCount() const { std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(queue_mutex)); return upload_queue.size(); }
+	int64_t GetStagedBytes() const {
+		std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(queue_mutex));
+		int64_t bytes = 0;
+		for (const auto &req : upload_queue) bytes += req.pixels.size() * sizeof(SpriteLoader::CommonPixel);
+		return bytes;
+	}
+
 	/** Get atlas occupancy as approximate percentage (0-100). */
 	int GetColourOccupancyPercent() const;
 	int GetRemapOccupancyPercent() const;
+
+	/** Simulate packing all queued sprites to estimate atlas page count.
+	 *  Pure computation, no GL calls. */
+	void EstimateAtlasPages() const;
 };
 
 #endif /* VIDEO_GLES_SPRITE_H */
