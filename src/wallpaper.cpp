@@ -21,6 +21,8 @@
 #include "string_func.h"
 #include "video/gles_poi.h"
 #include <chrono>
+#include <filesystem>
+#include <set>
 #include "video/gles_backend.h"
 
 #include "safeguards.h"
@@ -37,32 +39,33 @@ void BuildTitleFileList()
 {
 	_title_files.clear();
 
-	/* 1. Default baseset title screen. */
+	/* 1. Default baseset title screen (loaded first). */
 	_title_files.push_back({"opntitle.dat", BASESET_DIR});
 
-	/* 2. title/*.sav files from search paths. */
-	static const char *title_savs[] = {
-		"title/2TallTyler-Title15.sav",
-		"title/EratoTitle15.sav",
-		"title/title_15.sav",
+	/* 2. Scan title/ directory for .sav files. */
+	std::set<std::string> seen;
+	auto scan_title_dir = [&](const std::string &dir) {
+		std::string title_dir = dir + "title";
+		std::error_code ec;
+		if (!std::filesystem::is_directory(title_dir, ec)) return;
+		for (const auto &entry : std::filesystem::directory_iterator(title_dir, ec)) {
+			if (!entry.is_regular_file()) continue;
+			auto ext = entry.path().extension().string();
+			for (auto &c : ext) c = tolower(c);
+			if (ext != ".sav") continue;
+			std::string path = entry.path().string();
+			if (seen.insert(entry.path().filename().string()).second) {
+				_title_files.push_back({path, NO_DIRECTORY});
+			}
+		}
 	};
 
-	for (const char *rel : title_savs) {
-		auto data_env = GetEnv("OPENTTD_DATA_PATH");
-		if (data_env.has_value()) {
-			std::string full = std::string(*data_env) + PATHSEP + rel;
-			if (FioCheckFileExists(full, NO_DIRECTORY)) {
-				_title_files.push_back({full, NO_DIRECTORY});
-				continue;
-			}
-		}
-		for (Searchpath sp : _valid_searchpaths) {
-			std::string full = FioGetDirectory(sp, BASE_DIR) + rel;
-			if (FioCheckFileExists(full, NO_DIRECTORY)) {
-				_title_files.push_back({full, NO_DIRECTORY});
-				break;
-			}
-		}
+	auto data_env = GetEnv("OPENTTD_DATA_PATH");
+	if (data_env.has_value()) {
+		scan_title_dir(std::string(*data_env) + PATHSEP);
+	}
+	for (Searchpath sp : _valid_searchpaths) {
+		scan_title_dir(FioGetDirectory(sp, BASE_DIR));
 	}
 
 	Debug(misc, 0, "BuildTitleFileList: {} title files", _title_files.size());

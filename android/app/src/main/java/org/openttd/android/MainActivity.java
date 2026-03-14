@@ -88,6 +88,12 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Error extracting lang assets", e);
         }
 
+        try {
+            copyAssetDir(assets, "title", new File(dataDir, "title"));
+        } catch (IOException e) {
+            Log.e(TAG, "Error extracting title assets", e);
+        }
+
         // Log what ended up on disk
         File basesetDir = new File(dataDir, "baseset");
         if (basesetDir.exists()) {

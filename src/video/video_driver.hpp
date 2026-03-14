@@ -193,6 +193,12 @@ public:
 
 	void GameLoopPause();
 
+	void SetGameThreadPaused(bool paused)
+	{
+		this->game_thread_paused.store(paused);
+		if (!paused) this->game_pause_cv.notify_one();
+	}
+
 	/**
 	 * Prevents the system from going to sleep.
 	 *
@@ -380,6 +386,10 @@ protected:
 	std::thread game_thread;
 	std::mutex game_state_mutex;
 	std::mutex game_thread_wait_mutex;
+
+	std::atomic<bool> game_thread_paused{false};
+	std::mutex game_pause_mutex;
+	std::condition_variable game_pause_cv;
 
 	std::unique_ptr<SnapshotTripleBuffer> snapshot_buffer; ///< Triple buffer for snapshot rendering. nullptr = disabled.
 

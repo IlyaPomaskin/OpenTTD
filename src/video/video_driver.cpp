@@ -27,6 +27,7 @@
 #include "video_driver.hpp"
 #include "draw_snapshot.h"
 #include "gles_backend.h"
+#include "gles_poi.h"
 #include "../palette_func.h"
 #include "../zoom_func.h"
 
@@ -245,6 +246,20 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 void VideoDriver::GameThread()
 {
 	while (!_exit_game) {
+		if (this->game_thread_paused.load()) {
+			/* Advance POI and record one last snapshot before sleeping. */
+			PrepareBackground();
+			this->GameLoop();
+			Debug(driver, 0, "GameThread: paused after POI advance + snapshot");
+
+			std::unique_lock<std::mutex> lock(this->game_pause_mutex);
+			this->game_pause_cv.wait(lock, [this] {
+				return !this->game_thread_paused.load() || _exit_game;
+			});
+			this->next_game_tick = std::chrono::steady_clock::now();
+			continue;
+		}
+
 		this->GameLoop();
 
 		auto now = std::chrono::steady_clock::now();

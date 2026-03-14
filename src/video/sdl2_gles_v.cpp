@@ -55,6 +55,16 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSwitchMap(JNIEnv *, jclas
 	RotateTitleMap(1);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, jclass, jboolean paused)
+{
+	auto *drv = VideoDriver::GetInstance();
+	if (drv != nullptr) {
+		Debug(driver, 0, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		drv->SetGameThreadPaused(paused);
+	}
+}
+
 #endif
 
 static FVideoDriver_SDL_GLES iFVideoDriver_SDL_GLES;

@@ -26,6 +26,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeCycleZoom();
     /** Trigger map regeneration. */
     private static native void nativeSwitchMap();
+    /** Pause/resume game thread when wallpaper not visible. */
+    private static native void nativeSetGamePaused(boolean paused);
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -203,10 +205,11 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 }
                 mPauseHandler.removeCallbacksAndMessages(null);
                 Log.i(TAG, "onVisibilityChanged: resuming, cancelling pending pause");
+                nativeSetGamePaused(false);
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                nativePrepareBackground();
+                nativeSetGamePaused(true);
                 mPauseHandler.removeCallbacksAndMessages(null);
                 Log.i(TAG, "onVisibilityChanged: scheduling pause in " + PAUSE_DELAY_MS + "ms");
                 mPauseHandler.postDelayed(mPauseSdl, PAUSE_DELAY_MS);

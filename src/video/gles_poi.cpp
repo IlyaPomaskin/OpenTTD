@@ -81,7 +81,7 @@ static int CountTownBuildings(TileIndex center, uint radius, Town **best_town)
 	return best_count;
 }
 
-/** Scanned POI list (top 10 by score), rebuilt when map changes. */
+/** Scanned POI list (top 20 by score), rebuilt when map changes. */
 static std::vector<GlesPOI> _gles_poi_list;
 static int _gles_poi_idx = 0;
 static uint _gles_poi_map_tiles = 0; ///< Map::SizeX()*SizeY() at last scan; triggers rescan on change.
@@ -399,7 +399,7 @@ static void ScanVehiclePOIs(std::vector<GlesPOI> &candidates)
 	candidates.push_back(std::move(poi));
 }
 
-/** Scan all POI types, sort by score, pick 10 random from top 50. */
+/** Scan all POI types, sort by score, pick 20 random from top 50. */
 static void ScanMapPOIs()
 {
 	_gles_poi_list.clear();
@@ -462,16 +462,16 @@ static void ScanMapPOIs()
 
 	Debug(driver, 0, "GLES POI top-50 pool (10-tile dedup): {} entries", (int)top_pool.size());
 
-	/* Pick 10 random from the pool. */
-	if ((int)top_pool.size() <= 10) {
+	/* Pick 20 random from the pool. */
+	if ((int)top_pool.size() <= 20) {
 		_gles_poi_list = std::move(top_pool);
 	} else {
-		/* Fisher-Yates partial shuffle: pick 10 random entries. */
-		for (int i = 0; i < 10; i++) {
+		/* Fisher-Yates partial shuffle: pick 20 random entries. */
+		for (int i = 0; i < 20; i++) {
 			int j = i + (std::rand() % ((int)top_pool.size() - i));
 			std::swap(top_pool[i], top_pool[j]);
 		}
-		_gles_poi_list.assign(top_pool.begin(), top_pool.begin() + 10);
+		_gles_poi_list.assign(top_pool.begin(), top_pool.begin() + 20);
 	}
 	_gles_poi_idx = 0;
 

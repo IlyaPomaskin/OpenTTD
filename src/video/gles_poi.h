@@ -36,7 +36,7 @@ struct GlesPOI {
  *
  * Scans all stations and towns on first call (or when the map changes),
  * scores them by transport facilities and nearby population, keeps the
- * top 10, and cycles through them in score order.
+ * top 20, and cycles through them in score order.
  *
  * Safe to call from any thread that holds the game state (i.e. the main
  * game / GL thread).  No-op when the map has no POIs.

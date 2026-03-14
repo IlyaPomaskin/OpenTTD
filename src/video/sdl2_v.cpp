@@ -551,11 +551,13 @@ bool VideoDriver_SDL_Base::PollEvent()
 			break;
 		}
 		case SDL_APP_DIDENTERBACKGROUND:
-			Debug(driver, 0, "SDL: APP_DIDENTERBACKGROUND (app going to background)");
+			Debug(driver, 0, "SDL: APP_DIDENTERBACKGROUND — pausing game thread");
+			VideoDriver::GetInstance()->SetGameThreadPaused(true);
 			break;
 
 		case SDL_APP_WILLENTERFOREGROUND:
-			Debug(driver, 0, "SDL: APP_WILLENTERFOREGROUND (app returning to foreground)");
+			Debug(driver, 0, "SDL: APP_WILLENTERFOREGROUND — resuming game thread");
+			VideoDriver::GetInstance()->SetGameThreadPaused(false);
 			break;
 
 		case SDL_APP_DIDENTERFOREGROUND:
