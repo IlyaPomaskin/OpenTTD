@@ -509,8 +509,6 @@ static void ShowCurrentPOI()
 
 	ViewportData &vp = *w->viewport;
 
-	/* Set zoom BEFORE scrolling — ScrollMainWindowTo uses virtual_width/height
-	 * to compute the center offset, so zoom must be correct first. */
 	vp.zoom = zoom;
 	vp.virtual_width = ScaleByZoom(vp.width, vp.zoom);
 	vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);

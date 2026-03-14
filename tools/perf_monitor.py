@@ -296,10 +296,6 @@ def render_hotkeys():
     lines.append(f"    {C_V}u{C_R}  scroll up         {C_D}adb broadcast SCROLL_CAMERA dy=-{SCROLL_PX}{C_R}")
     lines.append(f"    {C_V}j{C_R}  scroll down       {C_D}adb broadcast SCROLL_CAMERA dy=+{SCROLL_PX}{C_R}")
     lines.append("")
-    lines.append(f"  {C_L}Zoom{C_R}")
-    lines.append(f"    {C_V}={C_R}  zoom in           {C_D}adb broadcast ZOOM dir=+1{C_R}")
-    lines.append(f"    {C_V}-{C_R}  zoom out          {C_D}adb broadcast ZOOM dir=-1{C_R}")
-    lines.append("")
     lines.append(f"  {C_L}Screens{C_R}")
     lines.append(f"    {C_V}0-8{C_R}  switch screen     {C_V}q{C_R}  quit")
     lines.append("")
@@ -492,12 +488,6 @@ def handle_hotkey(key, histories, screen_key):
         return screen_key, False, False
     if key == 'j':
         _adb_broadcast("SCROLL_CAMERA", f"--ei dx 0 --ei dy {SCROLL_PX}")
-        return screen_key, False, False
-    if key == '=':
-        _adb_broadcast("ZOOM", "--ei dir 1")
-        return screen_key, False, False
-    if key == '-':
-        _adb_broadcast("ZOOM", "--ei dir -1")
         return screen_key, False, False
     return screen_key, False, False
 

@@ -16,7 +16,7 @@ public class GameActivity extends SDLActivity {
     private static native void nativeRotateMap(int delta);
     private static native void nativeNavigatePOI(int delta);
     private static native void nativeScrollCamera(int dx, int dy);
-    private static native void nativeZoom(int direction);
+
 
     @Override
     protected String[] getLibraries() {
@@ -121,24 +121,6 @@ public class GameActivity extends SDLActivity {
         dpadParams.bottomMargin = 4;
         mLayout.addView(dpad, dpadParams);
 
-        // Zoom buttons: left side, vertically centered
-        LinearLayout zoomBar = new LinearLayout(this);
-        zoomBar.setOrientation(LinearLayout.VERTICAL);
-        zoomBar.setGravity(Gravity.CENTER);
-        zoomBar.setBackgroundColor(0x80000000);
-        zoomBar.setPadding(4, 4, 4, 4);
-
-        zoomBar.addView(btn("Z+", v -> nativeZoom(1)));
-        zoomBar.addView(btn("Z\u2013", v -> nativeZoom(-1)));
-
-        RelativeLayout.LayoutParams zoomParams = new RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT);
-        zoomParams.addRule(RelativeLayout.ALIGN_PARENT_START);
-        zoomParams.addRule(RelativeLayout.ABOVE, navBar.getId());
-        zoomParams.leftMargin = 16;
-        zoomParams.bottomMargin = 4;
-        mLayout.addView(zoomBar, zoomParams);
     }
 
     @Override

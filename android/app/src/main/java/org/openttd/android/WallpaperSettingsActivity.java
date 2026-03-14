@@ -20,5 +20,16 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
                 new ComponentName(this, OpenTTDWallpaperService.class));
             startActivity(intent);
         });
+
+        findViewById(R.id.btn_debug_game).setOnClickListener(v -> {
+            MainActivity.copyAssetsStatic(getApplicationContext());
+            try {
+                android.system.Os.setenv("OPENTTD_DATA_PATH",
+                    getFilesDir().getAbsolutePath(), true);
+            } catch (android.system.ErrnoException e) { /* ignore */ }
+            Intent intent = new Intent(this, GameActivity.class);
+            intent.putExtra("commandLineArgs", new String[]{"-s", "null", "-m", "null"});
+            startActivity(intent);
+        });
     }
 }
