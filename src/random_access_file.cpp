@@ -18,6 +18,23 @@
 #include "safeguards.h"
 
 /**
+ * Construct from in-memory buffer. No file I/O.
+ * @param data     Pointer to the memory buffer (must outlive this object).
+ * @param size     Size of the buffer in bytes.
+ * @param filename Display name for this "file".
+ */
+RandomAccessFile::RandomAccessFile(const uint8_t *data, size_t size, std::string_view filename, size_t base_offset)
+	: filename(filename), pos(0), start_pos(base_offset), end_pos(base_offset + size),
+	  buffer(buffer_start), buffer_end(buffer_start),
+	  mem_data(data), mem_size(size), mem_pos(0)
+{
+	auto t = filename.rfind(PATHSEPCHAR);
+	std::string name_without_path{filename.substr(t != std::string::npos ? t + 1 : 0)};
+	this->simplified_filename = name_without_path.substr(0, name_without_path.rfind('.'));
+	strtolower(this->simplified_filename);
+}
+
+/**
  * Create the RandomAccesFile.
  * @param filename Name of the file at the disk.
  * @param subdir   The sub directory to search this file in.
@@ -70,6 +87,7 @@ const std::string &RandomAccessFile::GetSimplifiedFilename() const
  */
 size_t RandomAccessFile::GetPos() const
 {
+	if (this->mem_data != nullptr) return this->start_pos + this->mem_pos;
 	return this->pos + (this->buffer - this->buffer_end);
 }
 
@@ -91,6 +109,13 @@ void RandomAccessFile::SeekTo(size_t pos, int mode)
 {
 	if (mode == SEEK_CUR) pos += this->GetPos();
 
+	if (this->mem_data != nullptr) {
+		/* pos is absolute (includes start_pos offset), convert to buffer-relative. */
+		size_t rel = (pos >= this->start_pos) ? pos - this->start_pos : 0;
+		this->mem_pos = std::min(rel, this->mem_size);
+		return;
+	}
+
 	this->pos = pos;
 	if (fseek(*this->file_handle, this->pos, SEEK_SET) < 0) {
 		Debug(misc, 0, "Seeking in {} failed", this->filename);
@@ -106,6 +131,11 @@ void RandomAccessFile::SeekTo(size_t pos, int mode)
  */
 uint8_t RandomAccessFile::ReadByte()
 {
+	if (this->mem_data != nullptr) {
+		if (this->mem_pos >= this->mem_size) return 0;
+		return this->mem_data[this->mem_pos++];
+	}
+
 	if (this->buffer == this->buffer_end) {
 		this->buffer = this->buffer_start;
 		size_t size = fread(this->buffer, 1, RandomAccessFile::BUFFER_SIZE, *this->file_handle);
@@ -144,6 +174,14 @@ uint32_t RandomAccessFile::ReadDword()
  */
 void RandomAccessFile::ReadBlock(void *ptr, size_t size)
 {
+	if (this->mem_data != nullptr) {
+		size_t avail = (this->mem_pos < this->mem_size) ? this->mem_size - this->mem_pos : 0;
+		size_t to_copy = std::min(size, avail);
+		std::copy_n(this->mem_data + this->mem_pos, to_copy, static_cast<uint8_t *>(ptr));
+		this->mem_pos += to_copy;
+		return;
+	}
+
 	if (this->buffer != this->buffer_end) {
 		size_t to_copy = std::min<size_t>(size, this->buffer_end - this->buffer);
 		std::copy_n(this->buffer, to_copy, static_cast<uint8_t *>(ptr));
@@ -162,6 +200,11 @@ void RandomAccessFile::ReadBlock(void *ptr, size_t size)
  */
 void RandomAccessFile::SkipBytes(size_t n)
 {
+	if (this->mem_data != nullptr) {
+		this->mem_pos = std::min(this->mem_pos + n, this->mem_size);
+		return;
+	}
+
 	assert(this->buffer_end >= this->buffer);
 	size_t remaining = this->buffer_end - this->buffer;
 	if (n <= remaining) {

@@ -21,6 +21,10 @@
 #include "base_media_func.h"
 #include "base_media_graphics.h"
 #include "base_media_sounds.h"
+#include "spritecache.h"
+#ifdef __ANDROID__
+#include "video/gles_backend.h"
+#endif
 
 #include "table/sprites.h"
 
@@ -340,6 +344,12 @@ void GfxLoadSprites()
 	FontCache::ClearFontCaches(FONTSIZES_ALL);
 	GfxInitSpriteMem();
 	LoadSpriteTables();
+	BufferSpriteFilesToMemory();
+#ifdef __ANDROID__
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->GetSpriteAtlas().BuildGLSpriteFiles();
+	}
+#endif
 	GfxInitPalettes();
 
 	UpdateCursorSize();

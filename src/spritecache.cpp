@@ -20,6 +20,7 @@
 #include "spritecache.h"
 #include "spritecache_internal.h"
 #include "gfx_func.h"
+#include <chrono>
 
 #include "table/sprites.h"
 #include "table/palette_convert.h"
@@ -76,6 +77,41 @@ static SpriteFile *GetCachedSpriteFileByName(const std::string &filename)
 std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles()
 {
 	return _sprite_files;
+}
+
+/**
+ * Load all cached sprite files into memory buffers.
+ * After this, GL thread can create memory-backed SpriteFile copies.
+ */
+void BufferSpriteFilesToMemory()
+{
+	auto t0 = std::chrono::steady_clock::now();
+	size_t total_bytes = 0;
+	for (auto &f : _sprite_files) {
+		f->LoadIntoMemory();
+		total_bytes += f->GetMemorySize();
+	}
+	auto t1 = std::chrono::steady_clock::now();
+	Debug(sprite, 0, "BufferSpriteFilesToMemory: {} files, {}KB in {}ms",
+	      _sprite_files.size(), total_bytes / 1024,
+	      std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+}
+
+/**
+ * Get sprite file info for GL-thread sprite loading.
+ * Data is read-only after GRF loading, safe to read from any thread.
+ */
+bool GetSpriteCacheInfo(SpriteID id, SpriteCacheInfo &out)
+{
+	if (id >= _spritecache.size()) return false;
+	const SpriteCache *sc = &_spritecache[id];
+	if (sc->file == nullptr) return false;
+	if (sc->type == SpriteType::Recolour) return false;
+	out.file = sc->file;
+	out.file_pos = sc->file_pos;
+	out.type = sc->type;
+	out.control_flags = sc->control_flags;
+	return true;
 }
 
 /**
@@ -541,8 +577,7 @@ static void *ReadSprite(const SpriteCache *sc, SpriteID id, SpriteType sprite_ty
 		sprite[ZoomLevel::Min] = sprite[_font_zoom];
 	}
 
-	_gles_encoding_sprite_id = id;
-	return encoder->Encode(sprite_type, sprite, allocator);
+	return encoder->Encode(sprite_type, sprite, allocator, id);
 }
 
 struct GrfSpriteOffset {

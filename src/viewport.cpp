@@ -393,16 +393,18 @@ static void SetViewportPosition(Window *w, int x, int y)
 		i = top + height - _screen.height;
 		if (i >= 0) height -= i;
 
-		if (height > 0) {
-			if (_game_mode == GM_WALLPAPER) {
-				/* Wallpaper mode: no CPU buffer to scroll, just redraw the whole region. */
-				RedrawScreenRect(left, top, left + width, top + height);
-			} else {
-				Window::IteratorToFront it(w);
-				++it;
-				DoSetViewportPosition(it, left, top, width, height);
-			}
-		}
+//      Disable it because it triggers RedrawScreenRect and RecordSnapshot already calls it
+//
+//		if (height > 0) {
+//			if (_game_mode == GM_WALLPAPER) {
+//				/* Wallpaper mode: no CPU buffer to scroll, just redraw the whole region. */
+//				RedrawScreenRect(left, top, left + width, top + height);
+//			} else {
+//				Window::IteratorToFront it(w);
+//				++it;
+//				DoSetViewportPosition(it, left, top, width, height);
+//			}
+//		}
 	}
 }
 

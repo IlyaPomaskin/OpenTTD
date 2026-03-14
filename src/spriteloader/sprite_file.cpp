@@ -50,3 +50,32 @@ SpriteFile::SpriteFile(const std::string &filename, Subdirectory subdir, bool pa
 	this->container_version = GetGRFContainerVersion(*this);
 	this->content_begin = this->GetPos();
 }
+
+/**
+ * Construct from in-memory buffer (for GL-thread sprite loading).
+ * Copies metadata from the original file-backed SpriteFile.
+ */
+SpriteFile::SpriteFile(const uint8_t *data, size_t size, std::string_view filename,
+                       bool palette_remap, uint8_t container_version, size_t content_begin,
+                       size_t base_offset)
+	: RandomAccessFile(data, size, filename, base_offset), palette_remap(palette_remap),
+	  container_version(container_version), content_begin(content_begin)
+{
+}
+
+/**
+ * Load the entire file into memory. After this, GetMemoryData()/GetMemorySize()
+ * return the buffer, and a memory-backed SpriteFile can be created from it.
+ */
+void SpriteFile::LoadIntoMemory()
+{
+	if (!this->mem_buffer.empty()) return;
+
+	size_t size = this->GetEndPos() - this->GetStartPos();
+	this->mem_buffer.resize(size);
+
+	size_t saved_pos = this->GetPos();
+	this->SeekTo(this->GetStartPos(), SEEK_SET);
+	this->ReadBlock(this->mem_buffer.data(), size);
+	this->SeekTo(saved_pos, SEEK_SET);
+}
