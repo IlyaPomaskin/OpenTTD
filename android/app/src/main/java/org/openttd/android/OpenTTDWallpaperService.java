@@ -19,6 +19,11 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String TAG = "OpenTTDWallpaper";
     private static final String ACTION_JUMP_POI = "org.openttd.android.JUMP_POI";
     private static final String ACTION_SWITCH_MAP = "org.openttd.android.SWITCH_MAP";
+    private static final String ACTION_NEXT_POI = "org.openttd.android.NEXT_POI";
+    private static final String ACTION_PREV_POI = "org.openttd.android.PREV_POI";
+    private static final String ACTION_NEXT_MAP = "org.openttd.android.NEXT_MAP";
+    private static final String ACTION_PREV_MAP = "org.openttd.android.PREV_MAP";
+    private static final String ACTION_SCROLL_CAMERA = "org.openttd.android.SCROLL_CAMERA";
 
     /** Jump camera to next POI and start rendering the new area. */
     private static native void nativePrepareBackground();
@@ -26,11 +31,22 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeCycleZoom();
     /** Trigger map regeneration. */
     private static native void nativeSwitchMap();
+    /** Navigate POI by delta (+1/-1) without auto map rotation. */
+    private static native void nativeNavigatePOI(int delta);
+    /** Rotate title map by delta (+1/-1). */
+    private static native void nativeRotateMap(int delta);
+    /** Scroll camera by pixel offset. */
+    private static native void nativeScrollCamera(int dx, int dy);
     /** Pause/resume game thread when wallpaper not visible. */
     private static native void nativeSetGamePaused(boolean paused);
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
+    private BroadcastReceiver mNextPoiReceiver;
+    private BroadcastReceiver mPrevPoiReceiver;
+    private BroadcastReceiver mNextMapReceiver;
+    private BroadcastReceiver mPrevMapReceiver;
+    private BroadcastReceiver mScrollCameraReceiver;
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -62,6 +78,53 @@ public class OpenTTDWallpaperService extends WallpaperService {
         };
         registerReceiver(mSwitchMapReceiver, new IntentFilter(ACTION_SWITCH_MAP),
             Context.RECEIVER_EXPORTED);
+        mNextPoiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "NEXT_POI broadcast received");
+                nativeNavigatePOI(1);
+            }
+        };
+        registerReceiver(mNextPoiReceiver, new IntentFilter(ACTION_NEXT_POI),
+            Context.RECEIVER_EXPORTED);
+        mPrevPoiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "PREV_POI broadcast received");
+                nativeNavigatePOI(-1);
+            }
+        };
+        registerReceiver(mPrevPoiReceiver, new IntentFilter(ACTION_PREV_POI),
+            Context.RECEIVER_EXPORTED);
+        mNextMapReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "NEXT_MAP broadcast received");
+                nativeRotateMap(1);
+            }
+        };
+        registerReceiver(mNextMapReceiver, new IntentFilter(ACTION_NEXT_MAP),
+            Context.RECEIVER_EXPORTED);
+        mPrevMapReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "PREV_MAP broadcast received");
+                nativeRotateMap(-1);
+            }
+        };
+        registerReceiver(mPrevMapReceiver, new IntentFilter(ACTION_PREV_MAP),
+            Context.RECEIVER_EXPORTED);
+        mScrollCameraReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int dx = intent.getIntExtra("dx", 0);
+                int dy = intent.getIntExtra("dy", 0);
+                Log.i(TAG, "SCROLL_CAMERA broadcast received dx=" + dx + " dy=" + dy);
+                nativeScrollCamera(dx, dy);
+            }
+        };
+        registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA),
+            Context.RECEIVER_EXPORTED);
     }
 
     @Override
@@ -73,6 +136,26 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mSwitchMapReceiver != null) {
             unregisterReceiver(mSwitchMapReceiver);
             mSwitchMapReceiver = null;
+        }
+        if (mNextPoiReceiver != null) {
+            unregisterReceiver(mNextPoiReceiver);
+            mNextPoiReceiver = null;
+        }
+        if (mPrevPoiReceiver != null) {
+            unregisterReceiver(mPrevPoiReceiver);
+            mPrevPoiReceiver = null;
+        }
+        if (mNextMapReceiver != null) {
+            unregisterReceiver(mNextMapReceiver);
+            mNextMapReceiver = null;
+        }
+        if (mPrevMapReceiver != null) {
+            unregisterReceiver(mPrevMapReceiver);
+            mPrevMapReceiver = null;
+        }
+        if (mScrollCameraReceiver != null) {
+            unregisterReceiver(mScrollCameraReceiver);
+            mScrollCameraReceiver = null;
         }
         super.onDestroy();
     }

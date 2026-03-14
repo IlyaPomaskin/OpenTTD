@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-OpenTTD GLES performance monitor — reads PERF logs from adb or file,
-draws live braille dot graphs in the terminal. 5 screens, switch with 1-5.
+OpenTTD GLES performance monitor & wallpaper remote control.
+Reads PERF logs from adb or file, draws live braille graphs.
+Screen 0 (default): hotkeys for map/POI/camera control via adb.
+Screens 1-8: performance metrics.
 
 Usage:
     python3 tools/perf_monitor.py              # live adb logcat
@@ -39,10 +41,25 @@ C_SUB = "\033[36;2m"  # sub-metric label
 
 HISTORY = 120
 
-# ── 6 screens with hierarchical metrics ─────────────────────────────
+# ── ADB broadcast helpers ──────────────────────────────────────────
+_ADB_PKG = "org.openttd.android"
+SCROLL_PX = 300
+
+def _adb_broadcast(action, extras=""):
+    cmd = f"adb shell am broadcast -a {_ADB_PKG}.{action}"
+    if extras:
+        cmd += " " + extras
+    subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+# ── 9 screens with hierarchical metrics ─────────────────────────────
 # (key, display_name, unit, max_hint, is_child)
 # All time values displayed in ms. C++ emits us — converted in process_line.
 SCREENS = {
+    "0": {
+        "title": "CTRL — Hotkeys",
+        "metrics": [],
+    },
     "1": {
         "title": "PERF — Main",
         "metrics": [
@@ -260,6 +277,31 @@ def fmt_val(v, unit):
     return f"{v}{unit}"
 
 
+def render_hotkeys():
+    lines = []
+    lines.append("")
+    lines.append(f"  {C_B}OpenTTD Wallpaper Remote Control{C_R}")
+    lines.append("")
+    lines.append(f"  {C_L}Map navigation{C_R}")
+    lines.append(f"    {C_V}[{C_R}  prev map          {C_D}adb broadcast PREV_MAP{C_R}")
+    lines.append(f"    {C_V}]{C_R}  next map          {C_D}adb broadcast NEXT_MAP{C_R}")
+    lines.append("")
+    lines.append(f"  {C_L}POI navigation (within current map){C_R}")
+    lines.append(f"    {C_V};{C_R}  prev POI          {C_D}adb broadcast PREV_POI{C_R}")
+    lines.append(f"    {C_V}'{C_R}  next POI          {C_D}adb broadcast NEXT_POI{C_R}")
+    lines.append("")
+    lines.append(f"  {C_L}Camera scroll ({SCROLL_PX}px per press){C_R}")
+    lines.append(f"    {C_V}\u2190{C_R}  scroll left       {C_D}adb broadcast SCROLL_CAMERA dx=-{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}\u2192{C_R}  scroll right      {C_D}adb broadcast SCROLL_CAMERA dx=+{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}\u2191{C_R}  scroll up         {C_D}adb broadcast SCROLL_CAMERA dy=-{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}\u2193{C_R}  scroll down       {C_D}adb broadcast SCROLL_CAMERA dy=+{SCROLL_PX}{C_R}")
+    lines.append("")
+    lines.append(f"  {C_L}Screens{C_R}")
+    lines.append(f"    {C_V}0-8{C_R}  switch screen     {C_V}q{C_R}  quit")
+    lines.append("")
+    return lines
+
+
 def render(histories, screen_key):
     term_w = shutil.get_terminal_size((120, 40)).columns
     screen = SCREENS[screen_key]
@@ -279,6 +321,10 @@ def render(histories, screen_key):
             tabs.append(f"{C_T} {k}:{s['title']} {C_R}")
     lines.append(" ".join(tabs))
     lines.append("")
+
+    if screen_key == "0":
+        lines.extend(render_hotkeys())
+        return lines
 
     for key, name, unit, max_hint, is_child in screen["metrics"]:
         hist = histories.get(key, [])
@@ -398,15 +444,57 @@ def read_from_stdin():
 
 
 def check_keypress():
-    """Non-blocking check for keypress. Returns char or None."""
-    if select.select([sys.stdin], [], [], 0)[0]:
-        return sys.stdin.read(1)
-    return None
+    """Non-blocking check for keypress. Returns key string or None.
+    Reads all available bytes at once to avoid splitting escape sequences."""
+    if not select.select([sys.stdin], [], [], 0)[0]:
+        return None
+    buf = os.read(sys.stdin.fileno(), 32)
+    if not buf:
+        return None
+    if buf == b'\x1b[A': return 'UP'
+    if buf == b'\x1b[B': return 'DOWN'
+    if buf == b'\x1b[C': return 'RIGHT'
+    if buf == b'\x1b[D': return 'LEFT'
+    if buf[0:1] == b'\x1b': return 'ESC'
+    return buf[0:1].decode('utf-8', errors='ignore')
+
+
+def handle_hotkey(key, histories, screen_key):
+    """Handle control hotkeys. Returns (new_screen_key, should_quit, redraw)."""
+    if key in SCREENS:
+        return key, False, True
+    if key == 'q':
+        return screen_key, True, False
+    if key == '[':
+        _adb_broadcast("PREV_MAP")
+        return screen_key, False, False
+    if key == ']':
+        _adb_broadcast("NEXT_MAP")
+        return screen_key, False, False
+    if key == ';':
+        _adb_broadcast("PREV_POI")
+        return screen_key, False, False
+    if key == "'":
+        _adb_broadcast("NEXT_POI")
+        return screen_key, False, False
+    if key == 'LEFT':
+        _adb_broadcast("SCROLL_CAMERA", f"--ei dx -{SCROLL_PX} --ei dy 0")
+        return screen_key, False, False
+    if key == 'RIGHT':
+        _adb_broadcast("SCROLL_CAMERA", f"--ei dx {SCROLL_PX} --ei dy 0")
+        return screen_key, False, False
+    if key == 'UP':
+        _adb_broadcast("SCROLL_CAMERA", f"--ei dx 0 --ei dy -{SCROLL_PX}")
+        return screen_key, False, False
+    if key == 'DOWN':
+        _adb_broadcast("SCROLL_CAMERA", f"--ei dx 0 --ei dy {SCROLL_PX}")
+        return screen_key, False, False
+    return screen_key, False, False
 
 
 def main():
     histories = {}
-    screen_key = "1"
+    screen_key = "0"
 
     if len(sys.argv) > 1:
         source = read_from_file(sys.argv[1])
@@ -425,16 +513,20 @@ def main():
         old_settings = termios.tcgetattr(sys.stdin)
         tty.setcbreak(sys.stdin.fileno())
 
+    # Show hotkeys screen immediately
+    clear_and_draw(histories, screen_key)
+
     try:
         for line in source:
-            # Check for key press (screen switch)
+            # Check for key press
             if stdin_is_tty:
                 key = check_keypress()
-                if key in SCREENS:
-                    screen_key = key
-                    clear_and_draw(histories, screen_key)
-                elif key == 'q':
-                    break
+                if key is not None:
+                    screen_key, quit_flag, redraw = handle_hotkey(key, histories, screen_key)
+                    if quit_flag:
+                        break
+                    if redraw:
+                        clear_and_draw(histories, screen_key)
 
             if process_line(line, histories):
                 if "SPRITE cache_hits=" in line or "PBO_DETAIL candidates=" in line \
