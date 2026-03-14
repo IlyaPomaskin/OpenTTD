@@ -19,6 +19,7 @@
 #include "../window_func.h"
 #include "../window_gui.h"
 #include "../viewport_type.h"
+#include "../viewport_func.h"
 #include "../zoom_func.h"
 #include "sdl2_gles_v.h"
 #include "draw_snapshot.h"
@@ -46,6 +47,8 @@ static std::atomic<int> _gles_rotate_map{0};
 /** Camera scroll delta requested from Java; processed in Paint(). */
 static std::atomic<int> _gles_scroll_dx{0};
 static std::atomic<int> _gles_scroll_dy{0};
+/** Zoom direction: +1 = in, -1 = out; processed in Paint(). */
+static std::atomic<int> _gles_zoom{0};
 
 #ifdef __ANDROID__
 #include "../wallpaper.h"
@@ -79,6 +82,12 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeScrollCamera(JNIEnv *, jc
 {
 	_gles_scroll_dx = dx;
 	_gles_scroll_dy = dy;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeZoom(JNIEnv *, jclass, jint direction)
+{
+	_gles_zoom = direction;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -417,6 +426,15 @@ void VideoDriver_SDL_GLES::Paint()
 			w->viewport->dest_scrollpos_x += ScaleByZoom(scroll_dx, w->viewport->zoom);
 			w->viewport->dest_scrollpos_y += ScaleByZoom(scroll_dy, w->viewport->zoom);
 			w->viewport->follow_vehicle = VehicleID::Invalid();
+		}
+	}
+
+	/* Zoom in/out (requested from Java broadcast). */
+	int zoom_dir = _gles_zoom.exchange(0);
+	if (zoom_dir != 0) {
+		Window *w = GetMainWindow();
+		if (w != nullptr) {
+			DoZoomInOutWindow(zoom_dir > 0 ? ZOOM_IN : ZOOM_OUT, w);
 		}
 	}
 

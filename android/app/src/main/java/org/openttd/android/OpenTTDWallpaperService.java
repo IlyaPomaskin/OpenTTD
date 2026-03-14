@@ -24,6 +24,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String ACTION_NEXT_MAP = "org.openttd.android.NEXT_MAP";
     private static final String ACTION_PREV_MAP = "org.openttd.android.PREV_MAP";
     private static final String ACTION_SCROLL_CAMERA = "org.openttd.android.SCROLL_CAMERA";
+    private static final String ACTION_ZOOM = "org.openttd.android.ZOOM";
 
     /** Jump camera to next POI and start rendering the new area. */
     private static native void nativePrepareBackground();
@@ -37,6 +38,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeRotateMap(int delta);
     /** Scroll camera by pixel offset. */
     private static native void nativeScrollCamera(int dx, int dy);
+    /** Zoom in (+1) or out (-1). */
+    private static native void nativeZoom(int direction);
     /** Pause/resume game thread when wallpaper not visible. */
     private static native void nativeSetGamePaused(boolean paused);
 
@@ -47,6 +50,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mNextMapReceiver;
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
+    private BroadcastReceiver mZoomReceiver;
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -125,6 +129,16 @@ public class OpenTTDWallpaperService extends WallpaperService {
         };
         registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA),
             Context.RECEIVER_EXPORTED);
+        mZoomReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int dir = intent.getIntExtra("dir", 0);
+                Log.i(TAG, "ZOOM broadcast received dir=" + dir);
+                nativeZoom(dir);
+            }
+        };
+        registerReceiver(mZoomReceiver, new IntentFilter(ACTION_ZOOM),
+            Context.RECEIVER_EXPORTED);
     }
 
     @Override
@@ -156,6 +170,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mScrollCameraReceiver != null) {
             unregisterReceiver(mScrollCameraReceiver);
             mScrollCameraReceiver = null;
+        }
+        if (mZoomReceiver != null) {
+            unregisterReceiver(mZoomReceiver);
+            mZoomReceiver = null;
         }
         super.onDestroy();
     }

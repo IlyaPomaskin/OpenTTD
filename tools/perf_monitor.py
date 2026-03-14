@@ -43,7 +43,7 @@ HISTORY = 120
 
 # ── ADB broadcast helpers ──────────────────────────────────────────
 _ADB_PKG = "org.openttd.android"
-SCROLL_PX = 300
+SCROLL_PX = 600
 
 def _adb_broadcast(action, extras=""):
     cmd = f"adb shell am broadcast -a {_ADB_PKG}.{action}"
@@ -283,18 +283,22 @@ def render_hotkeys():
     lines.append(f"  {C_B}OpenTTD Wallpaper Remote Control{C_R}")
     lines.append("")
     lines.append(f"  {C_L}Map navigation{C_R}")
-    lines.append(f"    {C_V}[{C_R}  prev map          {C_D}adb broadcast PREV_MAP{C_R}")
-    lines.append(f"    {C_V}]{C_R}  next map          {C_D}adb broadcast NEXT_MAP{C_R}")
+    lines.append(f"    {C_V}i{C_R}  prev map          {C_D}adb broadcast PREV_MAP{C_R}")
+    lines.append(f"    {C_V}o{C_R}  next map          {C_D}adb broadcast NEXT_MAP{C_R}")
     lines.append("")
     lines.append(f"  {C_L}POI navigation (within current map){C_R}")
-    lines.append(f"    {C_V};{C_R}  prev POI          {C_D}adb broadcast PREV_POI{C_R}")
-    lines.append(f"    {C_V}'{C_R}  next POI          {C_D}adb broadcast NEXT_POI{C_R}")
+    lines.append(f"    {C_V}t{C_R}  prev POI          {C_D}adb broadcast PREV_POI{C_R}")
+    lines.append(f"    {C_V}y{C_R}  next POI          {C_D}adb broadcast NEXT_POI{C_R}")
     lines.append("")
     lines.append(f"  {C_L}Camera scroll ({SCROLL_PX}px per press){C_R}")
-    lines.append(f"    {C_V}\u2190{C_R}  scroll left       {C_D}adb broadcast SCROLL_CAMERA dx=-{SCROLL_PX}{C_R}")
-    lines.append(f"    {C_V}\u2192{C_R}  scroll right      {C_D}adb broadcast SCROLL_CAMERA dx=+{SCROLL_PX}{C_R}")
-    lines.append(f"    {C_V}\u2191{C_R}  scroll up         {C_D}adb broadcast SCROLL_CAMERA dy=-{SCROLL_PX}{C_R}")
-    lines.append(f"    {C_V}\u2193{C_R}  scroll down       {C_D}adb broadcast SCROLL_CAMERA dy=+{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}h{C_R}  scroll left       {C_D}adb broadcast SCROLL_CAMERA dx=-{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}k{C_R}  scroll right      {C_D}adb broadcast SCROLL_CAMERA dx=+{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}u{C_R}  scroll up         {C_D}adb broadcast SCROLL_CAMERA dy=-{SCROLL_PX}{C_R}")
+    lines.append(f"    {C_V}j{C_R}  scroll down       {C_D}adb broadcast SCROLL_CAMERA dy=+{SCROLL_PX}{C_R}")
+    lines.append("")
+    lines.append(f"  {C_L}Zoom{C_R}")
+    lines.append(f"    {C_V}={C_R}  zoom in           {C_D}adb broadcast ZOOM dir=+1{C_R}")
+    lines.append(f"    {C_V}-{C_R}  zoom out          {C_D}adb broadcast ZOOM dir=-1{C_R}")
     lines.append("")
     lines.append(f"  {C_L}Screens{C_R}")
     lines.append(f"    {C_V}0-8{C_R}  switch screen     {C_V}q{C_R}  quit")
@@ -465,29 +469,35 @@ def handle_hotkey(key, histories, screen_key):
         return key, False, True
     if key == 'q':
         return screen_key, True, False
-    if key == '[':
+    if key == 'i':
         _adb_broadcast("PREV_MAP")
         return screen_key, False, False
-    if key == ']':
+    if key == 'o':
         _adb_broadcast("NEXT_MAP")
         return screen_key, False, False
-    if key == ';':
+    if key == 't':
         _adb_broadcast("PREV_POI")
         return screen_key, False, False
-    if key == "'":
+    if key == 'y':
         _adb_broadcast("NEXT_POI")
         return screen_key, False, False
-    if key == 'LEFT':
+    if key == 'h':
         _adb_broadcast("SCROLL_CAMERA", f"--ei dx -{SCROLL_PX} --ei dy 0")
         return screen_key, False, False
-    if key == 'RIGHT':
+    if key == 'k':
         _adb_broadcast("SCROLL_CAMERA", f"--ei dx {SCROLL_PX} --ei dy 0")
         return screen_key, False, False
-    if key == 'UP':
+    if key == 'u':
         _adb_broadcast("SCROLL_CAMERA", f"--ei dx 0 --ei dy -{SCROLL_PX}")
         return screen_key, False, False
-    if key == 'DOWN':
+    if key == 'j':
         _adb_broadcast("SCROLL_CAMERA", f"--ei dx 0 --ei dy {SCROLL_PX}")
+        return screen_key, False, False
+    if key == '=':
+        _adb_broadcast("ZOOM", "--ei dir 1")
+        return screen_key, False, False
+    if key == '-':
+        _adb_broadcast("ZOOM", "--ei dir -1")
         return screen_key, False, False
     return screen_key, False, False
 
