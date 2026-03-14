@@ -342,6 +342,7 @@ void GfxLoadSprites()
 	SwitchNewGRFBlitter();
 	VideoDriver::GetInstance()->ClearSystemSprites();
 	FontCache::ClearFontCaches(FONTSIZES_ALL);
+	SaveSpriteFileBuffers();
 	GfxInitSpriteMem();
 	LoadSpriteTables();
 	BufferSpriteFilesToMemory();

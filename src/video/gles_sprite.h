@@ -135,7 +135,7 @@ private:
 
 	/** GL-thread-owned memory-backed SpriteFile copies, keyed by original SpriteFile pointer. */
 	std::unordered_map<const SpriteFile *, std::unique_ptr<SpriteFile>> gl_sprite_files;
-	static constexpr int MAX_LOADS_PER_FRAME = 200; ///< Per-frame budget for on-demand sprite loads.
+	static constexpr int MAX_LOADS_PER_FRAME = 500; ///< Per-frame budget for on-demand sprite loads.
 	int loads_this_frame = 0;
 
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);

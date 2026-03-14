@@ -21,6 +21,7 @@
 #include "spritecache_internal.h"
 #include "gfx_func.h"
 #include <chrono>
+#include <unordered_map>
 
 #include "table/sprites.h"
 #include "table/palette_convert.h"
@@ -83,18 +84,43 @@ std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles()
  * Load all cached sprite files into memory buffers.
  * After this, GL thread can create memory-backed SpriteFile copies.
  */
+/** Persistent memory buffers surviving GfxInitSpriteMem() clear.
+ *  Keyed by simplified filename → raw file data. */
+static std::unordered_map<std::string, std::vector<uint8_t>> _sprite_file_cache;
+
 void BufferSpriteFilesToMemory()
 {
 	auto t0 = std::chrono::steady_clock::now();
 	size_t total_bytes = 0;
+	int cached = 0, loaded = 0;
 	for (auto &f : _sprite_files) {
-		f->LoadIntoMemory();
+		const std::string &key = f->GetSimplifiedFilename();
+		auto it = _sprite_file_cache.find(key);
+		if (it != _sprite_file_cache.end() && !it->second.empty()) {
+			/* Restore from persistent cache without disk I/O. */
+			f->SetMemoryBuffer(std::move(it->second));
+			_sprite_file_cache.erase(it);
+			cached++;
+		} else {
+			f->LoadIntoMemory();
+			loaded++;
+		}
 		total_bytes += f->GetMemorySize();
 	}
 	auto t1 = std::chrono::steady_clock::now();
-	Debug(sprite, 0, "BufferSpriteFilesToMemory: {} files, {}KB in {}ms",
-	      _sprite_files.size(), total_bytes / 1024,
+	Debug(sprite, 0, "BufferSpriteFilesToMemory: {} files ({}cached {}loaded), {}KB in {}ms",
+	      _sprite_files.size(), cached, loaded, total_bytes / 1024,
 	      std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+}
+
+/** Save memory buffers before _sprite_files gets cleared. */
+void SaveSpriteFileBuffers()
+{
+	for (auto &f : _sprite_files) {
+		if (f->GetMemoryData() != nullptr) {
+			_sprite_file_cache[f->GetSimplifiedFilename()] = f->TakeMemoryBuffer();
+		}
+	}
 }
 
 /**

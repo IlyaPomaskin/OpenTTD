@@ -56,6 +56,7 @@ void IncreaseSpriteLRU();
 SpriteFile &OpenCachedSpriteFile(const std::string &filename, Subdirectory subdir, bool palette_remap);
 std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles();
 void BufferSpriteFilesToMemory();
+void SaveSpriteFileBuffers();
 
 /** Info needed to decode a sprite on the GL thread. */
 struct SpriteCacheInfo {

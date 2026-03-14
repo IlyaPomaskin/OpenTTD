@@ -34,6 +34,8 @@ public:
 	void LoadIntoMemory();
 	const uint8_t *GetMemoryData() const { return this->mem_buffer.empty() ? nullptr : this->mem_buffer.data(); }
 	size_t GetMemorySize() const { return this->mem_buffer.size(); }
+	void SetMemoryBuffer(std::vector<uint8_t> &&buf) { this->mem_buffer = std::move(buf); }
+	std::vector<uint8_t> TakeMemoryBuffer() { return std::move(this->mem_buffer); }
 
 	/**
 	 * Whether a palette remap is needed when loading sprites from this file.
