@@ -14,6 +14,7 @@
 #include "../spritecache.h"
 #include "../spritecache_internal.h"
 #include "../spriteloader/grf.hpp"
+#include "../table/sprites.h"
 #include <GLES3/gl3.h>
 #include <algorithm>
 #include <chrono>
@@ -200,6 +201,27 @@ void GLESSpriteAtlas::PBOFillBatch()
 	}
 
 	if (batch.empty()) return;
+
+	/* Sort by visual priority so the most visible sprites upload first.
+	 * Ranges: landscape (sprites.h), water (sprites.h), trees (tree_land.h
+	 * _tree_layout_sprite 0x628-0x7d3), buildings (town_land.h 0x58d-0x627),
+	 * roads (sprites.h), rails (sprites.h). */
+	auto sprite_priority = [](SpriteID s) -> int {
+		if (s >= SPR_FLAT_BARE_LAND && s <= SPR_FLAT_SNOW_DESERT_TILE + 18) return 0;  // landscape
+		if (s >= SPR_FOUNDATION_BASE && s <= SPR_SHADOW_CELL) return 0;                // foundations
+		if (s >= SPR_HEDGE_BUSHES && s <= SPR_FARMLAND_HAYPACKS + 18) return 0;        // hedges + farmland
+		if (s >= SPR_FLAT_WATER_TILE && s <= SPR_FLAT_WATER_TILE + 18) return 1;       // water tiles
+		if (s >= SPR_SHORE_BASE && s < SPR_SHORE_BASE + 18) return 1;                  // shore
+		if (s >= SPR_SHIP_DEPOT_SE_FRONT && s <= SPR_BUOY) return 1;                   // ship depots + buoy
+		if (s >= 1576 && s <= 2003) return 2;                                           // trees (tree_land.h)
+		if (s >= 1421 && s <= 1575) return 3;                                           // town buildings (town_land.h)
+		if (s >= SPR_ROAD_PAVED_STRAIGHT_Y && s <= SPR_ROAD_DEPOT + 18) return 4;     // roads
+		if (s >= SPR_RAIL_SINGLE_X && s <= SPR_TRACK_FENCE_SLOPE_NW) return 5;        // rails + signals + fences
+		return 6;
+	};
+	std::stable_sort(batch.begin(), batch.end(), [&sprite_priority](const GLESUploadRequest &a, const GLESUploadRequest &b) {
+		return sprite_priority(static_cast<SpriteID>(a.key >> 4)) < sprite_priority(static_cast<SpriteID>(b.key >> 4));
+	});
 
 	/* Two-pass approach: PackRegion first (may call AllocPage → glTexImage3D),
 	 * then map PBO and write pixels. This avoids the GLES bug where
