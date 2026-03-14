@@ -78,6 +78,31 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeRotateMap(JNIEnv *, jclas
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeRotateMap(JNIEnv *, jclass, jint delta)
+{
+	_gles_rotate_map = delta;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeNavigatePOI(JNIEnv *, jclass, jint delta)
+{
+	_gles_navigate_poi = delta;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
+{
+	_gles_scroll_dx = dx;
+	_gles_scroll_dy = dy;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeZoom(JNIEnv *, jclass, jint direction)
+{
+	_gles_zoom = direction;
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
 {
 	_gles_scroll_dx = dx;

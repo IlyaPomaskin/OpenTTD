@@ -1,11 +1,22 @@
 package org.openttd.android;
 
 import android.os.Bundle;
+import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
+import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 
 import org.libsdl.app.SDLActivity;
 
 public class GameActivity extends SDLActivity {
+
+    private static final int SCROLL_PX = 600;
+
+    private static native void nativeRotateMap(int delta);
+    private static native void nativeNavigatePOI(int delta);
+    private static native void nativeScrollCamera(int dx, int dy);
+    private static native void nativeZoom(int direction);
 
     @Override
     protected String[] getLibraries() {
@@ -23,6 +34,111 @@ public class GameActivity extends SDLActivity {
                 "icui18n",
                 "openttd"
         };
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        addOverlayButtons();
+    }
+
+    private Button btn(String text, View.OnClickListener listener) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setTextSize(12);
+        b.setMinimumWidth(0);
+        b.setMinimumHeight(0);
+        b.setPadding(16, 8, 16, 8);
+        b.setOnClickListener(listener);
+        return b;
+    }
+
+    private void addOverlayButtons() {
+        // Bottom bar: map + POI navigation
+        LinearLayout navBar = new LinearLayout(this);
+        navBar.setOrientation(LinearLayout.HORIZONTAL);
+        navBar.setGravity(Gravity.CENTER);
+        navBar.setBackgroundColor(0x80000000);
+        navBar.setPadding(8, 4, 8, 4);
+        navBar.setId(View.generateViewId());
+
+        navBar.addView(btn("< Map", v -> nativeRotateMap(-1)));
+        navBar.addView(btn("Map >", v -> nativeRotateMap(1)));
+        navBar.addView(btn("< POI", v -> nativeNavigatePOI(-1)));
+        navBar.addView(btn("POI >", v -> nativeNavigatePOI(1)));
+
+        RelativeLayout.LayoutParams navParams = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT);
+        navParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        navParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        navParams.bottomMargin = 16;
+        mLayout.addView(navBar, navParams);
+
+        // D-pad above nav bar: arrow keys layout
+        //     [▲]
+        //  [◀][▼][▶]
+        RelativeLayout dpad = new RelativeLayout(this);
+        dpad.setBackgroundColor(0x80000000);
+        dpad.setPadding(4, 4, 4, 4);
+        dpad.setId(View.generateViewId());
+
+        Button up = btn("\u25B2", v -> nativeScrollCamera(0, -SCROLL_PX));
+        up.setId(View.generateViewId());
+        RelativeLayout.LayoutParams upP = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        upP.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        dpad.addView(up, upP);
+
+        Button left = btn("\u25C0", v -> nativeScrollCamera(-SCROLL_PX, 0));
+        left.setId(View.generateViewId());
+        RelativeLayout.LayoutParams leftP = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        leftP.addRule(RelativeLayout.BELOW, up.getId());
+        leftP.addRule(RelativeLayout.ALIGN_PARENT_START);
+        dpad.addView(left, leftP);
+
+        Button down = btn("\u25BC", v -> nativeScrollCamera(0, SCROLL_PX));
+        down.setId(View.generateViewId());
+        RelativeLayout.LayoutParams downP = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        downP.addRule(RelativeLayout.BELOW, up.getId());
+        downP.addRule(RelativeLayout.END_OF, left.getId());
+        dpad.addView(down, downP);
+
+        Button right = btn("\u25B6", v -> nativeScrollCamera(SCROLL_PX, 0));
+        RelativeLayout.LayoutParams rightP = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+        rightP.addRule(RelativeLayout.BELOW, up.getId());
+        rightP.addRule(RelativeLayout.END_OF, down.getId());
+        dpad.addView(right, rightP);
+
+        RelativeLayout.LayoutParams dpadParams = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT);
+        dpadParams.addRule(RelativeLayout.ABOVE, navBar.getId());
+        dpadParams.addRule(RelativeLayout.CENTER_HORIZONTAL);
+        dpadParams.bottomMargin = 4;
+        mLayout.addView(dpad, dpadParams);
+
+        // Zoom buttons: left side, vertically centered
+        LinearLayout zoomBar = new LinearLayout(this);
+        zoomBar.setOrientation(LinearLayout.VERTICAL);
+        zoomBar.setGravity(Gravity.CENTER);
+        zoomBar.setBackgroundColor(0x80000000);
+        zoomBar.setPadding(4, 4, 4, 4);
+
+        zoomBar.addView(btn("Z+", v -> nativeZoom(1)));
+        zoomBar.addView(btn("Z\u2013", v -> nativeZoom(-1)));
+
+        RelativeLayout.LayoutParams zoomParams = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT);
+        zoomParams.addRule(RelativeLayout.ALIGN_PARENT_START);
+        zoomParams.addRule(RelativeLayout.ABOVE, navBar.getId());
+        zoomParams.leftMargin = 16;
+        zoomParams.bottomMargin = 4;
+        mLayout.addView(zoomBar, zoomParams);
     }
 
     @Override
