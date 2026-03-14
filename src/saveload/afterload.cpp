@@ -69,6 +69,7 @@
 
 #include "saveload_internal.h"
 
+#include <chrono>
 #include <signal.h>
 
 #include "table/strings.h"
@@ -560,6 +561,7 @@ static void StartScripts()
  */
 bool AfterLoadGame()
 {
+	auto t_afterload0 = std::chrono::steady_clock::now();
 	SetSignalHandlers();
 
 	extern TileIndex _cur_tileloop_tile; // From landscape.cpp.
@@ -3409,23 +3411,34 @@ bool AfterLoadGame()
 		}
 	}
 
+	auto ta0 = std::chrono::steady_clock::now();
 	AfterLoadLabelMaps();
 	AfterLoadCompanyStats();
 	AfterLoadStoryBook();
+	auto ta1 = std::chrono::steady_clock::now();
 
 	_gamelog.PrintDebug(1);
 
 	InitializeWindowsAndCaches();
+	auto ta2 = std::chrono::steady_clock::now();
 	/* Restore the signals */
 	ResetSignalHandlers();
 
 	AfterLoadLinkGraphs();
+	auto ta3 = std::chrono::steady_clock::now();
 
 	CheckGroundVehiclesAtCorrectZ();
 
 	/* Start the scripts. This MUST happen after everything else except
 	 * starting a new company. */
 	StartScripts();
+	auto ta4 = std::chrono::steady_clock::now();
+
+	{
+		auto ms = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count(); };
+		Debug(misc, 0, "AfterLoad: labels+stats={}ms initWindows={}ms linkGraphs={}ms scripts={}ms migrations={}ms",
+			ms(ta0, ta1), ms(ta1, ta2), ms(ta2, ta3), ms(ta3, ta4), ms(t_afterload0, ta0));
+	}
 
 	/* If Load Scenario / New (Scenario) Game is used,
 	 *  a company does not exist yet. So create one here.

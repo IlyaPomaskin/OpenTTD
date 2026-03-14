@@ -52,6 +52,7 @@
 #include "saveload_filter.h"
 
 #include <atomic>
+#include <chrono>
 #ifdef __EMSCRIPTEN__
 #	include <emscripten.h>
 #endif
@@ -3195,6 +3196,8 @@ static SaveOrLoadResult DoLoad(std::shared_ptr<LoadFilter> reader, bool load_che
 	_sl.reader = std::make_unique<ReadBuffer>(_sl.lf);
 	_next_offs = 0;
 
+	auto t_load0 = std::chrono::steady_clock::now();
+
 	if (!load_check) {
 		ResetSaveloadData();
 
@@ -3237,8 +3240,16 @@ static SaveOrLoadResult DoLoad(std::shared_ptr<LoadFilter> reader, bool load_che
 		SlLoadCheckChunks();
 	} else {
 		/* Load chunks and resolve references */
+		auto t_chunks0 = std::chrono::steady_clock::now();
 		SlLoadChunks();
+		auto t_chunks1 = std::chrono::steady_clock::now();
 		SlFixPointers();
+		auto t_fix1 = std::chrono::steady_clock::now();
+
+		Debug(misc, 0, "DoLoad: init={}ms chunks={}ms fixptrs={}ms",
+			std::chrono::duration_cast<std::chrono::milliseconds>(t_chunks0 - t_load0).count(),
+			std::chrono::duration_cast<std::chrono::milliseconds>(t_chunks1 - t_chunks0).count(),
+			std::chrono::duration_cast<std::chrono::milliseconds>(t_fix1 - t_chunks1).count());
 	}
 
 	ClearSaveLoadState();
@@ -3251,12 +3262,17 @@ static SaveOrLoadResult DoLoad(std::shared_ptr<LoadFilter> reader, bool load_che
 	} else {
 		_gamelog.StartAction(GLAT_LOAD);
 
+		auto t_after0 = std::chrono::steady_clock::now();
 		/* After loading fix up savegame for any internal changes that
 		 * might have occurred since then. If it fails, load back the old game. */
 		if (!AfterLoadGame()) {
 			_gamelog.StopAction();
 			return SL_REINIT;
 		}
+		auto t_after1 = std::chrono::steady_clock::now();
+		Debug(misc, 0, "DoLoad: afterload={}ms total={}ms",
+			std::chrono::duration_cast<std::chrono::milliseconds>(t_after1 - t_after0).count(),
+			std::chrono::duration_cast<std::chrono::milliseconds>(t_after1 - t_load0).count());
 
 		_gamelog.StopAction();
 	}
