@@ -247,10 +247,15 @@ void VideoDriver::GameThread()
 {
 	while (!_exit_game) {
 		if (this->game_thread_paused.load()) {
-			/* Advance POI and record one last snapshot before sleeping. */
+			/* Advance POI and pump 3 game ticks with 20ms gaps so GL thread
+			 * can render each snapshot while still running — this warms up
+			 * the sprite atlas for the new camera position before we sleep. */
 			PrepareBackground();
-			this->GameLoop();
-			Debug(driver, 0, "GameThread: paused after POI advance + snapshot");
+			for (int i = 0; i < 3; i++) {
+				this->GameLoop();
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+			}
+			Debug(driver, 0, "GameThread: paused after POI advance + 3 snapshots");
 
 			std::unique_lock<std::mutex> lock(this->game_pause_mutex);
 			this->game_pause_cv.wait(lock, [this] {
