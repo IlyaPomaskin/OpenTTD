@@ -316,6 +316,7 @@ protected:
 	 * other video-driver related event.
 	 */
 	void Tick();
+	void ProcessOverlayActions();
 
 	/**
 	 * Sleep till the next tick is about to happen.

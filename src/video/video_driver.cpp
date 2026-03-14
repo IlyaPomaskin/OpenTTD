@@ -31,6 +31,15 @@
 #include "../palette_func.h"
 #include "../zoom_func.h"
 
+#include "../wallpaper.h"
+#include <atomic>
+
+extern std::atomic<bool> _gles_jump_waypoint;
+extern std::atomic<int> _gles_navigate_poi;
+extern std::atomic<int> _gles_rotate_map;
+extern std::atomic<int> _gles_scroll_dx;
+extern std::atomic<int> _gles_scroll_dy;
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <signal.h>
@@ -321,6 +330,33 @@ void VideoDriver::StopGameThread()
 	this->game_thread.join();
 }
 
+void VideoDriver::ProcessOverlayActions()
+{
+	this->DrainCommandQueue();
+	while (this->PollEvent()) {}
+
+	if (_gles_jump_waypoint.exchange(false)) {
+		Debug(driver, 0, "Tick: jump_waypoint triggered");
+		PrepareBackground();
+	}
+	int poi_delta = _gles_navigate_poi.exchange(0);
+	if (poi_delta != 0) { Debug(driver, 0, "Tick: navigate_poi={}", poi_delta); NavigatePOI(poi_delta); }
+	int map_delta = _gles_rotate_map.exchange(0);
+	if (map_delta != 0) { Debug(driver, 0, "Tick: rotate_map={}", map_delta); RotateTitleMap(map_delta); }
+	{
+		int scroll_dx = _gles_scroll_dx.exchange(0);
+		int scroll_dy = _gles_scroll_dy.exchange(0);
+		if (scroll_dx != 0 || scroll_dy != 0) {
+			Window *w = GetMainWindow();
+			if (w != nullptr && w->viewport != nullptr) {
+				w->viewport->dest_scrollpos_x += ScaleByZoom(scroll_dx, w->viewport->zoom);
+				w->viewport->dest_scrollpos_y += ScaleByZoom(scroll_dy, w->viewport->zoom);
+				w->viewport->follow_vehicle = VehicleID::Invalid();
+			}
+		}
+	}
+}
+
 void VideoDriver::Tick()
 {
 	if (!this->is_game_threaded && std::chrono::steady_clock::now() >= this->next_game_tick) {
@@ -344,8 +380,7 @@ void VideoDriver::Tick()
 
 		/* Snapshot path: paint from triple buffer, skip mutex wait. */
 		if (this->snapshot_buffer != nullptr) {
-			this->DrainCommandQueue();
-			while (this->PollEvent()) {}
+			this->ProcessOverlayActions();
 			this->PaintFromSnapshot();
 			auto &tb = *this->snapshot_buffer;
 			if (tb.swap_count % 60 == 0 && tb.swap_count > 0) {
@@ -407,6 +442,8 @@ void VideoDriver::Tick()
 		auto t_pre_palette = std::chrono::steady_clock::now();
 		this->CheckPaletteAnim();
 		auto t_post_palette = std::chrono::steady_clock::now();
+
+		this->ProcessOverlayActions();
 		this->Paint();
 
 		auto t_post_paint = std::chrono::steady_clock::now();

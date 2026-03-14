@@ -1,6 +1,7 @@
 package org.openttd.android;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -11,6 +12,7 @@ import org.libsdl.app.SDLActivity;
 
 public class GameActivity extends SDLActivity {
 
+    private static final String TAG = "GameActivity";
     private static final int SCROLL_PX = 600;
 
     private static native void nativeRotateMap(int delta);
@@ -38,6 +40,14 @@ public class GameActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Ensure assets are extracted and data path is set (needed when launched directly via adb)
+        MainActivity.copyAssetsStatic(getApplicationContext());
+        try {
+            android.system.Os.setenv("OPENTTD_DATA_PATH",
+                getFilesDir().getAbsolutePath(), true);
+        } catch (android.system.ErrnoException e) {
+            Log.e(TAG, "Failed to set OPENTTD_DATA_PATH", e);
+        }
         super.onCreate(savedInstanceState);
         addOverlayButtons();
     }
@@ -49,6 +59,8 @@ public class GameActivity extends SDLActivity {
         b.setMinimumWidth(0);
         b.setMinimumHeight(0);
         b.setPadding(16, 8, 16, 8);
+        b.setClickable(true);
+        b.setFocusable(true);
         b.setOnClickListener(listener);
         return b;
     }
@@ -62,10 +74,11 @@ public class GameActivity extends SDLActivity {
         navBar.setPadding(8, 4, 8, 4);
         navBar.setId(View.generateViewId());
 
-        navBar.addView(btn("< Map", v -> nativeRotateMap(-1)));
-        navBar.addView(btn("Map >", v -> nativeRotateMap(1)));
-        navBar.addView(btn("< POI", v -> nativeNavigatePOI(-1)));
-        navBar.addView(btn("POI >", v -> nativeNavigatePOI(1)));
+        navBar.setElevation(10);
+        navBar.addView(btn("< Map", v -> { Log.d(TAG, "BTN: < Map"); nativeRotateMap(-1); }));
+        navBar.addView(btn("Map >", v -> { Log.d(TAG, "BTN: Map >"); nativeRotateMap(1); }));
+        navBar.addView(btn("< POI", v -> { Log.d(TAG, "BTN: < POI"); nativeNavigatePOI(-1); }));
+        navBar.addView(btn("POI >", v -> { Log.d(TAG, "BTN: POI >"); nativeNavigatePOI(1); }));
 
         RelativeLayout.LayoutParams navParams = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT,
@@ -79,6 +92,7 @@ public class GameActivity extends SDLActivity {
         //     [▲]
         //  [◀][▼][▶]
         RelativeLayout dpad = new RelativeLayout(this);
+        dpad.setElevation(10);
         dpad.setBackgroundColor(0x80000000);
         dpad.setPadding(4, 4, 4, 4);
         dpad.setId(View.generateViewId());
@@ -123,6 +137,7 @@ public class GameActivity extends SDLActivity {
 
         // Pause/Play buttons: right side, above nav bar
         LinearLayout pauseBar = new LinearLayout(this);
+        pauseBar.setElevation(10);
         pauseBar.setOrientation(LinearLayout.VERTICAL);
         pauseBar.setGravity(Gravity.CENTER);
         pauseBar.setBackgroundColor(0x80000000);

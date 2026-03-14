@@ -3009,6 +3009,9 @@ static void MouseLoop(MouseClick click, int mousewheel)
  */
 void HandleMouseEvents()
 {
+	/* Wallpaper mode is spectator — ignore all touch/mouse input. */
+	if (_game_mode == GM_WALLPAPER) return;
+
 	/* World generation is multithreaded and messes with companies.
 	 * But there is no company related window open anyway, so _current_company is not used. */
 	assert(HasModalProgress() || IsLocalCompany());
@@ -3620,7 +3623,9 @@ void RelocateAllWindows(int neww, int newh)
 			case WC_BOOTSTRAP:
 			case WC_HIGHSCORE:
 			case WC_ENDSCREEN:
-				ResizeWindow(w, neww, newh);
+				Debug(misc, 0, "RelocateAllWindows: class={} cur={}x{} new={}x{} delta={}x{}",
+					(int)w->window_class, w->width, w->height, neww, newh, neww - w->width, newh - w->height);
+				ResizeWindow(w, neww - w->width, newh - w->height, false);
 				continue;
 
 			case WC_MAIN_TOOLBAR:

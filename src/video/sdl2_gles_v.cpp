@@ -38,15 +38,15 @@
 
 #include "../safeguards.h"
 
-/** Set to true from Java on hide; processed in Paint() to advance camera to next POI. */
-static std::atomic<bool> _gles_jump_waypoint{false};
-/** POI navigation delta requested from Java; processed in Paint(). */
-static std::atomic<int> _gles_navigate_poi{0};
-/** Map rotation delta requested from Java; processed in Paint(). */
-static std::atomic<int> _gles_rotate_map{0};
-/** Camera scroll delta requested from Java; processed in Paint(). */
-static std::atomic<int> _gles_scroll_dx{0};
-static std::atomic<int> _gles_scroll_dy{0};
+/** Set to true from Java on hide; processed in Tick() to advance camera to next POI. */
+std::atomic<bool> _gles_jump_waypoint{false};
+/** POI navigation delta requested from Java; processed in Tick(). */
+std::atomic<int> _gles_navigate_poi{0};
+/** Map rotation delta requested from Java; processed in Tick(). */
+std::atomic<int> _gles_rotate_map{0};
+/** Camera scroll delta requested from Java; processed in Tick(). */
+std::atomic<int> _gles_scroll_dx{0};
+std::atomic<int> _gles_scroll_dy{0};
 
 #ifdef __ANDROID__
 #include "../wallpaper.h"
@@ -416,38 +416,10 @@ void VideoDriver_SDL_GLES::Paint()
 		_gles_context_lost = false;
 		Debug(driver, 0, "GLES: Paint: recovering from context loss");
 		GLESBackend::Get()->RecoverGPUState();
-		/* Force full palette re-upload into the new palette texture. */
 		CopyPalette(this->local_palette, true);
-		/* Trigger a full map reload so sprites are re-encoded from scratch. */
 		_switch_mode = (_game_mode == GM_WALLPAPER) ? SM_WALLPAPER : SM_MENU;
-		/* Force a full-screen dirty so the viewport redraws next frame. */
 		this->MakeDirty(0, 0, _screen.width, _screen.height);
-		return; /* Skip this frame; draw_queue was cleared, FBO is black anyway. */
-	}
-
-	/* Jump to next POI (requested from Java onVisibilityChanged hide). */
-	if (_gles_jump_waypoint.exchange(false)) {
-		PrepareBackground();
-	}
-
-	/* Navigate POI (requested from Java broadcast). */
-	int poi_delta = _gles_navigate_poi.exchange(0);
-	if (poi_delta != 0) NavigatePOI(poi_delta);
-
-	/* Rotate map (requested from Java broadcast). */
-	int map_delta = _gles_rotate_map.exchange(0);
-	if (map_delta != 0) RotateTitleMap(map_delta);
-
-	/* Scroll camera (requested from Java broadcast). */
-	int scroll_dx = _gles_scroll_dx.exchange(0);
-	int scroll_dy = _gles_scroll_dy.exchange(0);
-	if (scroll_dx != 0 || scroll_dy != 0) {
-		Window *w = GetMainWindow();
-		if (w != nullptr && w->viewport != nullptr) {
-			w->viewport->dest_scrollpos_x += ScaleByZoom(scroll_dx, w->viewport->zoom);
-			w->viewport->dest_scrollpos_y += ScaleByZoom(scroll_dy, w->viewport->zoom);
-			w->viewport->follow_vehicle = VehicleID::Invalid();
-		}
+		return;
 	}
 
 

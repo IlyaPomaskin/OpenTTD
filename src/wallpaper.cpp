@@ -127,7 +127,7 @@ bool LoadNextTitleMap()
  */
 void LoadWallpaperGame()
 {
-	// Debug(misc, 0, "LoadWallpaperGame: entering, GLESBackend={}", GLESBackend::Get() != nullptr ? "present" : "null");
+	Debug(misc, 0, "LoadWallpaperGame: screen={}x{}", _screen.width, _screen.height);
 	_game_mode = GM_WALLPAPER;
 	InvalidatePOIs();
 

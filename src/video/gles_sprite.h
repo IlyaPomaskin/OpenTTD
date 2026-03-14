@@ -123,9 +123,7 @@ private:
 	 *   3. (chosen) Single large PBO + offset: one large PBO per frame, write at offsets,
 	 *      fence on whole batch. Fewest GL objects, best throughput for batch upload. */
 	static constexpr size_t PBO_SIZE = 4 * 1024 * 1024;  ///< 4MB per PBO buffer.
-	/* Budget removed: PBO uploads are async (DMA) and don't stall GL thread,
-	 * so we upload ALL pending sprites each frame to avoid black-screen during map switch.
-	 * Alternative: fixed budget (e.g. 50/frame) spreads load but causes visible pop-in. */
+	static constexpr int64_t PBO_TIME_BUDGET_US = 15000; ///< Per-frame upload time budget (15ms).
 	PBOUploadBatch pbo_current;   ///< Batch being filled this frame.
 	PBOUploadBatch pbo_inflight;  ///< Batch submitted last frame, waiting fence.
 	std::unordered_set<GLESSpriteID> pbo_inflight_keys; ///< Fast lookup for inflight sprites.
@@ -180,7 +178,7 @@ private:
 	bool measuring_reload = false;
 	void ClearSprites();
 	void PBOCheckInflight();
-	void PBOFillBatch();
+	void PBOFillBatch(std::chrono::steady_clock::time_point t_start);
 	void PBOSubmitBatch();
 
 public:

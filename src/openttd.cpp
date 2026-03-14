@@ -100,6 +100,9 @@
 #	include <emscripten/html5.h>
 #endif
 
+#ifdef __ANDROID__
+#include <sys/prctl.h>
+#endif
 #include "safeguards.h"
 
 void CallLandscapeTick();
@@ -411,7 +414,9 @@ struct AfterNewGRFScan : NewGRFScanCallback {
 
 		/* We want the new (correct) NewGRF count to survive the loading. */
 		uint last_newgrf_count = _settings_client.gui.last_newgrf_count;
-		LoadFromConfig();
+		// { char _tn[16]; prctl(PR_GET_NAME, _tn);
+		//   Debug(misc, 0, "CONFIG: LoadFromConfig() NewGRF scan thread={}", _tn); }
+		// LoadFromConfig();
 		_settings_client.gui.last_newgrf_count = last_newgrf_count;
 		/* Since the default for the palette might have changed due to
 		 * reading the configuration file, recalculate that now. */
@@ -419,9 +424,9 @@ struct AfterNewGRFScan : NewGRFScanCallback {
 
 		Game::Uninitialize(true);
 		AI::Uninitialize(true);
-		LoadFromHighScore();
-		LoadHotkeysFromConfig();
-		WindowDesc::LoadFromConfig();
+		// LoadFromHighScore();
+		// LoadHotkeysFromConfig();
+		// WindowDesc::LoadFromConfig();
 
 		/* We have loaded the config, so we may possibly save it. */
 		_save_config = save_config;
@@ -527,8 +532,8 @@ int openttd_main(std::span<std::string_view> arguments)
 	extern bool _dedicated_forks;
 	_dedicated_forks = false;
 
-	_game_mode = GM_MENU;
-	_switch_mode = SM_MENU;
+	_game_mode = GM_WALLPAPER;
+	_switch_mode = SM_WALLPAPER;
 
 	auto options = CreateOptions();
 	GetOptData mgo(arguments.subspan(1), options);
@@ -688,7 +693,9 @@ int openttd_main(std::span<std::string_view> arguments)
 	if (_dedicated_forks) DedicatedFork();
 #endif
 
-	LoadFromConfig(true);
+	// { char _tn[16]; prctl(PR_GET_NAME, _tn);
+	//   Debug(misc, 0, "CONFIG: LoadFromConfig(true) thread={}", _tn); }
+	// LoadFromConfig(true);
 
 	if (resolution.width != 0) _cur_resolution = resolution;
 
@@ -764,6 +771,9 @@ int openttd_main(std::span<std::string_view> arguments)
 	}
 
 	if (videodriver.empty() && !_ini_videodriver.empty()) videodriver = _ini_videodriver;
+#ifdef __ANDROID__
+	if (videodriver.empty()) videodriver = "sdl-gles";
+#endif
 	DriverFactoryBase::SelectDriver(videodriver, Driver::Type::Video);
 
 	InitializeSpriteSorter();
@@ -794,7 +804,8 @@ int openttd_main(std::span<std::string_view> arguments)
 	DriverFactoryBase::SelectDriver(musicdriver, Driver::Type::Music);
 
 	GenerateWorld(GWM_EMPTY, 64, 64); // Make the viewport initialization happy
-	LoadIntroGame(false);
+	LoadWallpaperGame();
+	_switch_mode = SM_NONE; // Prevent game thread from re-running via SwitchToMode
 
 	/* ScanNewGRFFiles now has control over the scanner. */
 	RequestNewGRFScan(scanner.release());
@@ -1031,7 +1042,9 @@ void SwitchToMode(SwitchMode new_mode)
 			if (new_mode != SM_MENU) {
 				/* check if we should reload the config */
 				if (_settings_client.network.reload_cfg) {
-					LoadFromConfig();
+				// { char _tn[16]; prctl(PR_GET_NAME, _tn);
+				//   Debug(misc, 0, "CONFIG: LoadFromConfig() SwitchToMode thread={}", _tn); }
+				//	LoadFromConfig();
 					MakeNewgameSettingsLive();
 					ResetGRFConfig(false);
 				}

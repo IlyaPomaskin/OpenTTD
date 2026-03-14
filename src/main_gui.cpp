@@ -218,10 +218,11 @@ struct MainWindow : Window
 	{
 		this->InitNested(0);
 		this->flags.Reset(WindowFlag::WhiteBorder);
+		Debug(misc, 0, "MainWindow: after InitNested w={} h={}, screen={}x{}", this->width, this->height, _screen.width, _screen.height);
 		ResizeWindow(this, _screen.width, _screen.height);
 
 		NWidgetViewport *nvp = this->GetWidget<NWidgetViewport>(WID_M_VIEWPORT);
-		nvp->InitializeViewport(this, TileXY(32, 32), ScaleZoomGUI(ZoomLevel::Viewport));
+		nvp->InitializeViewport(this, TileXY(32, 32), ZoomLevel::In4x);
 
 		this->viewport->overlay = std::make_shared<LinkGraphOverlay>(this, WID_M_VIEWPORT, 0, CompanyMask{}, 2);
 		this->refresh_timeout.Reset();
@@ -585,6 +586,7 @@ void ShowVitalWindows()
  */
 void GameSizeChanged()
 {
+	Debug(misc, 0, "GameSizeChanged: screen={}x{}", _screen.width, _screen.height);
 	_cur_resolution.width  = _screen.width;
 	_cur_resolution.height = _screen.height;
 	ScreenSizeChanged();

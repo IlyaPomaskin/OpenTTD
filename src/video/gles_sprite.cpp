@@ -67,8 +67,8 @@ void GLESSpriteAtlas::Init()
 		}
 	}
 
-	Debug(driver, 0, "GLES: Atlas page size {}x{}, PBO async upload: 2x{}KB no-budget",
-	      this->atlas_size, this->atlas_size, PBO_SIZE / 1024);
+	Debug(driver, 0, "GLES: Atlas page size {}x{}, PBO async upload: 2x{}KB budget={}ms",
+	      this->atlas_size, this->atlas_size, PBO_SIZE / 1024, PBO_TIME_BUDGET_US / 1000);
 }
 
 void GLESSpriteAtlas::Destroy()
@@ -189,7 +189,7 @@ void GLESSpriteAtlas::PBOCheckInflight()
 	}
 }
 
-void GLESSpriteAtlas::PBOFillBatch()
+void GLESSpriteAtlas::PBOFillBatch(std::chrono::steady_clock::time_point t_start)
 {
 	auto t0 = std::chrono::steady_clock::now();
 
@@ -241,8 +241,24 @@ void GLESSpriteAtlas::PBOFillBatch()
 	int n_palette_only = 0, n_no_remap = 0;
 	size_t colour_pages_before = this->colour_pages.size();
 	size_t remap_pages_before = this->remap_pages.size();
+	bool time_exceeded = false;
 
 	for (size_t bi = 0; bi < batch.size(); bi++) {
+		/* Check time budget after each sprite. */
+		if (!prepared.empty()) {
+			auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+				std::chrono::steady_clock::now() - t_start).count();
+			if (elapsed_us >= PBO_TIME_BUDGET_US) {
+				time_exceeded = true;
+				/* Put remaining sprites back into queue. */
+				std::lock_guard<std::mutex> lock(this->queue_mutex);
+				for (size_t oi = bi; oi < batch.size(); oi++) {
+					this->upload_queue.push_back(std::move(batch[oi]));
+				}
+				break;
+			}
+		}
+
 		auto &req = batch[bi];
 
 		if (this->sprites.count(req.key)) {
@@ -499,11 +515,16 @@ void GLESSpriteAtlas::ProcessPBOUploads()
 		}
 	}
 
-	/* Upload ALL queued sprites. Loop to handle data exceeding PBO_SIZE. */
+	/* Time-budgeted upload: process sprites until ~15ms elapsed, then yield to render. */
+	auto t_upload_start = std::chrono::steady_clock::now();
 	int rounds = 0;
 	size_t sprites_before = this->sprites.size();
 	for (;;) {
-		PBOFillBatch();
+		auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - t_upload_start).count();
+		if (rounds > 0 && elapsed_us >= PBO_TIME_BUDGET_US) break;
+
+		PBOFillBatch(t_upload_start);
 		if (this->pbo_current.entries.empty()) break;
 		PBOSubmitBatch();
 		rounds++;

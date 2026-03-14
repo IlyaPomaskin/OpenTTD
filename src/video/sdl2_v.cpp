@@ -438,33 +438,6 @@ bool VideoDriver_SDL_Base::PollEvent()
 				ev.button.button = SDL_BUTTON_RIGHT;
 			}
 
-			/* Tap on wallpaper: cycle zoom In2x → Normal → Out2x → In2x. */
-			if (ev.button.button == SDL_BUTTON_LEFT &&
-					_game_mode == GM_WALLPAPER) {
-				Window *w = GetMainWindow();
-				ViewportData &vp = *w->viewport;
-				ZoomLevel next;
-				switch (vp.zoom) {
-					case ZoomLevel::In2x:  next = ZoomLevel::Normal; break;
-					case ZoomLevel::Normal: next = ZoomLevel::Out2x; break;
-					case ZoomLevel::Out2x:  next = ZoomLevel::In2x;  break;
-					default:                next = ZoomLevel::In2x;  break;
-				}
-				/* Set zoom directly, bypassing zoom_min/zoom_max limits. */
-				vp.virtual_width = ScaleByZoom(vp.width, next);
-				vp.virtual_height = ScaleByZoom(vp.height, next);
-				int dx = (vp.virtual_width - ScaleByZoom(vp.width, vp.zoom)) / 2;
-				int dy = (vp.virtual_height - ScaleByZoom(vp.height, vp.zoom)) / 2;
-				vp.scrollpos_x -= dx;
-				vp.scrollpos_y -= dy;
-				vp.dest_scrollpos_x = vp.scrollpos_x;
-				vp.dest_scrollpos_y = vp.scrollpos_y;
-				vp.zoom = next;
-				w->InvalidateData();
-				MarkWholeScreenDirty();
-				break;
-			}
-
 			switch (ev.button.button) {
 				case SDL_BUTTON_LEFT:
 					_left_button_down = true;
