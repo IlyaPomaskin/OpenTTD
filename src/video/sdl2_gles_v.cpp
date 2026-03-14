@@ -95,6 +95,16 @@ Java_org_openttd_android_GameActivity_nativeScrollCamera(JNIEnv *, jclass, jint 
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeSetGamePaused(JNIEnv *, jclass, jboolean paused)
+{
+	auto *drv = VideoDriver::GetInstance();
+	if (drv != nullptr) {
+		Debug(driver, 0, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		drv->SetGameThreadPaused(paused);
+	}
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
 {
 	_gles_scroll_dx = dx;

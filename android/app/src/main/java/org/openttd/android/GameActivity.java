@@ -16,7 +16,7 @@ public class GameActivity extends SDLActivity {
     private static native void nativeRotateMap(int delta);
     private static native void nativeNavigatePOI(int delta);
     private static native void nativeScrollCamera(int dx, int dy);
-
+    private static native void nativeSetGamePaused(boolean paused);
 
     @Override
     protected String[] getLibraries() {
@@ -121,6 +121,24 @@ public class GameActivity extends SDLActivity {
         dpadParams.bottomMargin = 4;
         mLayout.addView(dpad, dpadParams);
 
+        // Pause/Play buttons: right side, above nav bar
+        LinearLayout pauseBar = new LinearLayout(this);
+        pauseBar.setOrientation(LinearLayout.VERTICAL);
+        pauseBar.setGravity(Gravity.CENTER);
+        pauseBar.setBackgroundColor(0x80000000);
+        pauseBar.setPadding(4, 4, 4, 4);
+
+        pauseBar.addView(btn("\u25B6", v -> nativeSetGamePaused(false)));
+        pauseBar.addView(btn("\u23F8", v -> nativeSetGamePaused(true)));
+
+        RelativeLayout.LayoutParams pauseParams = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT);
+        pauseParams.addRule(RelativeLayout.ALIGN_PARENT_END);
+        pauseParams.addRule(RelativeLayout.ABOVE, navBar.getId());
+        pauseParams.rightMargin = 16;
+        pauseParams.bottomMargin = 4;
+        mLayout.addView(pauseBar, pauseParams);
     }
 
     @Override
