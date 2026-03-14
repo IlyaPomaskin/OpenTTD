@@ -239,16 +239,22 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 		auto t2 = std::chrono::steady_clock::now();
 		_gles_perf.snap_pbo_us += us(t1, t2);
 
-		/* Replay draw commands into the GPU queue. */
+		/* Replay draw commands into the GPU queue.
+		 * Use read-only Lookup; missing sprites are deferred to after SwapWindow
+		 * so that uploads don't add jitter to frame time. */
 		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-		atlas.ResetFrameLoadCounter();
 		backend->ClearQueue();
+		this->deferred_upload_keys.clear();
 
 		int replayed = 0, null_entries = 0;
 		for (const auto &cmd : snap.commands) {
 			GLESSpriteID key = MakeGLESSpriteKey(cmd.sprite, cmd.zoom);
-			const GLESSpriteEntry *entry = atlas.LookupOrUpload(key);
-			if (entry == nullptr) { null_entries++; continue; }
+			const GLESSpriteEntry *entry = atlas.Lookup(key);
+			if (entry == nullptr) {
+				this->deferred_upload_keys.push_back(key);
+				null_entries++;
+				continue;
+			}
 
 			GLESDrawCommand gcmd;
 			gcmd.sprite_key = key;
@@ -315,6 +321,17 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 		_gles_perf.swap_us += us(t_blit1, t_swap1);
 	}
 	_gles_perf.frames++;
+
+	/* Upload missing sprites after SwapWindow (idle time between frames).
+	 * They'll appear next frame — 1 frame latency for new sprites only. */
+	if (!this->deferred_upload_keys.empty()) {
+		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+		atlas.ResetFrameLoadCounter();
+		for (GLESSpriteID key : this->deferred_upload_keys) {
+			atlas.LookupOrUpload(key);
+		}
+		this->deferred_upload_keys.clear();
+	}
 
 	/* Run Paint() for PERF logging, POI handling, context recovery.
 	 * It early-returns before GL work in snapshot mode. */

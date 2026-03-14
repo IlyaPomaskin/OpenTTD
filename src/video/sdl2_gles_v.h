@@ -11,6 +11,7 @@
 #define VIDEO_SDL2_GLES_V_H
 
 #include "sdl2_v.h"
+#include "gles_sprite.h"
 #include "../zoom_type.h"
 #include <chrono>
 
@@ -44,6 +45,7 @@ private:
 	void *gl_context = nullptr;
 	std::vector<uint32_t> video_buffer; ///< CPU-side video buffer for non-GPU drawing (text, UI).
 	std::vector<Rect> gles_dirty_rects; ///< Individual dirty rects for GLES (not coalesced).
+	std::vector<GLESSpriteID> deferred_upload_keys; ///< Sprites missing during replay, uploaded after swap.
 
 	/* Camera interpolation state (GPU blit thread).
 	 * Interpolate between prev and curr scrollpos over one tick period.
