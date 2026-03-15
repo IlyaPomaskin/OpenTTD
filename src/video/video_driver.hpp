@@ -333,8 +333,7 @@ protected:
 
 		TicToc::Tick("GameTick");
 
-		/* Wallpaper mode: 60fps simulation for smooth vehicle movement. */
-		if (_game_mode == GM_WALLPAPER) return std::chrono::milliseconds(16);
+		/* Wallpaper mode: use standard tick rate. */
 
 		/* If we are paused, run on normal speed. */
 		if (_pause_mode.Any()) return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
@@ -350,7 +349,6 @@ protected:
 
 		/* Snapshot mode: match draw rate to game tick rate. */
 		if (this->snapshot_buffer != nullptr) {
-			if (_game_mode == GM_WALLPAPER) return std::chrono::milliseconds(16);
 			return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
 		}
 
