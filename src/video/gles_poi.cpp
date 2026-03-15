@@ -534,6 +534,26 @@ static void ShowCurrentPOI()
 	MarkWholeScreenDirty();
 }
 
+void RecenterOnCurrentPOI()
+{
+	if (_gles_poi_list.empty()) return;
+	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;
+
+	Window *w = GetMainWindow();
+	if (w == nullptr || w->viewport == nullptr) return;
+
+	const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
+	ViewportData &vp = *w->viewport;
+
+	int world_x = (int)(poi.map_fx * Map::SizeX() * TILE_SIZE);
+	int world_y = (int)(poi.map_fy * Map::SizeY() * TILE_SIZE);
+	Point pt = RemapCoords(world_x, world_y, 0);
+	vp.scrollpos_x = pt.x - vp.virtual_width / 2;
+	vp.scrollpos_y = pt.y - vp.virtual_height / 2;
+	vp.dest_scrollpos_x = vp.scrollpos_x;
+	vp.dest_scrollpos_y = vp.scrollpos_y;
+}
+
 void NavigatePOI(int delta)
 {
 	if (Map::SizeX() == 0 || Map::SizeY() == 0) return;

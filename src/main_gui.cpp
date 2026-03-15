@@ -37,6 +37,7 @@
 #include "timer/timer.h"
 #include "timer/timer_window.h"
 #include "debug.h"
+#include "video/gles_poi.h"
 
 #include "saveload/saveload.h"
 
@@ -591,5 +592,12 @@ void GameSizeChanged()
 	_cur_resolution.height = _screen.height;
 	ScreenSizeChanged();
 	RelocateAllWindows(_screen.width, _screen.height);
+
+	if ((_game_mode == GM_MENU || _game_mode == GM_WALLPAPER) &&
+	    FindWindowById(WC_MAIN_WINDOW, 0) != nullptr) {
+		FixTitleGameZoom(-1);
+		RecenterOnCurrentPOI();
+	}
+
 	MarkWholeScreenDirty();
 }

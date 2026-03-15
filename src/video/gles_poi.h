@@ -43,6 +43,7 @@ struct GlesPOI {
  */
 void PrepareBackground();
 void NavigatePOI(int delta);
+void RecenterOnCurrentPOI();
 void InvalidatePOIs();
 void DrawPOIMarkers(const struct Viewport &vp);
 
