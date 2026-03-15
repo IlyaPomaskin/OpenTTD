@@ -228,7 +228,7 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 	}
 	auto t_val1 = std::chrono::steady_clock::now();
 	if (bad > 0) {
-		Debug(driver, 0, "SNAP_VALIDATE: dropped {} commands with out-of-range coords (screen {}x{})", bad, sw, sh);
+		Debug(driver, 1, "SNAP_VALIDATE: dropped {} commands with out-of-range coords (screen {}x{})", bad, sw, sh);
 	}
 
 	/* Record scroll state for GPU-side camera interpolation. */
@@ -264,7 +264,7 @@ void VideoDriver::GameThread()
 				this->GameLoop();
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 			}
-			Debug(driver, 0, "GameThread: paused after POI advance + 3 snapshots");
+			Debug(driver, 1, "GameThread: paused after POI advance + 3 snapshots");
 
 			std::unique_lock<std::mutex> lock(this->game_pause_mutex);
 			this->game_pause_cv.wait(lock, [this] {
@@ -336,13 +336,13 @@ void VideoDriver::ProcessOverlayActions()
 	while (this->PollEvent()) {}
 
 	if (_gles_jump_waypoint.exchange(false)) {
-		Debug(driver, 0, "Tick: jump_waypoint triggered");
+		Debug(driver, 1, "Tick: jump_waypoint triggered");
 		PrepareBackground();
 	}
 	int poi_delta = _gles_navigate_poi.exchange(0);
-	if (poi_delta != 0) { Debug(driver, 0, "Tick: navigate_poi={}", poi_delta); NavigatePOI(poi_delta); }
+	if (poi_delta != 0) { Debug(driver, 1, "Tick: navigate_poi={}", poi_delta); NavigatePOI(poi_delta); }
 	int map_delta = _gles_rotate_map.exchange(0);
-	if (map_delta != 0) { Debug(driver, 0, "Tick: rotate_map={}", map_delta); RotateTitleMap(map_delta); }
+	if (map_delta != 0) { Debug(driver, 1, "Tick: rotate_map={}", map_delta); RotateTitleMap(map_delta); }
 	{
 		int scroll_dx = _gles_scroll_dx.exchange(0);
 		int scroll_dy = _gles_scroll_dy.exchange(0);
@@ -384,7 +384,7 @@ void VideoDriver::Tick()
 			this->PaintFromSnapshot();
 			auto &tb = *this->snapshot_buffer;
 			if (tb.swap_count % 60 == 0 && tb.swap_count > 0) {
-				Debug(driver, 0, "TRIPLE_BUFFER: swaps={} cpu_ahead={} gpu_ahead={}",
+				Debug(driver, 3, "TRIPLE_BUFFER: swaps={} cpu_ahead={} gpu_ahead={}",
 					tb.swap_count, tb.cpu_ahead_count, tb.gpu_ahead_count);
 				tb.ResetMetrics();
 			}
@@ -461,7 +461,7 @@ void VideoDriver::Tick()
 
 		/* Log individual slow frames for stutter diagnosis. */
 		if (_gles_perf.last_frame_us > 20000) {
-			Debug(driver, 0, "  SLOW frame={}us | lock_video={}us mutex+updwin={}us palette={}us paint={}us unlock={}us",
+			Debug(driver, 3, "  SLOW frame={}us | lock_video={}us mutex+updwin={}us palette={}us paint={}us unlock={}us",
 				_gles_perf.last_frame_us,
 				us(t_tick0, t_lock_video),
 				us(t_lock_video, t_pre_palette),

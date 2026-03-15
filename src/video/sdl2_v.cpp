@@ -524,17 +524,17 @@ bool VideoDriver_SDL_Base::PollEvent()
 			break;
 		}
 		case SDL_APP_DIDENTERBACKGROUND:
-			Debug(driver, 0, "SDL: APP_DIDENTERBACKGROUND — pausing game thread");
+			Debug(driver, 1, "SDL: APP_DIDENTERBACKGROUND — pausing game thread");
 			VideoDriver::GetInstance()->SetGameThreadPaused(true);
 			break;
 
 		case SDL_APP_WILLENTERFOREGROUND:
-			Debug(driver, 0, "SDL: APP_WILLENTERFOREGROUND — resuming game thread");
+			Debug(driver, 1, "SDL: APP_WILLENTERFOREGROUND — resuming game thread");
 			VideoDriver::GetInstance()->SetGameThreadPaused(false);
 			break;
 
 		case SDL_APP_DIDENTERFOREGROUND:
-			Debug(driver, 0, "SDL: APP_DIDENTERFOREGROUND");
+			Debug(driver, 1, "SDL: APP_DIDENTERFOREGROUND");
 			break;
 
 		case SDL_RENDER_DEVICE_RESET:
@@ -543,7 +543,7 @@ bool VideoDriver_SDL_Base::PollEvent()
 			break;
 
 		case SDL_WINDOWEVENT: {
-			Debug(driver, 0, "SDL: WINDOWEVENT event={}", ev.window.event);
+			Debug(driver, 1, "SDL: WINDOWEVENT event={}", ev.window.event);
 			if (ev.window.event == SDL_WINDOWEVENT_EXPOSED) {
 				/* Force a redraw of the entire screen. */
 				this->MakeDirty(0, 0, _screen.width, _screen.height);

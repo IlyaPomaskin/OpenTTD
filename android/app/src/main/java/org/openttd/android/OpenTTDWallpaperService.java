@@ -214,7 +214,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 String nativeLibDir = getApplicationContext().getApplicationInfo().nativeLibraryDir;
                 SDLActivity.sOverrideLibrary = nativeLibDir + "/libopenttd.so";
                 SDLActivity.sOverrideFunction = "SDL_main";
-                SDLActivity.sOverrideArguments = new String[]{"-s", "null", "-m", "null"};
+                SDLActivity.sOverrideArguments = new String[]{"-s", "null", "-m", "null", "-d", "driver=3"};
                 sSDLInitialized = true;
             }
 

@@ -130,7 +130,11 @@ void DebugPrint(std::string_view category, int level, std::string &&message)
 #endif
 	} else {
 #ifdef __ANDROID__
-		__android_log_print(ANDROID_LOG_DEBUG, "OpenTTD", "%sdbg: [%.*s:%d] %.*s",
+		int prio = (level == 0) ? ANDROID_LOG_ERROR
+		         : (level == 1) ? ANDROID_LOG_WARN
+		         : (level == 2) ? ANDROID_LOG_INFO
+		         :                ANDROID_LOG_DEBUG;
+		__android_log_print(prio, "OpenTTD", "%sdbg: [%.*s:%d] %.*s",
 			std::string(GetLogPrefix(true)).c_str(),
 			(int)category.size(), category.data(), level,
 			(int)message.size(), message.data());
