@@ -1,5 +1,6 @@
 package org.openttd.android;
 
+import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Gravity;
@@ -170,6 +171,19 @@ public class GameActivity extends SDLActivity {
                 | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
             );
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        Log.w(TAG, "onDestroy: isChangingConfigurations=" + isChangingConfigurations()
+            + " isFinishing=" + isFinishing());
+        super.onDestroy();
+    }
+
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        Log.w(TAG, "onConfigurationChanged: " + newConfig.diff(getResources().getConfiguration()));
+        super.onConfigurationChanged(newConfig);
     }
 
     @Override
