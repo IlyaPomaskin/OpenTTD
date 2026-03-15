@@ -99,7 +99,7 @@ Java_org_openttd_android_GameActivity_nativeSetGamePaused(JNIEnv *, jclass, jboo
 {
 	auto *drv = VideoDriver::GetInstance();
 	if (drv != nullptr) {
-		Debug(driver, 0, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		Debug(driver, 1, "nativeSetGamePaused: {}", paused ? "true" : "false");
 		drv->SetGameThreadPaused(paused);
 	}
 }
@@ -116,7 +116,7 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, j
 {
 	auto *drv = VideoDriver::GetInstance();
 	if (drv != nullptr) {
-		Debug(driver, 0, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		Debug(driver, 1, "nativeSetGamePaused: {}", paused ? "true" : "false");
 		drv->SetGameThreadPaused(paused);
 	}
 }
@@ -235,7 +235,7 @@ void VideoDriver_SDL_GLES::ToggleVsync(bool vsync)
 
 bool VideoDriver_SDL_GLES::AllocateBackingStore(int w, int h, bool force)
 {
-	Debug(driver, 0, "GLES AllocateBackingStore: w={} h={} force={} gl_context={}", w, h, force, (void *)this->gl_context);
+	Debug(driver, 1, "GLES AllocateBackingStore: w={} h={} force={} gl_context={}", w, h, force, (void *)this->gl_context);
 	if (this->gl_context == nullptr) return false;
 
 	w = std::max(w, 64);
@@ -283,6 +283,7 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 {
 	if (this->snapshot_buffer == nullptr) return false;
+	if (eglGetCurrentContext() == EGL_NO_CONTEXT) return false;
 
 	GLESBackend *backend = GLESBackend::Get();
 	if (backend == nullptr) return false;
@@ -410,6 +411,12 @@ void VideoDriver_SDL_GLES::Paint()
 {
 	PerformanceMeasurer framerate(PFE_VIDEO);
 
+	/* Skip all GL work if context is gone (surface destroyed). */
+	if (eglGetCurrentContext() == EGL_NO_CONTEXT) {
+		_gles_context_lost = true;
+		return;
+	}
+
 	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET).
 	 * Must run at the top of Paint() — we're on the GL thread with the new context current. */
 	if (_gles_context_lost && GLESBackend::Get() != nullptr) {
@@ -422,21 +429,6 @@ void VideoDriver_SDL_GLES::Paint()
 		return;
 	}
 
-
-	/* Log EGL context state every 60 frames to detect context loss. */
-	static int paint_count = 0;
-	paint_count++;
-	if (paint_count % 60 == 1) {
-		EGLContext ctx = eglGetCurrentContext();
-		EGLDisplay dpy = eglGetCurrentDisplay();
-		EGLSurface srf = eglGetCurrentSurface(EGL_DRAW);
-		EGLint err = eglGetError();
-		Debug(driver, 3, "GLES ctx: frame={} context={} display={} surface={} egl_err=0x{:04X}",
-			paint_count, (void *)ctx, (void *)dpy, (void *)srf, err);
-		if (ctx == EGL_NO_CONTEXT) {
-			Debug(driver, 0, "GLES ctx: WARNING - EGL_NO_CONTEXT! Context has been lost.");
-		}
-	}
 
 	static int fps_frames = 0;
 	static auto fps_last = std::chrono::steady_clock::now();
@@ -468,7 +460,7 @@ void VideoDriver_SDL_GLES::Paint()
 		auto &p = _gles_perf;
 		int n = std::max(1, p.frames);
 		auto &atlas = GLESBackend::Get()->GetSpriteAtlas();
-		Debug(driver, 0, "PERF fps={} frames={} | blit_calls={} gpu_cmds={} atlas_miss={} offscreen_skip={} | gl_batches={} reuploaded={} dim_mismatch={} zoom=[{}/{}/{}/{}/{}/{}] scaled_hits={} scaled_fallback={} gpu_paint={}us egl_swap={}us | encode: total={} uploaded={} all_transparent={} | atlas: color_pages={} remap_pages={} gpu_entries={} registered={} new_sprites={} repacked={} | gl: loads={} fails={} budget_skip={} pbo_up={} lookup={}/{}",
+		Debug(driver, 3, "PERF fps={} frames={} | blit_calls={} gpu_cmds={} atlas_miss={} offscreen_skip={} | gl_batches={} reuploaded={} dim_mismatch={} zoom=[{}/{}/{}/{}/{}/{}] scaled_hits={} scaled_fallback={} gpu_paint={}us egl_swap={}us | encode: total={} uploaded={} all_transparent={} | atlas: color_pages={} remap_pages={} gpu_entries={} registered={} new_sprites={} repacked={} | gl: loads={} fails={} budget_skip={} pbo_up={} lookup={}/{}",
 			fps, p.frames,
 			p.blit_draw_calls / n, p.gpu_draw_cmds / n, p.gpu_sprites_missing, p.gpu_skip_offscreen,
 			p.gpu_batches / n, p.gpu_sprites_reuploaded, p.gpu_dim_mismatches,
@@ -480,7 +472,7 @@ void VideoDriver_SDL_GLES::Paint()
 			atlas.GetSpriteCount(), GetRegisteredSpriteCount(),
 			p.gpu_sprites_new, p.gpu_sprites_repacked,
 			p.gl_thread_loads, p.gl_thread_fails, p.gl_budget_skips, p.pbo_uploaded_this_period, p.lookup_hits, p.lookup_total);
-		Debug(driver, 0, "  VP landscape={}us vehicles={}us ground_sprites={}us sprite_sort={}us sprite_draw={}us update_windows={}us | tiles_iterated={} parent_sprites={} child_sprites={} sprites_generated={} vp_draw_calls={} viewport={}x{} | mrt: full_renders={} resolve_only={} idle_blit={} resolve={}us",
+		Debug(driver, 3, "  VP landscape={}us vehicles={}us ground_sprites={}us sprite_sort={}us sprite_draw={}us update_windows={}us | tiles_iterated={} parent_sprites={} child_sprites={} sprites_generated={} vp_draw_calls={} viewport={}x{} | mrt: full_renders={} resolve_only={} idle_blit={} resolve={}us",
 			p.vp_land_us / n, p.vp_vehicles_us / n, p.vp_signs_tiles_us / n,
 			p.vp_sort_us / n, p.vp_draw_us / n, p.update_windows_us / n,
 			p.vp_tiles_iterated / n, p.vp_parent_sprites / n, p.vp_child_sprites / n,
@@ -488,7 +480,7 @@ void VideoDriver_SDL_GLES::Paint()
 			p.vp_calls, p.vp_area_w, p.vp_area_h,
 			p.full_renders, p.resolve_passes, p.idle_blits, p.resolve_us / n);
 		auto tick_accounted = p.lock_video_us + p.mutex_wait_us + p.input_poll_us + p.update_windows_us + p.populate_us + p.check_palette_us + p.paint_full_us + p.unlock_video_us;
-		Debug(driver, 0, "  TICK total={}us | lock_video={}us game_mutex={}us(skipped={}) input_poll={}us update_windows={}us populate_sprites={}us check_palette={}us paint={}us(gpu_render={}us egl_swap={}us) unlock_video={}us unaccounted={}us",
+		Debug(driver, 3, "  TICK total={}us | lock_video={}us game_mutex={}us(skipped={}) input_poll={}us update_windows={}us populate_sprites={}us check_palette={}us paint={}us(gpu_render={}us egl_swap={}us) unlock_video={}us unaccounted={}us",
 			p.tick_total_us / n,
 			p.lock_video_us / n, p.mutex_wait_us / n, p.mutex_skipped, p.input_poll_us / n,
 			p.update_windows_us / n, p.populate_us / n, p.check_palette_us / n,
@@ -526,20 +518,20 @@ void VideoDriver_SDL_GLES::Paint()
 
 			{
 			int gt = std::max(1, p.gameloop_ticks);
-			Debug(driver, 0, "  CPU gameloop={}us snap_total={}us(record={}us validate={}us) cmds={} | tileloop={}us({}tiles) vehtick={}us ticks={}",
+			Debug(driver, 3, "  CPU gameloop={}us snap_total={}us(record={}us validate={}us) cmds={} | tileloop={}us({}tiles) vehtick={}us ticks={}",
 				p.gameloop_us / gt,
 				p.snap_total_us / gt, p.snap_record_us / gt, p.snap_validate_us / gt,
 				p.snap_commands / gt,
 				p.tileloop_us / gt, p.tileloop_count,
 				p.vehicletick_us / gt, p.gameloop_ticks);
 		}
-		Debug(driver, 0, "  EXTRA gpu_actual={}us | overdraw={:.1f}x batch_eff={:.1f} cache_hit={:.1f}% | atlas_occ: color={}% remap={}% | jank={} stddev={}us p95={}us p99={}us | vehicles: T={} R={} S={} A={}",
+		Debug(driver, 3, "  EXTRA gpu_actual={}us | overdraw={:.1f}x batch_eff={:.1f} cache_hit={:.1f}% | atlas_occ: color={}% remap={}% | jank={} stddev={}us p95={}us p99={}us | vehicles: T={} R={} S={} A={}",
 				p.gpu_time_us,
 				overdraw, batch_eff, cache_hit,
 				atlas.GetColourOccupancyPercent(), atlas.GetRemapOccupancyPercent(),
 				p.jank_count, ft_stddev, ft_p95, ft_p99,
 				p.vehicle_trains, p.vehicle_road, p.vehicle_ships, p.vehicle_aircraft);
-		Debug(driver, 0, "  GPU_SNAP clear={}us pbo={}us replay={}us(cmds={} null={}) palette={}us paint={}us blit={}us swap={}us",
+		Debug(driver, 3, "  GPU_SNAP clear={}us pbo={}us replay={}us(cmds={} null={}) palette={}us paint={}us blit={}us swap={}us",
 				p.snap_clear_us / n, p.snap_pbo_us / n, p.snap_replay_us / n,
 				p.snap_replayed_cmds / n, p.snap_null_entries / n,
 				p.snap_palette_us / n, p.gpu_paint_us / n,
