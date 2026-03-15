@@ -500,18 +500,13 @@ static void ShowCurrentPOI()
 	if (_gles_poi_list.empty()) return;
 
 	const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
-	ZoomLevel zoom = static_cast<ZoomLevel>(poi.zoom);
-	Debug(driver, 0, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} zoom={} — {}",
-		_gles_poi_idx, poi.score, poi.map_fx, poi.map_fy, poi.zoom, poi.reason);
+	Debug(driver, 1, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} — {}",
+		_gles_poi_idx, poi.score, poi.map_fx, poi.map_fy, poi.reason);
 
 	Window *w = GetMainWindow();
 	if (w == nullptr || w->viewport == nullptr) return;
 
 	ViewportData &vp = *w->viewport;
-
-	vp.zoom = zoom;
-	vp.virtual_width = ScaleByZoom(vp.width, vp.zoom);
-	vp.virtual_height = ScaleByZoom(vp.height, vp.zoom);
 
 	// TODO: temporarily disabled vehicle following
 	// if (poi.follow_vehicle != VehicleID::Invalid() && Vehicle::IsValidID(poi.follow_vehicle)) {
@@ -528,9 +523,8 @@ static void ShowCurrentPOI()
 		Point pt = RemapCoords(world_x, world_y, 0);
 		int x = pt.x - vp.virtual_width / 2;
 		int y = pt.y - vp.virtual_height / 2;
-		Debug(driver, 0, "GLES POI camera: world={},{} remap={},{} vw={} vh={} scroll={},{} prev={},{} zoom={}",
-			world_x, world_y, pt.x, pt.y, vp.virtual_width, vp.virtual_height, x, y,
-			vp.scrollpos_x, vp.scrollpos_y, (int)vp.zoom);
+		Debug(driver, 1, "GLES POI camera: world={},{} remap={},{} vw={} vh={} scroll={},{} zoom={}",
+			world_x, world_y, pt.x, pt.y, vp.virtual_width, vp.virtual_height, x, y, (int)vp.zoom);
 		vp.scrollpos_x = x;
 		vp.scrollpos_y = y;
 		vp.dest_scrollpos_x = x;

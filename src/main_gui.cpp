@@ -159,7 +159,7 @@ void ZoomInOrOutToCursorWindow(bool in, Window *w)
 
 void FixTitleGameZoom(int zoom_adjust)
 {
-	if (_game_mode != GM_MENU) return;
+	if (_game_mode != GM_MENU && _game_mode != GM_WALLPAPER) return;
 
 	Viewport &vp = *GetMainWindow()->viewport;
 
@@ -586,7 +586,7 @@ void ShowVitalWindows()
  */
 void GameSizeChanged()
 {
-	Debug(misc, 0, "GameSizeChanged: screen={}x{}", _screen.width, _screen.height);
+	Debug(misc, 1, "GameSizeChanged: screen={}x{}", _screen.width, _screen.height);
 	_cur_resolution.width  = _screen.width;
 	_cur_resolution.height = _screen.height;
 	ScreenSizeChanged();

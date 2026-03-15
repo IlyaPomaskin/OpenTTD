@@ -20,6 +20,7 @@
 #include "gui.h"
 #include "string_func.h"
 #include "video/gles_poi.h"
+#include "viewport_func.h"
 #include <chrono>
 #include <filesystem>
 #include <set>
@@ -147,5 +148,6 @@ void LoadWallpaperGame()
 	_pause_mode = {};
 	_cursor.fix_at = false;
 
+	FixTitleGameZoom(-1);
 	PrepareBackground();
 }
