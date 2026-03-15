@@ -23,10 +23,13 @@
 
 void GLESSpriteAtlas::Init()
 {
-	/* Query maximum texture size, clamp to 4096 for reasonable atlas pages. */
-	GLint max_size = 2048;
+	/* Query maximum texture size, clamp to 4096 for reasonable atlas pages.
+	 * Also query GL_MAX_3D_TEXTURE_SIZE because some emulators (goldfish)
+	 * incorrectly validate glTexImage3D for GL_TEXTURE_2D_ARRAY against it. */
+	GLint max_size = 2048, max_3d_size = 2048;
 	glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_size);
-	this->atlas_size = static_cast<uint16_t>(std::min(max_size, (GLint)4096));
+	glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &max_3d_size);
+	this->atlas_size = static_cast<uint16_t>(std::min({max_size, max_3d_size, (GLint)4096}));
 
 	/* Tightly-packed rows for all texture uploads (critical for GL_RED/R8
 	 * where row byte count may not be a multiple of the default alignment 4). */
@@ -67,8 +70,8 @@ void GLESSpriteAtlas::Init()
 		}
 	}
 
-	Debug(driver, 0, "GLES: Atlas page size {}x{}, PBO async upload: 2x{}KB budget={}ms",
-	      this->atlas_size, this->atlas_size, PBO_SIZE / 1024, PBO_TIME_BUDGET_US / 1000);
+	Debug(driver, 0, "GLES: Atlas page size {}x{} (max_tex={} max_3d={}), PBO async upload: 2x{}KB budget={}ms",
+	      this->atlas_size, this->atlas_size, max_size, max_3d_size, PBO_SIZE / 1024, PBO_TIME_BUDGET_US / 1000);
 }
 
 void GLESSpriteAtlas::Destroy()
