@@ -143,6 +143,7 @@ private:
 public:
 	void Init();
 	void Destroy();
+	void DeleteGLObjects();
 
 	/** Request atlas clear (thread-safe, deferred to GL thread). */
 	void RequestClear() { this->clear_pending.store(true); }
@@ -243,9 +244,6 @@ public:
 	int GetColourOccupancyPercent() const;
 	int GetRemapOccupancyPercent() const;
 
-	/** Simulate packing all queued sprites to estimate atlas page count.
-	 *  Pure computation, no GL calls. */
-	void EstimateAtlasPages() const;
 };
 
 #endif /* VIDEO_GLES_SPRITE_H */
