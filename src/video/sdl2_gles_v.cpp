@@ -13,7 +13,7 @@
 #include "../gfx_func.h"
 #include "../spritecache.h"
 #include "../blitter/factory.hpp"
-#include "../blitter/gles.hpp"
+#include "../blitter/snapshot.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
 #include "../window_func.h"
@@ -271,18 +271,11 @@ void VideoDriver_SDL_GLES::MakeDirty(int left, int top, int width, int height)
 void VideoDriver_SDL_GLES::CheckPaletteAnim()
 {
 	if (!CopyPalette(this->local_palette)) return;
-
-	if (this->snapshot_buffer != nullptr) {
-		/* Snapshot mode: palette change is handled by the resolve pass
-		 * in Paint(). No need for MarkWholeScreenDirty(). */
-		return;
-	}
-	this->MakeDirty(0, 0, _screen.width, _screen.height);
 }
 
 bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 {
-	if (this->snapshot_buffer == nullptr) return false;
+	assert(this->snapshot_buffer != nullptr);
 	if (eglGetCurrentContext() == EGL_NO_CONTEXT) return false;
 
 	GLESBackend *backend = GLESBackend::Get();
@@ -407,27 +400,31 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	return true;
 }
 
-void VideoDriver_SDL_GLES::Paint()
+bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 {
-	PerformanceMeasurer framerate(PFE_VIDEO);
-
-	/* Skip all GL work if context is gone (surface destroyed). */
+	/* Mark context lost if EGL context is gone (surface destroyed). */
 	if (eglGetCurrentContext() == EGL_NO_CONTEXT) {
 		_gles_context_lost = true;
-		return;
+		return true;
 	}
 
-	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET).
-	 * Must run at the top of Paint() — we're on the GL thread with the new context current. */
+	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET). */
 	if (_gles_context_lost && GLESBackend::Get() != nullptr) {
 		_gles_context_lost = false;
-		Debug(driver, 0, "GLES: Paint: recovering from context loss");
+		Debug(driver, 0, "GLES: recovering from context loss");
 		GLESBackend::Get()->RecoverGPUState();
 		CopyPalette(this->local_palette, true);
 		_switch_mode = (_game_mode == GM_WALLPAPER) ? SM_WALLPAPER : SM_MENU;
 		this->MakeDirty(0, 0, _screen.width, _screen.height);
-		return;
+		return true;
 	}
+
+	return false;
+}
+
+void VideoDriver_SDL_GLES::Paint()
+{
+	PerformanceMeasurer framerate(PFE_VIDEO);
 
 
 	static int fps_frames = 0;
@@ -543,40 +540,4 @@ void VideoDriver_SDL_GLES::Paint()
 		fps_last = fps_now;
 	}
 
-	/* In snapshot mode, PaintFromSnapshot handles palette, FBO render, blit and swap. */
-	if (this->snapshot_buffer != nullptr) return;
-
-	/* Always upload full palette every frame — treat it as perpetually dirty. */
-	GLESBackend::Get()->UpdatePalette(this->local_palette.palette, 0, 256);
-	GLESBackend::Get()->SetPaletteDirty(true);
-	this->local_palette.count_dirty = 0;
-
-	/* Forward individual dirty rectangles to the GLES backend. */
-	if (GLESBackend::Get() != nullptr) {
-		for (const Rect &r : this->gles_dirty_rects) {
-			GLESBackend::Get()->AddDirtyRect(r.left, r.top, r.right, r.bottom);
-		}
-		this->gles_dirty_rects.clear();
-	}
-
-	this->dirty_rect = {};
-
-	auto t_upload0 = std::chrono::steady_clock::now();
-	auto t_upload1 = t_upload0;
-
-	_gles_perf.gpu_draw_cmds += static_cast<int>(GLESBackend::Get()->GetDrawQueueSize());
-	bool did_render = GLESBackend::Get()->Paint();
-	auto t_paint1 = std::chrono::steady_clock::now();
-
-	if (did_render) {
-		SDL_GL_SwapWindow(this->sdl_window);
-	}
-	auto t_swap1 = std::chrono::steady_clock::now();
-
-	/* Accumulate GPU timing. */
-	auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-	_gles_perf.upload_us += us(t_upload0, t_upload1);
-	_gles_perf.gpu_paint_us += us(t_upload1, t_paint1);
-	_gles_perf.swap_us += us(t_paint1, t_swap1);
-	_gles_perf.frames++;
 }

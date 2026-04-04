@@ -380,6 +380,7 @@ void VideoDriver::Tick()
 
 		/* Snapshot path: paint from triple buffer, skip mutex wait. */
 		if (this->snapshot_buffer != nullptr) {
+			if (this->RecoverContextIfLost()) return;
 			this->ProcessOverlayActions();
 			this->PaintFromSnapshot();
 			auto &tb = *this->snapshot_buffer;
@@ -396,86 +397,8 @@ void VideoDriver::Tick()
 			return;
 		}
 
-		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
-		this->LockVideoBuffer();
-
-		auto t_lock_video = std::chrono::steady_clock::now();
-
-		/* Block until the game thread releases the lock.
-		 * Every frame gets UpdateWindows for smooth vehicle movement. */
-		{
-			std::lock_guard<std::mutex> lock_wait(this->game_thread_wait_mutex);
-			std::lock_guard<std::mutex> lock_state(this->game_state_mutex);
-
-			auto t_mutex = std::chrono::steady_clock::now();
-
-			/* Process deferred atlas clear before UpdateWindows so that
-			 * LookupOrUpload never returns stale entries from the old map. */
-			if (GLESBackend::Get() != nullptr) {
-				GLESBackend::Get()->GetSpriteAtlas().ProcessPendingClear();
-			}
-
-			InteractiveRandom();
-			this->DrainCommandQueue();
-			while (this->PollEvent()) {}
-			this->InputLoop();
-			::InputLoop();
-
-			auto t_input = std::chrono::steady_clock::now();
-
-			if (_switch_mode == SM_NONE || HasModalProgress()) {
-				::UpdateWindows();
-			}
-
-			auto t_updwin = std::chrono::steady_clock::now();
-
-			this->PopulateSystemSprites();
-
-			auto t_populate = std::chrono::steady_clock::now();
-
-			auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-			_gles_perf.mutex_wait_us += us(t_lock_video, t_mutex);
-			_gles_perf.input_poll_us += us(t_mutex, t_input);
-			_gles_perf.populate_us += us(t_updwin, t_populate);
-		}
-
-		auto t_pre_palette = std::chrono::steady_clock::now();
-		this->CheckPaletteAnim();
-		auto t_post_palette = std::chrono::steady_clock::now();
-
-		this->ProcessOverlayActions();
-		this->Paint();
-
-		auto t_post_paint = std::chrono::steady_clock::now();
-
-		this->UnlockVideoBuffer();
-		auto t_tick_end = std::chrono::steady_clock::now();
-
-		auto us = [](auto a, auto b) { return std::chrono::duration_cast<std::chrono::microseconds>(b - a).count(); };
-		_gles_perf.lock_video_us += us(t_tick0, t_lock_video);
-		_gles_perf.check_palette_us += us(t_pre_palette, t_post_palette);
-		_gles_perf.paint_full_us += us(t_post_palette, t_post_paint);
-		_gles_perf.unlock_video_us += us(t_post_paint, t_tick_end);
-		_gles_perf.tick_total_us += us(t_tick0, t_tick_end);
-		_gles_perf.last_frame_us = us(t_tick0, t_tick_end);
-
-		/* Log individual slow frames for stutter diagnosis. */
-		if (_gles_perf.last_frame_us > 20000) {
-			Debug(driver, 3, "  SLOW frame={}us | lock_video={}us mutex+updwin={}us palette={}us paint={}us unlock={}us",
-				_gles_perf.last_frame_us,
-				us(t_tick0, t_lock_video),
-				us(t_lock_video, t_pre_palette),
-				us(t_pre_palette, t_post_palette),
-				us(t_post_palette, t_post_paint),
-				us(t_post_paint, t_tick_end));
-		}
-
-		/* Wait till the first successful drawing tick before marking the driver as operational. */
-		static bool first_draw_tick = true;
-		if (first_draw_tick) {
-			first_draw_tick = false;
-			DriverFactoryBase::MarkVideoDriverOperational();
-		}
+		/* Non-snapshot path not supported — snapshot_buffer is always set. */
+		assert(this->snapshot_buffer != nullptr);
 	}
 }
 

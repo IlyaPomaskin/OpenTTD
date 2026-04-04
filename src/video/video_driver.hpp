@@ -101,6 +101,12 @@ public:
 	}
 
 	/**
+	 * Check and recover from GL context loss. Called at start of draw thread iteration.
+	 * @return true if context was lost and recovered (skip GL work this frame).
+	 */
+	virtual bool RecoverContextIfLost() { return false; }
+
+	/**
 	 * Populate all sprites in cache.
 	 */
 	virtual void PopulateSystemSprites() {}

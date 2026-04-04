@@ -39,6 +39,7 @@ protected:
 	void Paint() override;
 	bool PaintFromSnapshot() override;
 	void CheckPaletteAnim() override;
+	bool RecoverContextIfLost() override;
 	bool CreateMainWindow(uint w, uint h, uint flags) override;
 
 private:
