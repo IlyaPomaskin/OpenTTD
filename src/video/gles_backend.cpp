@@ -225,49 +225,8 @@ bool GLESBackend::InitShaders()
 	return true;
 }
 
-bool GLESBackend::Create()
+void GLESBackend::ProbeExtensions()
 {
-	assert(GLESBackend::instance == nullptr);
-
-	GLESBackend *backend = new GLESBackend();
-
-	if (!backend->InitShaders()) {
-		delete backend;
-		return false;
-	}
-
-	/* Create 256x1 RGBA palette texture. */
-	glGenTextures(1, &backend->palette_tex);
-	glBindTexture(GL_TEXTURE_2D, backend->palette_tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-	/* Create double-buffered 256x1 remap table textures (R8). */
-	glGenTextures(2, backend->remap_table_tex);
-	for (int i = 0; i < 2; i++) {
-		glBindTexture(GL_TEXTURE_2D, backend->remap_table_tex[i]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 256, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
-	}
-
-	/* Create VBO for batched vertices. */
-	glGenBuffers(1, &backend->vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, backend->vbo);
-	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
-
-	backend->sprite_atlas.Init();
-
-	/* Reserve capacity for draw queue and vertex buffer. */
-	backend->draw_queue.reserve(4096);
-	backend->vertex_buf.reserve(MAX_BATCH_VERTICES);
-
-	/* Probe GL_EXT_disjoint_timer_query for GPU timing. */
 	const char *exts = reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
 	if (exts != nullptr && std::strstr(exts, "GL_EXT_disjoint_timer_query") != nullptr) {
 		_glGenQueriesEXT = reinterpret_cast<PFNGLGENQUERIESEXTPROC>(eglGetProcAddress("glGenQueriesEXT"));
@@ -278,14 +237,71 @@ bool GLESBackend::Create()
 		_glGetQueryObjectivEXT = reinterpret_cast<PFNGLGETQUERYOBJECTIVEXTPROC>(eglGetProcAddress("glGetQueryObjectivEXT"));
 
 		if (_glGenQueriesEXT && _glBeginQueryEXT && _glEndQueryEXT && _glGetQueryObjectui64vEXT && _glGetQueryObjectivEXT) {
-			_glGenQueriesEXT(2, backend->gpu_query);
-			backend->has_timer_query = true;
+			this->has_timer_query = true;
 			Debug(driver, 1, "GLES: GL_EXT_disjoint_timer_query available, GPU timing enabled");
 		}
 	}
-	if (!backend->has_timer_query) {
+	if (!this->has_timer_query) {
 		Debug(driver, 1, "GLES: GL_EXT_disjoint_timer_query not available");
 	}
+}
+
+bool GLESBackend::InitGLObjects()
+{
+	if (!this->InitShaders()) {
+		Debug(driver, 0, "GLES: FAILED to initialize shaders!");
+		return false;
+	}
+
+	/* Create 256x1 RGBA palette texture. */
+	glGenTextures(1, &this->palette_tex);
+	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+
+	/* Create double-buffered 256x1 remap table textures (R8). */
+	glGenTextures(2, this->remap_table_tex);
+	for (int i = 0; i < 2; i++) {
+		glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[i]);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 256, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
+	}
+
+	/* Create VBO for batched vertices. */
+	glGenBuffers(1, &this->vbo);
+	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
+	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
+
+	this->sprite_atlas.Init();
+
+	/* Create timer query objects if extension is available. */
+	if (this->has_timer_query && _glGenQueriesEXT) {
+		_glGenQueriesEXT(2, this->gpu_query);
+	}
+
+	return true;
+}
+
+bool GLESBackend::Create()
+{
+	assert(GLESBackend::instance == nullptr);
+
+	GLESBackend *backend = new GLESBackend();
+	backend->ProbeExtensions();
+
+	if (!backend->InitGLObjects()) {
+		delete backend;
+		return false;
+	}
+
+	backend->draw_queue.reserve(4096);
+	backend->vertex_buf.reserve(MAX_BATCH_VERTICES);
 
 	GLESBackend::instance = backend;
 
@@ -303,7 +319,7 @@ void GLESBackend::RecoverGPUState()
 {
 	Debug(driver, 0, "GLES: RecoverGPUState: rebuilding GPU objects after context loss");
 
-	/* All old GL handles belong to the dead EGL context.  Zero them out so that
+	/* All old GL handles belong to the dead EGL context. Zero them out so that
 	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
 	 * do NOT call glDelete* on them — that would inject errors into the new context. */
 	this->prog_normal = 0; this->prog_remap = 0; this->prog_transparent = 0;
@@ -319,45 +335,15 @@ void GLESBackend::RecoverGPUState()
 	this->gpu_query[0] = 0; this->gpu_query[1] = 0;
 	this->gpu_query_idx = 0;
 	this->gpu_query_active = false;
-	/* has_timer_query stays true if extension was found; re-create query objects below. */
+	/* has_timer_query stays true if extension was found. */
 
-	/* Recompile and link all shader programs in the new context. */
-	if (!this->InitShaders()) {
-		Debug(driver, 0, "GLES: RecoverGPUState: FAILED to reinitialize shaders!");
+	this->sprite_atlas.AbandonGLObjects();
+	if (!this->InitGLObjects()) {
+		Debug(driver, 0, "GLES: RecoverGPUState: FAILED to reinitialize GL objects!");
 		return;
 	}
 
-	/* Create palette texture. */
-	glGenTextures(1, &this->palette_tex);
-	glBindTexture(GL_TEXTURE_2D, this->palette_tex);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-
-	/* Create remap table textures. */
-	glGenTextures(2, this->remap_table_tex);
-	for (int i = 0; i < 2; i++) {
-		glBindTexture(GL_TEXTURE_2D, this->remap_table_tex[i]);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, 256, 1, 0, GL_RED, GL_UNSIGNED_BYTE, nullptr);
-	}
-
-	/* Create VBO. */
-	glGenBuffers(1, &this->vbo);
-	glBindBuffer(GL_ARRAY_BUFFER, this->vbo);
-	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
-
-	/* Re-initialize atlas (GL settings for the new context).
-	 * Abandon old GL handles first — they belong to the dead context. */
-	this->sprite_atlas.AbandonGLObjects();
-	this->sprite_atlas.Init();
-
-	/* Recreate FBO and cpu_framebuf_tex via Resize() (handles are already 0). */
+	/* Recreate FBO via Resize() (handles are already 0). */
 	if (this->screen_width > 0 && this->screen_height > 0) {
 		this->Resize(this->screen_width, this->screen_height);
 	}
@@ -365,11 +351,6 @@ void GLESBackend::RecoverGPUState()
 	/* Discard stale queued state from before context loss. */
 	this->draw_queue.clear();
 	this->dirty_rects.clear();
-
-	/* Re-create timer query objects if extension was available. */
-	if (this->has_timer_query && _glGenQueriesEXT) {
-		_glGenQueriesEXT(2, this->gpu_query);
-	}
 
 	Debug(driver, 0, "GLES: RecoverGPUState: done, triggering map reload");
 }

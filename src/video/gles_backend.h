@@ -119,6 +119,8 @@ private:
 	~GLESBackend();
 
 	bool InitShaders();
+	bool InitGLObjects();
+	void ProbeExtensions();
 	GLuint CompileShader(GLenum type, const char *source);
 	GLuint LinkProgram(GLuint vert, GLuint frag);
 	void DrawDebugDirtyOverlay(const std::vector<Rect> &rects);
