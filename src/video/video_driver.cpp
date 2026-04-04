@@ -206,10 +206,14 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 		mw->width = save_win_width;
 		mw->height = save_win_height;
 	}
-	_screen.dst_ptr = save_dst;
-	_screen.width = real_w;
-	_screen.height = real_h;
-	_screen.pitch = real_pitch;
+	/* Only restore _screen fields if the GL thread didn't update them during
+	 * recording. If AllocateBackingStore ran concurrently it already wrote the
+	 * correct new values; overwriting them would cause the next reload to use
+	 * stale dimensions (the landscape→portrait race). */
+	if (_screen.dst_ptr == dummy_buf.data()) _screen.dst_ptr = save_dst;
+	if (_screen.width  == expanded_w) _screen.width  = real_w;
+	if (_screen.height == expanded_h) _screen.height = real_h;
+	if (_screen.pitch  == expanded_w) _screen.pitch  = real_pitch;
 	_cur_dpi = save_dpi;
 
 	/* Validate coordinates before publishing to GPU thread. */

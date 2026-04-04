@@ -588,6 +588,10 @@ void ShowVitalWindows()
 void GameSizeChanged()
 {
 	Debug(misc, 1, "GameSizeChanged: screen={}x{}", _screen.width, _screen.height);
+
+	int old_w = _cur_resolution.width;
+	int old_h = _cur_resolution.height;
+
 	_cur_resolution.width  = _screen.width;
 	_cur_resolution.height = _screen.height;
 	ScreenSizeChanged();
@@ -597,6 +601,17 @@ void GameSizeChanged()
 	    FindWindowById(WC_MAIN_WINDOW, 0) != nullptr) {
 		FixTitleGameZoom(-1);
 		RecenterOnCurrentPOI();
+	}
+
+	/* In wallpaper mode, a size change mid-render (e.g. orientation change,
+	 * or wrong initial size from SDL) leaves stale snapshots at the old
+	 * dimensions. Reload the title game so the viewport is fully reinitialized
+	 * at the correct size. */
+	if (_game_mode == GM_WALLPAPER && old_w > 0 && old_h > 0 &&
+	    (old_w != _screen.width || old_h != _screen.height)) {
+		Debug(misc, 0, "GameSizeChanged: wallpaper resize {}x{} -> {}x{}, reloading",
+		      old_w, old_h, _screen.width, _screen.height);
+		_switch_mode = SM_WALLPAPER;
 	}
 
 	MarkWholeScreenDirty();
