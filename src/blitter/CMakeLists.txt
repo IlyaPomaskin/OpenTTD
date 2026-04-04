@@ -39,8 +39,8 @@ add_files(
 )
 
 add_files(
-    gles.cpp
-    gles.hpp
+    snapshot.cpp
+    snapshot.hpp
     CONDITION NOT OPTION_DEDICATED AND OPENGLES_FOUND
 )
 
@@ -50,6 +50,4 @@ add_files(
     factory.hpp
     null.cpp
     null.hpp
-    snapshot.cpp
-    snapshot.hpp
 )

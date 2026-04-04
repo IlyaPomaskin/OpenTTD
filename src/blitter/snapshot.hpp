@@ -51,6 +51,9 @@ public:
 	std::string_view GetName() override { return "snapshot"; }
 };
 
+/** Flush sprites staged before GLESBackend was ready into the atlas. */
+void FlushEarlyStaged();
+
 /** Factory for the snapshot blitter. */
 class FBlitter_Snapshot : public BlitterFactory {
 public:

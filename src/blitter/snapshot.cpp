@@ -19,6 +19,31 @@
 /** Register the snapshot blitter factory so it can be selected by name. */
 static FBlitter_Snapshot iFBlitter_Snapshot;
 
+/** Early staging buffer for sprites encoded before GLESBackend is ready. */
+static std::vector<GLESUploadRequest> &GetEarlyStaged()
+{
+	static std::vector<GLESUploadRequest> buf;
+	return buf;
+}
+
+void FlushEarlyStaged()
+{
+	auto &early = GetEarlyStaged();
+	if (early.empty()) return;
+
+	GLESBackend *backend = GLESBackend::Get();
+	if (backend == nullptr) return;
+
+	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	for (auto &req : early) {
+		SpriteID sprite_id = static_cast<SpriteID>(req.key >> 4);
+		ZoomLevel zoom = static_cast<ZoomLevel>(req.key & 0xF);
+		atlas.Enqueue(sprite_id, zoom, req.pixels.data(),
+		              req.width, req.height, req.has_rgb, req.has_remap);
+	}
+	early.clear();
+}
+
 Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
 {
 	_gles_perf.encode_total++;
@@ -63,6 +88,17 @@ Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::Spr
 		if (backend != nullptr) {
 			backend->GetSpriteAtlas().Enqueue(this->encoding_sprite_id_, kGPUScaleBaseZoom, best->data,
 			                                  best->width, best->height, has_rgb, has_remap);
+		} else {
+			/* Backend not ready yet — save to early staging buffer. */
+			GLESUploadRequest req;
+			size_t count = static_cast<size_t>(best->width) * best->height;
+			req.key = MakeGLESSpriteKey(this->encoding_sprite_id_, kGPUScaleBaseZoom);
+			req.pixels.assign(best->data, best->data + count);
+			req.width = best->width;
+			req.height = best->height;
+			req.has_rgb = has_rgb;
+			req.has_remap = has_remap;
+			GetEarlyStaged().push_back(std::move(req));
 		}
 		_gles_perf.encode_uploaded++;
 	}
