@@ -44,6 +44,7 @@ protected:
 
 private:
 	void *gl_context = nullptr;
+	void *last_egl_context = nullptr; ///< EGL context handle from last frame; detects context recreation.
 	std::vector<uint32_t> video_buffer; ///< CPU-side video buffer for non-GPU drawing (text, UI).
 	std::vector<Rect> gles_dirty_rects; ///< Individual dirty rects for GLES (not coalesced).
 	std::vector<GLESSpriteID> deferred_upload_keys; ///< Sprites missing during replay, uploaded after swap.

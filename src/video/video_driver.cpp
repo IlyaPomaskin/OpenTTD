@@ -261,12 +261,23 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 
 void VideoDriver::GameThread()
 {
+	Debug(driver, 0, "[CTX] GameThread: started");
+	bool was_paused = false;
+
 	while (!_exit_game) {
-		if (this->game_thread_paused.load()) {
+		bool paused = this->game_thread_paused.load();
+
+		if (paused != was_paused) {
+			Debug(driver, 0, "[CTX] GameThread: paused={}", paused);
+			was_paused = paused;
+		}
+
+		if (paused) {
 			/* Advance POI and pump 3 game ticks with 20ms gaps so GL thread
 			 * can render each snapshot while still running — this warms up
 			 * the sprite atlas for the new camera position before we sleep. */
-			PrepareBackground();
+			// PrepareBackground();
+			Debug(driver, 0, "[CTX] GameThread: running 3 warm-up ticks");
 			for (int i = 0; i < 3; i++) {
 				this->GameLoop();
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -296,6 +307,7 @@ void VideoDriver::GameThread()
 			std::lock_guard<std::mutex> lock(this->game_thread_wait_mutex);
 		}
 	}
+	Debug(driver, 0, "[CTX] GameThread: exiting (_exit_game=true)");
 }
 
 /**
@@ -386,7 +398,11 @@ void VideoDriver::Tick()
 
 		/* Snapshot path: paint from triple buffer, skip mutex wait. */
 		if (this->snapshot_buffer != nullptr) {
-			if (this->RecoverContextIfLost()) return;
+			bool recovered = this->RecoverContextIfLost();
+			if (recovered) {
+				Debug(driver, 0, "[CTX] Tick: context recovered, skipping frame");
+				return;
+			}
 			this->ProcessOverlayActions();
 			this->PaintFromSnapshot();
 			auto &tb = *this->snapshot_buffer;

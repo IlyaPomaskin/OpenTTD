@@ -16,6 +16,7 @@
 #include "../spriteloader/grf.hpp"
 #include "../table/sprites.h"
 #include <GLES3/gl3.h>
+#include <EGL/egl.h>
 #include <algorithm>
 #include <chrono>
 
@@ -126,9 +127,36 @@ void GLESSpriteAtlas::ClearSprites()
 	size_t old_pages = this->colour_pages.size() + this->remap_pages.size();
 	size_t old_sprites = this->sprites.size();
 
-	/* Delete all GL objects; PBOs recreated lazily in ProcessPBOUploads. */
-	this->DeleteGLObjects();
+	/* In-place clear: reset sprite map and packing cursors, keep atlas textures.
+	 * Avoids GPU OOM on gfxstream where glDeleteTextures + glTexImage3D cycles
+	 * accumulate deferred memory that isn't freed before the next allocation.
+	 * The existing texture memory is reused; old pixel data is overwritten by
+	 * new uploads. GL command ordering ensures no use-after-free on the GPU. */
+	this->sprites.clear();
 
+	for (auto &page : this->colour_pages) {
+		page.cursor_x = 0;
+		page.cursor_y = 0;
+		page.row_height = 0;
+	}
+	for (auto &page : this->remap_pages) {
+		page.cursor_x = 0;
+		page.cursor_y = 0;
+		page.row_height = 0;
+	}
+
+	/* Clear PBO batch state; keep PBO handles for reuse. */
+	if (this->pbo_inflight.fence != nullptr) {
+		glDeleteSync(this->pbo_inflight.fence);
+		this->pbo_inflight.fence = nullptr;
+	}
+	this->pbo_inflight.entries.clear();
+	this->pbo_inflight.used_bytes = 0;
+	this->pbo_inflight_keys.clear();
+	this->pbo_current.entries.clear();
+	this->pbo_current.used_bytes = 0;
+
+	/* Placeholder must be re-packed at cursor origin into existing texture. */
 	this->placeholder_ready = false;
 
 	this->clear_time = std::chrono::steady_clock::now();
@@ -143,7 +171,7 @@ void GLESSpriteAtlas::ClearSprites()
 	 * Sprites still in upload_queue will be re-added on next Enqueue. */
 	this->known_clear_pending.store(true);
 
-	Debug(driver, 0, "[LOAD] sprites_clear: deleted_pages={} deleted_entries={} queued={}",
+	Debug(driver, 0, "[LOAD] sprites_clear: reset_pages={} deleted_entries={} queued={}",
 	      old_pages, old_sprites, this->upload_queue.size());
 
 	/* Rebuild GL-thread sprite file copies (GRF files may have changed). */
@@ -332,19 +360,13 @@ void GLESSpriteAtlas::PBOFillBatch(std::chrono::steady_clock::time_point t_start
 
 	if (prepared.empty()) return;
 
-	/* --- Pass 2: map PBO and write pixel data (no PackRegion/AllocPage calls) --- */
-	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, this->pbo_current.pbo);
-	glBufferData(GL_PIXEL_UNPACK_BUFFER, PBO_SIZE, nullptr, GL_STREAM_DRAW); /* Orphan. */
-	void *mapped = glMapBufferRange(GL_PIXEL_UNPACK_BUFFER, 0, PBO_SIZE,
-	                                GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT);
-	if (mapped == nullptr) {
-		Debug(driver, 0, "GLES: PBO glMapBufferRange failed!");
-		_gles_perf.pbo_map_fail++;
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-		return;
-	}
-
-	uint8_t *ptr = static_cast<uint8_t *>(mapped);
+	/* --- Pass 2: write pixel data to CPU staging buffer, then upload via glBufferData ---
+	 * glMapBufferRange + glUnmapBuffer is avoided entirely: on gfxstream, a dead/null
+	 * draw context makes glMapBufferRange return a non-null fake pointer, and calling
+	 * glUnmapBuffer on it crashes the emulator host (null ctx → no GPU pointer).
+	 * glBufferData with actual data fails silently on null ctx — no crash. */
+	if (this->pbo_staging.size() < total_bytes) this->pbo_staging.resize(total_bytes);
+	uint8_t *ptr = this->pbo_staging.data();
 
 	for (auto &prep : prepared) {
 		const auto &pixels = batch[prep.batch_idx].pixels;
@@ -369,7 +391,11 @@ void GLESSpriteAtlas::PBOFillBatch(std::chrono::steady_clock::time_point t_start
 		this->pbo_current.entries.push_back(prep.pe);
 	}
 
-	glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+	/* Upload CPU staging data to PBO. glBufferData with a null gfxstream context fails
+	 * silently (no crash), so no guard is needed here. */
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, this->pbo_current.pbo);
+	glBufferData(GL_PIXEL_UNPACK_BUFFER, static_cast<GLsizeiptr>(total_bytes),
+	             ptr, GL_STREAM_DRAW);
 	this->pbo_current.used_bytes = total_bytes;
 
 	auto t1 = std::chrono::steady_clock::now();
@@ -384,6 +410,9 @@ void GLESSpriteAtlas::PBOSubmitBatch()
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		return;
 	}
+
+	/* Drain stale errors so per-sprite glGetError() only catches errors from that upload. */
+	while (glGetError() != GL_NO_ERROR) {}
 
 	/* PBO is already bound from FillBatch. Issue async glTexSubImage3D calls. */
 	for (const auto &pe : this->pbo_current.entries) {
@@ -480,6 +509,8 @@ void GLESSpriteAtlas::PBOSubmitBatch()
 
 void GLESSpriteAtlas::ProcessPBOUploads()
 {
+	if (eglGetCurrentContext() == EGL_NO_CONTEXT) return;
+
 	/* Lazily (re)create PBOs after atlas clear or first use. */
 	if (this->pbo_current.pbo == 0) {
 		GLuint pbos[2];
@@ -497,8 +528,8 @@ void GLESSpriteAtlas::ProcessPBOUploads()
 	/* Check previous inflight batch fence (from double-buffer era, kept for safety). */
 	PBOCheckInflight();
 
-	/* Re-create placeholder after atlas clear (textures were deleted). */
-	if (!this->placeholder_ready && this->colour_array_tex == 0) {
+	/* Re-pack placeholder at cursor origin after atlas clear (in-place reuse). */
+	if (!this->placeholder_ready) {
 		/* Trigger atlas creation by packing a 1x1 region, then write placeholder pixel. */
 		GLESSpriteRegion region;
 		if (PackRegion(this->colour_pages, false, 1, 1, region)) {
@@ -585,13 +616,30 @@ GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, boo
 
 	/* Create new array texture with one more layer. */
 	GLuint new_tex;
+	/* Drain ALL stale errors — a single glGetError() is insufficient when multiple
+	 * prior operations (e.g. failed batch uploads) each queued their own error. */
+	while (glGetError() != GL_NO_ERROR) {}
 	glGenTextures(1, &new_tex);
+	GLenum gen_err = glGetError();
+	if (new_tex == 0 || gen_err != GL_NO_ERROR) {
+		/* glGenTextures failed: either returned 0 or set a GL error.
+		 * On gfxstream with a dead/null draw context, glGenTextures can return a
+		 * non-zero fake handle while setting an error (0x500).  Passing that fake
+		 * handle to glTexImage3D (which tries GPU memory allocation) crashes the
+		 * emulator host, so we must bail here before any further GL calls. */
+		Debug(driver, 0, "GLES: AllocPage: glGenTextures failed (tex={} err={:#x}), context lost",
+		      new_tex, gen_err);
+		if (new_tex != 0) glDeleteTextures(1, &new_tex);
+		this->clear_pending.store(true);
+		return pages.back();
+	}
 	glBindTexture(GL_TEXTURE_2D_ARRAY, new_tex);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+	while (glGetError() != GL_NO_ERROR) {}
 	if (luminance) {
 		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_R8, page.width, page.height, new_depth, 0,
 		             GL_RED, GL_UNSIGNED_BYTE, nullptr);
@@ -599,34 +647,67 @@ GLESAtlasPage &GLESSpriteAtlas::AllocPage(std::vector<GLESAtlasPage> &pages, boo
 		glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGBA, page.width, page.height, new_depth, 0,
 		             GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	}
+	GLenum alloc_err = glGetError();
+	if (alloc_err != GL_NO_ERROR) {
+		/* GPU OOM or gfxstream failure — continuing would crash on next draw.
+		 * Delete the unusable texture and trigger a sprite clear to recover. */
+		Debug(driver, 0, "GLES: AllocPage: glTexImage3D failed err={:#x} depth={} lum={}, triggering clear",
+		      alloc_err, new_depth, luminance);
+		glDeleteTextures(1, &new_tex);
+		pages.pop_back();
+		this->clear_pending.store(true);
+		/* Return a dummy page so callers don't crash dereferencing pages.back(). */
+		static GLESAtlasPage dummy{};
+		return dummy;
+	}
 
 	/* Copy existing layers from old array texture via glCopyTexSubImage3D.
 	 * Attach each old layer to a read FBO, then copy directly into the
 	 * new array texture — no CPU readback, works with any format (R8/RGBA). */
 	if (array_tex != 0 && new_depth > 1) {
+		/* Clear any accumulated GL errors before the copy so glGetError()
+		 * below only reports errors from the copy itself. */
+		while (glGetError() != GL_NO_ERROR) {}
+
 		GLuint copy_fbo;
 		glGenFramebuffers(1, &copy_fbo);
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, copy_fbo);
 
+		/* Explicitly set the read buffer: some Android drivers leave it as
+		 * GL_NONE for newly created FBOs instead of defaulting to
+		 * GL_COLOR_ATTACHMENT0, causing glCopyTexSubImage3D to fail with
+		 * GL_INVALID_OPERATION even when the FBO is framebuffer-complete. */
+		glReadBuffer(GL_COLOR_ATTACHMENT0);
+
+		bool copy_ok = true;
 		for (int i = 0; i < new_depth - 1; i++) {
 			glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, array_tex, 0, i);
 			GLenum fb_status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
 			if (fb_status != GL_FRAMEBUFFER_COMPLETE) {
 				Debug(driver, 0, "GLES: Atlas copy FBO incomplete: 0x{:04X} layer={} lum={}",
 				      fb_status, i, luminance);
+				copy_ok = false;
 				continue;
 			}
 			glBindTexture(GL_TEXTURE_2D_ARRAY, new_tex);
 			glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, i, 0, 0, page.width, page.height);
 			GLenum err = glGetError();
 			if (err != GL_NO_ERROR) {
-				Debug(driver, 0, "GLES: Atlas glCopyTexSubImage3D error: 0x{:04X} layer={}", err, i);
+				Debug(driver, 0, "GLES: Atlas glCopyTexSubImage3D error: 0x{:04X} layer={} size={} depth={}",
+				      err, i, this->atlas_size, new_depth);
+				copy_ok = false;
 			}
 		}
 
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 		glDeleteFramebuffers(1, &copy_fbo);
 		glDeleteTextures(1, &array_tex);
+
+		if (!copy_ok) {
+			/* Old atlas data lost — force full sprite reload next frame. */
+			Debug(driver, 0, "GLES: Atlas copy failed, triggering reload");
+			this->clear_pending.store(true);
+		}
 	}
 
 	array_tex = new_tex;
@@ -681,6 +762,12 @@ bool GLESSpriteAtlas::PackRegion(std::vector<GLESAtlasPage> &pages, bool luminan
 
 	/* Need a new page. */
 	{
+		if (static_cast<int>(pages.size()) >= MAX_ATLAS_LAYERS) {
+			Debug(driver, 0, "GLES: Atlas full ({} layers max), triggering clear to evict stale sprites lum={}",
+			      MAX_ATLAS_LAYERS, luminance);
+			this->clear_pending.store(true);
+			return false;
+		}
 		GLESAtlasPage &page = AllocPage(pages, luminance);
 		uint16_t idx = static_cast<uint16_t>(pages.size() - 1);
 

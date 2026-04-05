@@ -127,6 +127,7 @@ private:
 	PBOUploadBatch pbo_current;   ///< Batch being filled this frame.
 	PBOUploadBatch pbo_inflight;  ///< Batch submitted last frame, waiting fence.
 	std::unordered_set<GLESSpriteID> pbo_inflight_keys; ///< Fast lookup for inflight sprites.
+	std::vector<uint8_t> pbo_staging; ///< CPU staging buffer; avoids glMapBufferRange/glUnmapBuffer (gfxstream null-ctx crash).
 
 	GLESSpriteEntry placeholder_entry{}; ///< 1x1 semi-transparent black sprite for missing sprites.
 	bool placeholder_ready = false;

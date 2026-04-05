@@ -149,9 +149,23 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 		return "SDL2: Can't create GLES context";
 	}
 
+	/* Capture EGL state before eglGetError() clears it. */
+	EGLContext cur_ctx  = eglGetCurrentContext();
+	EGLSurface cur_surf = eglGetCurrentSurface(EGL_DRAW);
+	EGLint     egl_err  = eglGetError();
 	Debug(driver, 0, "GLES: EGL after CreateContext: display={} surface={} context={} err=0x{:04X}",
-		(void *)eglGetCurrentDisplay(), (void *)eglGetCurrentSurface(EGL_DRAW),
-		(void *)eglGetCurrentContext(), eglGetError());
+		(void *)eglGetCurrentDisplay(), (void *)cur_surf, (void *)cur_ctx, egl_err);
+
+	/* SDL_GL_CreateContext can return a non-null handle even when the internal
+	 * eglMakeCurrent fails (observed on gfxstream after surface-lifecycle transitions).
+	 * Proceeding with GL initialisation in that state crashes the emulator host. */
+	if (cur_ctx == EGL_NO_CONTEXT || cur_surf == EGL_NO_SURFACE || egl_err != EGL_SUCCESS) {
+		Debug(driver, 0, "GLES: EGL not ready after CreateContext (ctx={} surf={} err={:#x}) — aborting",
+			(void *)cur_ctx, (void *)cur_surf, egl_err);
+		SDL_GL_DeleteContext(this->gl_context);
+		this->gl_context = nullptr;
+		return "EGL not ready after context creation";
+	}
 
 	if (!GLESBackend::Create()) return "Failed to initialize GLES backend";
 
@@ -163,12 +177,16 @@ std::optional<std::string_view> VideoDriver_SDL_GLES::AllocateContext()
 
 void VideoDriver_SDL_GLES::DestroyContext()
 {
+	Debug(driver, 0, "[CTX] DestroyContext: egl_ctx={} egl_surf={} gl_context={}",
+		(void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW),
+		(void *)this->gl_context);
 	GLESBackend::Destroy();
 
 	if (this->gl_context != nullptr) {
 		SDL_GL_DeleteContext(this->gl_context);
 		this->gl_context = nullptr;
 	}
+	Debug(driver, 0, "[CTX] DestroyContext: done");
 }
 
 std::optional<std::string_view> VideoDriver_SDL_GLES::Start(const StringList &param)
@@ -235,7 +253,8 @@ void VideoDriver_SDL_GLES::ToggleVsync(bool vsync)
 
 bool VideoDriver_SDL_GLES::AllocateBackingStore(int w, int h, bool force)
 {
-	Debug(driver, 1, "GLES AllocateBackingStore: w={} h={} force={} gl_context={}", w, h, force, (void *)this->gl_context);
+	Debug(driver, 0, "[CTX] AllocateBackingStore: w={} h={} force={} gl_context={} egl_ctx={}",
+		w, h, force, (void *)this->gl_context, (void *)eglGetCurrentContext());
 	if (this->gl_context == nullptr) return false;
 
 	w = std::max(w, 64);
@@ -253,6 +272,7 @@ bool VideoDriver_SDL_GLES::AllocateBackingStore(int w, int h, bool force)
 
 	CopyPalette(this->local_palette, true);
 
+	Debug(driver, 0, "[CTX] AllocateBackingStore: done _screen={}x{}", _screen.width, _screen.height);
 	return true;
 }
 
@@ -276,7 +296,17 @@ void VideoDriver_SDL_GLES::CheckPaletteAnim()
 bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 {
 	assert(this->snapshot_buffer != nullptr);
-	if (eglGetCurrentContext() == EGL_NO_CONTEXT) return false;
+
+	{
+		EGLContext ctx  = eglGetCurrentContext();
+		EGLSurface surf = eglGetCurrentSurface(EGL_DRAW);
+		if (ctx == EGL_NO_CONTEXT || surf == EGL_NO_SURFACE) {
+			Debug(driver, 0, "[CTX] PaintFromSnapshot: EGL not current at entry: ctx={} surf={}",
+				(void *)ctx, (void *)surf);
+			_gles_context_lost = true;
+			return false;
+		}
+	}
 
 	GLESBackend *backend = GLESBackend::Get();
 	if (backend == nullptr) return false;
@@ -373,6 +403,9 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	backend->BlitToScreen(0.0f, 0.0f);
 	auto t_blit1 = std::chrono::steady_clock::now();
 	SDL_GL_SwapWindow(this->sdl_window);
+	/* SDL_GL_SwapWindow returns void; check eglGetError() to detect swap failure
+	 * (eglSwapBuffers returns EGL_FALSE on dead surface → error != EGL_SUCCESS). */
+	EGLint swap_egl_err = eglGetError();
 	auto t_swap1 = std::chrono::steady_clock::now();
 
 	{
@@ -381,6 +414,20 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 		_gles_perf.swap_us += us(t_blit1, t_swap1);
 	}
 	_gles_perf.frames++;
+
+	/* Detect surface loss: EGL error from swap (dead surface), or context/surface
+	 * gone (SDL unbinds on GL thread after onNativeSurfaceDestroyed). */
+	{
+		EGLContext ctx_after  = eglGetCurrentContext();
+		EGLSurface surf_after = eglGetCurrentSurface(EGL_DRAW);
+		if (swap_egl_err != EGL_SUCCESS || ctx_after == EGL_NO_CONTEXT || surf_after == EGL_NO_SURFACE) {
+			Debug(driver, 0, "[CTX] PaintFromSnapshot: surface lost after swap: egl_err={:#x} ctx={} surf={}",
+				swap_egl_err, (void *)ctx_after, (void *)surf_after);
+			_gles_context_lost = true;
+			this->deferred_upload_keys.clear();
+			return false;
+		}
+	}
 
 	/* Upload missing sprites after SwapWindow (idle time between frames).
 	 * They'll appear next frame — 1 frame latency for new sprites only. */
@@ -418,20 +465,38 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 
 bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 {
+	void *current_ctx  = eglGetCurrentContext();
+	void *current_surf = eglGetCurrentSurface(EGL_DRAW);
+
 	/* Mark context lost if EGL context is gone (surface destroyed). */
-	if (eglGetCurrentContext() == EGL_NO_CONTEXT) {
+	if (current_ctx == EGL_NO_CONTEXT) {
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: ctx=NO_CONTEXT surf={} last={} → marking lost",
+			(void *)current_surf, this->last_egl_context);
 		_gles_context_lost = true;
+		this->last_egl_context = EGL_NO_CONTEXT;
 		return true;
 	}
+
+	/* Detect context recreation: old context was lost and a new one appeared
+	 * without the GL thread ever seeing EGL_NO_CONTEXT (race between context
+	 * destruction and creation, e.g. preview → live wallpaper transition). */
+	if (this->last_egl_context != nullptr && current_ctx != this->last_egl_context) {
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: ctx changed {} → {}, surf={}, treating as loss",
+			this->last_egl_context, current_ctx, (void *)current_surf);
+		_gles_context_lost = true;
+	}
+	this->last_egl_context = current_ctx;
 
 	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET). */
 	if (_gles_context_lost && GLESBackend::Get() != nullptr) {
 		_gles_context_lost = false;
-		Debug(driver, 0, "GLES: recovering from context loss");
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: starting recovery: ctx={} surf={} screen={}x{} game_mode={}",
+			current_ctx, (void *)current_surf, _screen.width, _screen.height, (int)_game_mode);
 		GLESBackend::Get()->RecoverGPUState();
 		CopyPalette(this->local_palette, true);
 		_switch_mode = (_game_mode == GM_WALLPAPER) ? SM_WALLPAPER : SM_MENU;
 		this->MakeDirty(0, 0, _screen.width, _screen.height);
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: recovery done, switch_mode={}", (int)_switch_mode);
 		return true;
 	}
 

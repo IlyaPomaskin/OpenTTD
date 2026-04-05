@@ -248,10 +248,13 @@ void GLESBackend::ProbeExtensions()
 
 bool GLESBackend::InitGLObjects()
 {
+	Debug(driver, 0, "[CTX] InitGLObjects: enter egl_ctx={}", (void *)eglGetCurrentContext());
+
 	if (!this->InitShaders()) {
-		Debug(driver, 0, "GLES: FAILED to initialize shaders!");
+		Debug(driver, 0, "[CTX] InitGLObjects: FAILED shaders egl_ctx={}", (void *)eglGetCurrentContext());
 		return false;
 	}
+	Debug(driver, 0, "[CTX] InitGLObjects: shaders OK");
 
 	/* Create 256x1 RGBA palette texture. */
 	glGenTextures(1, &this->palette_tex);
@@ -279,18 +282,22 @@ bool GLESBackend::InitGLObjects()
 	glBufferData(GL_ARRAY_BUFFER, MAX_BATCH_VERTICES * sizeof(GLESVertex), nullptr, GL_DYNAMIC_DRAW);
 
 	this->sprite_atlas.Init();
+	Debug(driver, 0, "[CTX] InitGLObjects: atlas init OK, palette_tex={} vbo={}", this->palette_tex, this->vbo);
 
 	/* Create timer query objects if extension is available. */
 	if (this->has_timer_query && _glGenQueriesEXT) {
 		_glGenQueriesEXT(2, this->gpu_query);
 	}
 
+	Debug(driver, 0, "[CTX] InitGLObjects: done OK");
 	return true;
 }
 
 bool GLESBackend::Create()
 {
 	assert(GLESBackend::instance == nullptr);
+	Debug(driver, 0, "[CTX] GLESBackend::Create: egl_ctx={} egl_surf={}",
+		(void *)eglGetCurrentContext(), (void *)eglGetCurrentSurface(EGL_DRAW));
 
 	GLESBackend *backend = new GLESBackend();
 	backend->ProbeExtensions();
@@ -311,13 +318,17 @@ bool GLESBackend::Create()
 
 void GLESBackend::Destroy()
 {
+	Debug(driver, 0, "[CTX] GLESBackend::Destroy: egl_ctx={} instance={}",
+		(void *)eglGetCurrentContext(), (void *)GLESBackend::instance);
 	delete GLESBackend::instance;
 	GLESBackend::instance = nullptr;
+	Debug(driver, 0, "[CTX] GLESBackend::Destroy: done");
 }
 
 void GLESBackend::RecoverGPUState()
 {
-	Debug(driver, 0, "GLES: RecoverGPUState: rebuilding GPU objects after context loss");
+	Debug(driver, 0, "[CTX] RecoverGPUState: enter — zeroing all GL handles, screen={}x{} queue={}",
+		this->screen_width, this->screen_height, this->draw_queue.size());
 
 	/* All old GL handles belong to the dead EGL context. Zero them out so that
 	 * subsequent glDelete* calls inside Resize() / Destroy() are no-ops, and
@@ -337,26 +348,35 @@ void GLESBackend::RecoverGPUState()
 	this->gpu_query_active = false;
 	/* has_timer_query stays true if extension was found. */
 
+	Debug(driver, 0, "[CTX] RecoverGPUState: AbandonGLObjects (atlas)");
 	this->sprite_atlas.AbandonGLObjects();
+
+	Debug(driver, 0, "[CTX] RecoverGPUState: calling InitGLObjects");
 	if (!this->InitGLObjects()) {
-		Debug(driver, 0, "GLES: RecoverGPUState: FAILED to reinitialize GL objects!");
+		Debug(driver, 0, "[CTX] RecoverGPUState: FAILED InitGLObjects!");
 		return;
 	}
+	Debug(driver, 0, "[CTX] RecoverGPUState: InitGLObjects OK");
 
 	/* Recreate FBO via Resize() (handles are already 0). */
 	if (this->screen_width > 0 && this->screen_height > 0) {
+		Debug(driver, 0, "[CTX] RecoverGPUState: calling Resize({}x{})", this->screen_width, this->screen_height);
 		this->Resize(this->screen_width, this->screen_height);
+	} else {
+		Debug(driver, 0, "[CTX] RecoverGPUState: skipping Resize (screen={}x{})", this->screen_width, this->screen_height);
 	}
 
 	/* Discard stale queued state from before context loss. */
 	this->draw_queue.clear();
 	this->dirty_rects.clear();
 
-	Debug(driver, 0, "GLES: RecoverGPUState: done, triggering map reload");
+	Debug(driver, 0, "[CTX] RecoverGPUState: done — triggering map reload");
 }
 
 void GLESBackend::Resize(int w, int h)
 {
+	Debug(driver, 0, "[CTX] Resize: {}x{} egl_ctx={} old_fbo={}", w, h,
+		(void *)eglGetCurrentContext(), this->fbo);
 	this->screen_width = w;
 	this->screen_height = h;
 
@@ -413,6 +433,10 @@ void GLESBackend::Resize(int w, int h)
 	/* Bind back to default framebuffer. */
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport(0, 0, w, h);
+
+	GLenum fbo_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+	Debug(driver, 0, "[CTX] Resize: done fbo={} fbo_tex={} fbo_idx={} status={:#x} egl_err={:#x}",
+		this->fbo, this->fbo_tex, this->fbo_idx_tex, fbo_status, eglGetError());
 }
 
 void GLESBackend::UpdatePalette(const Colour *pal, uint first, uint length)
