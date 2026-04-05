@@ -487,6 +487,27 @@ bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 	}
 	this->last_egl_context = current_ctx;
 
+	/* Detect EGL surface swap: same context, different surface.
+	 * Happens when SDL rebinds the existing EGL context to a new ANativeWindow
+	 * surface (e.g. second opening of wallpaper preview).
+	 * AllocateBackingStore / Resize() are NOT called in this path (window size
+	 * unchanged), so the FBO's default-framebuffer blit would target the old
+	 * surface — new surface's back buffer never drawn → black screen.
+	 * Fix: call Resize() to rebind FBO and viewport for the new EGL surface.
+	 * Also clear _gles_context_lost: SDL briefly unbinds the context during
+	 * surface swap (eglMakeCurrent(NO_CONTEXT)), which sets the flag, but the
+	 * context itself is alive — full RecoverGPUState() would leak the FBO we
+	 * just (re)created and abandon atlas textures unnecessarily. */
+	if (this->last_egl_surface != nullptr && current_surf != EGL_NO_SURFACE &&
+	    current_surf != this->last_egl_surface && GLESBackend::Get() != nullptr) {
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: EGL surface swapped {} → {}, ctx={} — calling Resize",
+			this->last_egl_surface, (void *)current_surf, current_ctx);
+		GLESBackend *b = GLESBackend::Get();
+		b->Resize(b->GetScreenWidth(), b->GetScreenHeight());
+		_gles_context_lost = false;
+	}
+	this->last_egl_surface = current_surf;
+
 	/* Recover from GL context loss (SDL_RENDER_DEVICE_RESET). */
 	if (_gles_context_lost && GLESBackend::Get() != nullptr) {
 		_gles_context_lost = false;

@@ -246,14 +246,15 @@ public class OpenTTDWallpaperService extends WallpaperService {
             Log.i(TAG, "onSurfaceDestroyed: mEngineSurface=" + mEngineSurface
                 + " sOverrideSurface=" + SDLActivity.sOverrideSurface);
             if (SDLActivity.sOverrideSurface == mEngineSurface) {
-                Log.i(TAG, "onSurfaceDestroyed: calling onNativeSurfaceDestroyed");
+                Log.i(TAG, "onSurfaceDestroyed: active engine — calling onNativeSurfaceDestroyed + PAUSED");
                 SDLActivity.sOverrideSurface = null;
                 SDLActivity.onNativeSurfaceDestroyed();
+                SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
+                SDLActivity.handleNativeState();
+            } else {
+                Log.i(TAG, "onSurfaceDestroyed: stale engine — skipping pause to avoid blocking new surface");
             }
             mEngineSurface = null;
-            Log.i(TAG, "onSurfaceDestroyed: setting state=PAUSED");
-            SDLActivity.mNextNativeState = SDLActivity.NativeState.PAUSED;
-            SDLActivity.handleNativeState();
             super.onSurfaceDestroyed(holder);
         }
 
