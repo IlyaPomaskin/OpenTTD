@@ -1168,6 +1168,7 @@ void SwitchToMode(SwitchMode new_mode)
 			break;
 
 		case SM_WALLPAPER: // Switch to wallpaper mode
+			Debug(misc, 0, "SwitchToMode(SM_WALLPAPER): screen={}x{}", _screen.width, _screen.height);
 			LoadWallpaperGame();
 			break;
 

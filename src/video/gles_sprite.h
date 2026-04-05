@@ -136,6 +136,10 @@ private:
 	static constexpr int MAX_LOADS_PER_FRAME = 500; ///< Per-frame budget for on-demand sprite loads.
 	int loads_this_frame = 0;
 
+	/** Post-clear sprite load monitoring (GL thread only). */
+	int post_clear_frames = -1;      ///< Frames since last clear (-1 = not monitoring).
+	int post_clear_zero_streak = 0;  ///< Consecutive frames with 0 new sprites.
+
 	GLESAtlasPage &AllocPage(std::vector<GLESAtlasPage> &pages, bool luminance);
 	bool PackRegion(std::vector<GLESAtlasPage> &pages, bool luminance,
 	                uint16_t w, uint16_t h, GLESSpriteRegion &out);
@@ -147,6 +151,11 @@ public:
 
 	/** Request atlas clear (thread-safe, deferred to GL thread). */
 	void RequestClear() { this->clear_pending.store(true); }
+
+	/** True while per-frame sprite load logging is active (after a clear). */
+	bool IsPostClearMonitoring() const { return this->post_clear_frames >= 0; }
+	/** Advance post-clear frame counter. Returns frame index, or -1 when stable. */
+	int TickPostClearFrame(int new_sprites_this_frame);
 
 	/** Abandon GL handles without deleting (after EGL context loss). */
 	void AbandonGLObjects() {

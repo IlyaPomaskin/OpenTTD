@@ -106,11 +106,12 @@ bool LoadNextTitleMap()
 	for (size_t i = 0; i < attempts; i++) {
 		size_t idx = (_title_file_idx + i) % _title_files.size();
 		const auto &[file, subdir] = _title_files[idx];
+		Debug(misc, 0, "[LOAD] map_load_start: [{}] {}", idx, file);
 		auto t0 = std::chrono::steady_clock::now();
 		SaveOrLoadResult result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
 		auto t1 = std::chrono::steady_clock::now();
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-		Debug(misc, 0, "LoadNextTitleMap: [{}] {} result={} time={}ms", idx, file, static_cast<int>(result), ms);
+		Debug(misc, 0, "[LOAD] map_load_end: [{}] {} result={} time={}ms", idx, file, static_cast<int>(result), ms);
 		if (result == SL_OK) {
 			_title_file_idx = idx;
 			return true;
@@ -128,7 +129,7 @@ bool LoadNextTitleMap()
  */
 void LoadWallpaperGame()
 {
-	Debug(misc, 0, "LoadWallpaperGame: screen={}x{}", _screen.width, _screen.height);
+	Debug(misc, 0, "[LOAD] wallpaper_load_start: screen={}x{}", _screen.width, _screen.height);
 	_game_mode = GM_WALLPAPER;
 	InvalidatePOIs();
 
@@ -141,6 +142,7 @@ void LoadWallpaperGame()
 	SetupColoursAndInitialWindow();
 
 	if (!LoadNextTitleMap()) {
+		Debug(misc, 0, "[LOAD] map_generate: no title maps, generating empty 64x64");
 		GenerateWorld(GWM_EMPTY, 64, 64);
 	}
 
@@ -150,4 +152,5 @@ void LoadWallpaperGame()
 
 	FixTitleGameZoom(-1);
 	PrepareBackground();
+	Debug(misc, 0, "[LOAD] wallpaper_load_end: screen={}x{}", _screen.width, _screen.height);
 }

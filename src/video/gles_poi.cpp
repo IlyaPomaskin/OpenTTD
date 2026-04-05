@@ -500,7 +500,7 @@ static void ShowCurrentPOI()
 	if (_gles_poi_list.empty()) return;
 
 	const GlesPOI &poi = _gles_poi_list[_gles_poi_idx];
-	Debug(driver, 1, "GLES ShowCurrentPOI: POI[{}] score={} fx={:.2f} fy={:.2f} — {}",
+	Debug(driver, 0, "[LOAD] poi_change: idx={} score={} fx={:.2f} fy={:.2f} reason={}",
 		_gles_poi_idx, poi.score, poi.map_fx, poi.map_fy, poi.reason);
 
 	Window *w = GetMainWindow();
@@ -596,7 +596,7 @@ void PrepareBackground()
 	/* Wrapped back to POI[0] — all POIs shown, rotate to next title map. */
 	if (!_poi_manual_browse && _gles_poi_idx == 0 && !_gles_poi_list.empty() &&
 			_switch_mode == SM_NONE && CanRotateTitleMap()) {
-		Debug(driver, 0, "GLES PrepareBackground: all POIs shown, rotating to next title map");
+		Debug(driver, 0, "[LOAD] map_rotate: all POIs shown, rotating to next title map");
 		RequestNextTitleMap();
 		return;
 	}

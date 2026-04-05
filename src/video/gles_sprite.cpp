@@ -91,13 +91,28 @@ void GLESSpriteAtlas::Destroy()
 	this->DeleteGLObjects();
 }
 
+int GLESSpriteAtlas::TickPostClearFrame(int new_sprites_this_frame)
+{
+	if (this->post_clear_frames < 0) return -2; /* not monitoring */
+	int frame = this->post_clear_frames++;
+	if (new_sprites_this_frame == 0) {
+		if (++this->post_clear_zero_streak >= 5) {
+			this->post_clear_frames = -1; /* stop monitoring */
+			return -1; /* signal: stable */
+		}
+	} else {
+		this->post_clear_zero_streak = 0;
+	}
+	return frame;
+}
+
 void GLESSpriteAtlas::ProcessPendingClear()
 {
 	/* Check if sprite reload measurement is complete (no new sprites since last check). */
 	if (this->measuring_reload && _gles_perf.gpu_sprites_new == 0 && this->sprites_after_clear > 0) {
 		auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::chrono::steady_clock::now() - this->clear_time).count();
-		Debug(driver, 0, "GLES: Reload complete: {} sprites in {}ms",
+		Debug(driver, 0, "[LOAD] sprites_reload_complete: total={} time={}ms",
 		      this->sprites_after_clear, elapsed);
 		this->measuring_reload = false;
 	}
@@ -120,11 +135,15 @@ void GLESSpriteAtlas::ClearSprites()
 	this->sprites_after_clear = 0;
 	this->measuring_reload = true;
 
+	/* Reset per-frame monitoring. */
+	this->post_clear_frames = 0;
+	this->post_clear_zero_streak = 0;
+
 	/* Signal game thread to clear known_sprites.
 	 * Sprites still in upload_queue will be re-added on next Enqueue. */
 	this->known_clear_pending.store(true);
 
-	Debug(driver, 0, "GLES: Atlas ClearSprites: deleted {} pages, {} gpu entries, {} queued",
+	Debug(driver, 0, "[LOAD] sprites_clear: deleted_pages={} deleted_entries={} queued={}",
 	      old_pages, old_sprites, this->upload_queue.size());
 
 	/* Rebuild GL-thread sprite file copies (GRF files may have changed). */

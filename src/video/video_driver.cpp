@@ -211,9 +211,12 @@ void VideoDriver::RecordSnapshot(std::chrono::steady_clock::time_point t_gl0, st
 	 * correct new values; overwriting them would cause the next reload to use
 	 * stale dimensions (the landscape→portrait race). */
 	if (_screen.dst_ptr == dummy_buf.data()) _screen.dst_ptr = save_dst;
-	if (_screen.width  == expanded_w) _screen.width  = real_w;
-	if (_screen.height == expanded_h) _screen.height = real_h;
+	if (_screen.width  == expanded_w) { _screen.width  = real_w; }
+	else { Debug(driver, 0, "RecordSnapshot: GL updated width {} (expanded_w={} real_w={})", _screen.width, expanded_w, real_w); }
+	if (_screen.height == expanded_h) { _screen.height = real_h; }
+	else { Debug(driver, 0, "RecordSnapshot: GL updated height {} (expanded_h={} real_h={})", _screen.height, expanded_h, real_h); }
 	if (_screen.pitch  == expanded_w) _screen.pitch  = real_pitch;
+	else _screen.pitch = _screen.width;
 	_cur_dpi = save_dpi;
 
 	/* Validate coordinates before publishing to GPU thread. */
@@ -268,13 +271,14 @@ void VideoDriver::GameThread()
 				this->GameLoop();
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 			}
-			Debug(driver, 1, "GameThread: paused after POI advance + 3 snapshots");
+			Debug(driver, 0, "[LOAD] game_thread_sleep: entering pause wait");
 
 			std::unique_lock<std::mutex> lock(this->game_pause_mutex);
 			this->game_pause_cv.wait(lock, [this] {
 				return !this->game_thread_paused.load() || _exit_game;
 			});
 			this->next_game_tick = std::chrono::steady_clock::now();
+			Debug(driver, 0, "[LOAD] game_thread_sleep: resumed");
 			continue;
 		}
 

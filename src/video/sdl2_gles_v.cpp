@@ -99,7 +99,7 @@ Java_org_openttd_android_GameActivity_nativeSetGamePaused(JNIEnv *, jclass, jboo
 {
 	auto *drv = VideoDriver::GetInstance();
 	if (drv != nullptr) {
-		Debug(driver, 1, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		Debug(driver, 0, "[LOAD] app_pause: paused={}", paused ? "true" : "false");
 		drv->SetGameThreadPaused(paused);
 	}
 }
@@ -116,7 +116,7 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, j
 {
 	auto *drv = VideoDriver::GetInstance();
 	if (drv != nullptr) {
-		Debug(driver, 1, "nativeSetGamePaused: {}", paused ? "true" : "false");
+		Debug(driver, 0, "[LOAD] app_pause: paused={}", paused ? "true" : "false");
 		drv->SetGameThreadPaused(paused);
 	}
 }
@@ -384,13 +384,29 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 
 	/* Upload missing sprites after SwapWindow (idle time between frames).
 	 * They'll appear next frame — 1 frame latency for new sprites only. */
-	if (!this->deferred_upload_keys.empty()) {
-		GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
-		atlas.ResetFrameLoadCounter();
-		for (GLESSpriteID key : this->deferred_upload_keys) {
-			atlas.LookupOrUpload(key);
+	GLESSpriteAtlas &atlas = backend->GetSpriteAtlas();
+	{
+		int sprites_before = atlas.GetSpriteCount();
+		if (!this->deferred_upload_keys.empty()) {
+			atlas.ResetFrameLoadCounter();
+			for (GLESSpriteID key : this->deferred_upload_keys) {
+				atlas.LookupOrUpload(key);
+			}
+			this->deferred_upload_keys.clear();
 		}
-		this->deferred_upload_keys.clear();
+
+		/* Per-frame sprite load logging: active until stable after atlas clear. */
+		if (atlas.IsPostClearMonitoring()) {
+			int new_this_frame = atlas.GetSpriteCount() - sprites_before;
+			int frame_idx = atlas.TickPostClearFrame(new_this_frame);
+			if (frame_idx == -1) {
+				Debug(driver, 0, "[LOAD] sprites_stable: total={} frame={}",
+				      atlas.GetSpriteCount(), _gles_perf.frames);
+			} else if (frame_idx >= 0) {
+				Debug(driver, 0, "[LOAD] sprites_frame: since_clear={} total={} new={} frame={}",
+				      frame_idx, atlas.GetSpriteCount(), new_this_frame, _gles_perf.frames);
+			}
+		}
 	}
 
 	/* Run Paint() for PERF logging, POI handling, context recovery.
