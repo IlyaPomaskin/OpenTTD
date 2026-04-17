@@ -294,11 +294,18 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                nativeSetGamePaused(true);
-                /* Do NOT pause SDL here — the surface is still alive on the homescreen.
-                 * Pausing SDL blocks the GL thread and causes a black screen when the
-                 * wallpaper becomes active. Only onSurfaceDestroyed should pause SDL. */
-                Log.i(TAG, "onVisibilityChanged: game thread paused, SDL keeps running");
+                /* Jump POI now while still rendering — the game+GL threads
+                 * keep running (SDL not paused) so the new camera position
+                 * gets rendered and the sprite cache warms up.  Delay the
+                 * game thread pause to allow a few frames at the new POI. */
+                Log.i(TAG, "onVisibilityChanged: jumping POI, delaying pause for warm-up");
+                nativePrepareBackground();
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    if (!mVisible) {
+                        Log.i(TAG, "onVisibilityChanged: warm-up done, pausing game thread");
+                        nativeSetGamePaused(true);
+                    }
+                }, 150);
             }
         }
 

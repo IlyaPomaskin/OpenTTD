@@ -277,8 +277,8 @@ void VideoDriver::GameThread()
 			 * can render each snapshot while still running — this warms up
 			 * the sprite atlas for the new camera position before we sleep. */
 			// PrepareBackground();
-			Debug(driver, 0, "[CTX] GameThread: running 3 warm-up ticks");
-			for (int i = 0; i < 3; i++) {
+			Debug(driver, 0, "[CTX] GameThread: running 5 warm-up ticks");
+			for (int i = 0; i < 5; i++) {
 				this->GameLoop();
 				std::this_thread::sleep_for(std::chrono::milliseconds(20));
 			}
