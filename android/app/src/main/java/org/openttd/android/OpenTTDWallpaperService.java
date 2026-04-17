@@ -39,6 +39,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeScrollCamera(int dx, int dy);
     /** Pause/resume game thread when wallpaper not visible. */
     private static native void nativeSetGamePaused(boolean paused);
+    /** Signal GL thread that wallpaper surface changed and EGL needs rebind. */
+    private static native void nativeSurfaceChanged();
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -225,6 +227,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             SDLActivity.sOverrideSurface = mEngineSurface;
             Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
+            nativeSurfaceChanged();
         }
 
         @Override
@@ -239,6 +242,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             SDLActivity.nativeSetScreenResolution(width, height, width, height, 60.0f);
             SDLActivity.onNativeResize();
             SDLActivity.onNativeSurfaceChanged();
+            nativeSurfaceChanged();
         }
 
         @Override

@@ -34,6 +34,8 @@
 #include <cmath>
 #ifdef __ANDROID__
 #include <jni.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #endif
 
 #include "../safeguards.h"
@@ -47,6 +49,8 @@ std::atomic<int> _gles_rotate_map{0};
 /** Camera scroll delta requested from Java; processed in Tick(). */
 std::atomic<int> _gles_scroll_dx{0};
 std::atomic<int> _gles_scroll_dy{0};
+/** Set from Java when the wallpaper surface changes; GL thread re-binds EGL. */
+std::atomic<bool> _gles_surface_changed{false};
 
 #ifdef __ANDROID__
 #include "../wallpaper.h"
@@ -119,6 +123,13 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, j
 		Debug(driver, 0, "[LOAD] app_pause: paused={}", paused ? "true" : "false");
 		drv->SetGameThreadPaused(paused);
 	}
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeSurfaceChanged(JNIEnv *, jclass)
+{
+	Debug(driver, 0, "[CTX] nativeSurfaceChanged: signalling GL thread");
+	_gles_surface_changed = true;
 }
 
 #endif
@@ -465,6 +476,111 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 
 bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 {
+	/* Check if Java signalled a wallpaper surface change.
+	 * SDL doesn't update its internal EGL surface when the wallpaper engine
+	 * provides a new ANativeWindow — onNativeSurfaceChanged sets flags but
+	 * SDL never calls eglCreateWindowSurface with the new window.
+	 * Fix: directly destroy the old EGL surface, get the new ANativeWindow
+	 * from Java via SDL's getNativeSurface(), create a new EGL surface, and
+	 * make it current.  This bypasses SDL's surface management. */
+	if (_gles_surface_changed.exchange(false)) {
+		EGLDisplay display = eglGetCurrentDisplay();
+		EGLContext ctx      = eglGetCurrentContext();
+		EGLSurface old_surf = eglGetCurrentSurface(EGL_DRAW);
+
+		Debug(driver, 0, "[CTX] surface_changed: display={} ctx={} old_surf={}",
+			(void *)display, (void *)ctx, (void *)old_surf);
+
+		if (display != EGL_NO_DISPLAY && ctx != EGL_NO_CONTEXT) {
+			/* Get the new ANativeWindow from Java's getNativeSurface(). */
+			SDL_SysWMinfo wmi;
+			SDL_VERSION(&wmi.version);
+			ANativeWindow *nw = nullptr;
+			if (this->sdl_window != nullptr && SDL_GetWindowWMInfo(this->sdl_window, &wmi)) {
+				nw = wmi.info.android.window;
+			}
+			/* If SDL doesn't give us the window, get it via JNI. */
+			if (nw == nullptr) {
+				JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+				if (env != nullptr) {
+					jclass cls = env->FindClass("org/libsdl/app/SDLActivity");
+					if (cls) {
+						jmethodID mid = env->GetStaticMethodID(cls, "getNativeSurface", "()Landroid/view/Surface;");
+						if (mid) {
+							jobject surface = env->CallStaticObjectMethod(cls, mid);
+							if (surface != nullptr) {
+								nw = ANativeWindow_fromSurface(env, surface);
+							}
+						}
+					}
+				}
+			}
+
+			if (nw != nullptr) {
+				/* Get EGL config from the current context. */
+				EGLint config_id;
+				EGLConfig config = nullptr;
+				eglQueryContext(display, ctx, EGL_CONFIG_ID, &config_id);
+				EGLint num_configs;
+				EGLint config_attribs[] = { EGL_CONFIG_ID, config_id, EGL_NONE };
+				eglChooseConfig(display, config_attribs, &config, 1, &num_configs);
+
+				/* Try to create a new EGL surface for the new ANativeWindow.
+				 * Don't destroy the old surface first — it may belong to SDL,
+				 * and an ANativeWindow can only have one EGL surface at a time.
+				 * If creation fails (EGL_BAD_ALLOC), the window already has
+				 * an EGL surface — use SDL_GL_CreateContext to force SDL to
+				 * rebind its context to the current window. */
+				EGLSurface new_surf = eglCreateWindowSurface(display, config, nw, nullptr);
+				EGLint create_err = eglGetError();
+				Debug(driver, 0, "[CTX] surface_changed: ANativeWindow={} new_surf={} err={:#x}",
+					(void *)nw, (void *)new_surf, create_err);
+
+				if (new_surf != EGL_NO_SURFACE && new_surf != old_surf) {
+					/* New surface created — unbind old, destroy, bind new. */
+					eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+					if (old_surf != EGL_NO_SURFACE) eglDestroySurface(display, old_surf);
+					eglMakeCurrent(display, new_surf, new_surf, ctx);
+					Debug(driver, 0, "[CTX] surface_changed: swapped surf {} → {}", (void *)old_surf, (void *)new_surf);
+				} else {
+					if (new_surf == old_surf) {
+						/* Same surface returned — window unchanged. */
+						Debug(driver, 0, "[CTX] surface_changed: same surface, just rebinding");
+					} else {
+						/* eglCreateWindowSurface failed (EGL_BAD_ALLOC) —
+						 * SDL owns a surface on this window.  Force SDL to
+						 * recreate its GL context which rebinds to the new window. */
+						Debug(driver, 0, "[CTX] surface_changed: create failed, recreating SDL context");
+						if (this->gl_context != nullptr) {
+							SDL_GL_DeleteContext(this->gl_context);
+						}
+						this->gl_context = SDL_GL_CreateContext(this->sdl_window);
+						if (this->gl_context != nullptr) {
+							new_surf = eglGetCurrentSurface(EGL_DRAW);
+							Debug(driver, 0, "[CTX] surface_changed: SDL context recreated, surf={}",
+								(void *)new_surf);
+							/* Full GPU state recovery needed after context recreation. */
+							_gles_context_lost = true;
+						} else {
+							Debug(driver, 0, "[CTX] surface_changed: SDL_GL_CreateContext FAILED: {}", SDL_GetError());
+						}
+					}
+				}
+
+				/* Force FBO rebind for the new default framebuffer. */
+				if (!_gles_context_lost && GLESBackend::Get() != nullptr) {
+					GLESBackend *b = GLESBackend::Get();
+					b->Resize(b->GetScreenWidth(), b->GetScreenHeight());
+				}
+				this->MakeDirty(0, 0, _screen.width, _screen.height);
+
+				ANativeWindow_release(nw);
+			} else {
+				Debug(driver, 0, "[CTX] surface_changed: could not get ANativeWindow");
+			}
+		}
+	}
+
 	void *current_ctx  = eglGetCurrentContext();
 	void *current_surf = eglGetCurrentSurface(EGL_DRAW);
 
@@ -480,31 +596,33 @@ bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 	/* Detect context recreation: old context was lost and a new one appeared
 	 * without the GL thread ever seeing EGL_NO_CONTEXT (race between context
 	 * destruction and creation, e.g. preview → live wallpaper transition). */
-	if (this->last_egl_context != nullptr && current_ctx != this->last_egl_context) {
+	bool ctx_actually_changed = (this->last_egl_context != nullptr &&
+	                             this->last_egl_context != EGL_NO_CONTEXT &&
+	                             current_ctx != this->last_egl_context);
+	if (ctx_actually_changed) {
 		Debug(driver, 0, "[CTX] RecoverContextIfLost: ctx changed {} → {}, surf={}, treating as loss",
 			this->last_egl_context, current_ctx, (void *)current_surf);
 		_gles_context_lost = true;
 	}
 	this->last_egl_context = current_ctx;
 
-	/* Detect EGL surface swap: same context, different surface.
-	 * Happens when SDL rebinds the existing EGL context to a new ANativeWindow
-	 * surface (e.g. second opening of wallpaper preview).
-	 * AllocateBackingStore / Resize() are NOT called in this path (window size
-	 * unchanged), so the FBO's default-framebuffer blit would target the old
-	 * surface — new surface's back buffer never drawn → black screen.
-	 * Fix: call Resize() to rebind FBO and viewport for the new EGL surface.
-	 * Also clear _gles_context_lost: SDL briefly unbinds the context during
-	 * surface swap (eglMakeCurrent(NO_CONTEXT)), which sets the flag, but the
-	 * context itself is alive — full RecoverGPUState() would leak the FBO we
-	 * just (re)created and abandon atlas textures unnecessarily. */
+	/* Detect EGL surface swap: different surface from last tick.
+	 * If ONLY the surface changed (same context), SDL briefly unbinds the
+	 * context during the swap which may have set _gles_context_lost — clear
+	 * it and just Resize the FBO.
+	 * If BOTH context AND surface changed (SDL_GL_CreateContext recreated
+	 * everything), keep _gles_context_lost so full RecoverGPUState runs. */
 	if (this->last_egl_surface != nullptr && current_surf != EGL_NO_SURFACE &&
 	    current_surf != this->last_egl_surface && GLESBackend::Get() != nullptr) {
-		Debug(driver, 0, "[CTX] RecoverContextIfLost: EGL surface swapped {} → {}, ctx={} — calling Resize",
-			this->last_egl_surface, (void *)current_surf, current_ctx);
-		GLESBackend *b = GLESBackend::Get();
-		b->Resize(b->GetScreenWidth(), b->GetScreenHeight());
-		_gles_context_lost = false;
+		Debug(driver, 0, "[CTX] RecoverContextIfLost: EGL surface swapped {} → {}, ctx_changed={}",
+			this->last_egl_surface, (void *)current_surf, ctx_actually_changed ? "yes" : "no");
+		if (!ctx_actually_changed) {
+			/* Surface-only swap: rebind FBO, clear false context-lost flag. */
+			GLESBackend *b = GLESBackend::Get();
+			b->Resize(b->GetScreenWidth(), b->GetScreenHeight());
+			_gles_context_lost = false;
+		}
+		/* If ctx_actually_changed, leave _gles_context_lost=true for full recovery below. */
 	}
 	this->last_egl_surface = current_surf;
 

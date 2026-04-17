@@ -398,12 +398,17 @@ void VideoDriver::Tick()
 
 		/* Snapshot path: paint from triple buffer, skip mutex wait. */
 		if (this->snapshot_buffer != nullptr) {
+			/* Pump SDL events FIRST so surface lifecycle callbacks
+			 * (onNativeSurfaceChanged → SDL_WINDOWEVENT) are processed
+			 * before we check EGL state.  Without this, the GL thread
+			 * never sees the new EGL surface after a wallpaper engine
+			 * transition and keeps rendering to the old (invisible) one. */
+			this->ProcessOverlayActions();
 			bool recovered = this->RecoverContextIfLost();
 			if (recovered) {
 				Debug(driver, 0, "[CTX] Tick: context recovered, skipping frame");
 				return;
 			}
-			this->ProcessOverlayActions();
 			this->PaintFromSnapshot();
 			auto &tb = *this->snapshot_buffer;
 			if (tb.swap_count % 60 == 0 && tb.swap_count > 0) {
