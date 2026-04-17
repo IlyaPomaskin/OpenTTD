@@ -552,7 +552,7 @@ static inline uint32_t GetSmallMapVegetationPixels(TileIndex tile, TileType t)
 			if (IsSnowTile(tile)) return MKCOLOUR_XXXX(PC_LIGHT_BLUE);
 			if (IsClearGround(tile, ClearGround::Grass)) {
 				if (GetClearDensity(tile) < 3) return MKCOLOUR_XXXX(PC_BARE_LAND);
-				if (GetTropicZone(tile) == TROPICZONE_RAINFOREST) return MKCOLOUR_XXXX(PC_RAINFOREST);
+				if (GetTropicZone(tile) == TropicZone::Rainforest) return MKCOLOUR_XXXX(PC_RAINFOREST);
 			}
 			return _vegetation_clear_bits[to_underlying(GetClearGround(tile))];
 
@@ -563,7 +563,7 @@ static inline uint32_t GetSmallMapVegetationPixels(TileIndex tile, TileType t)
 			if (GetTreeGround(tile) == TreeGround::SnowOrDesert || GetTreeGround(tile) == TreeGround::RoughSnow) {
 				return (_settings_game.game_creation.landscape == LandscapeType::Arctic) ? MKCOLOUR_XYYX(PC_LIGHT_BLUE, PC_TREES) : MKCOLOUR_XYYX(PC_ORANGE, PC_TREES);
 			}
-			return (GetTropicZone(tile) == TROPICZONE_RAINFOREST) ? MKCOLOUR_XYYX(PC_RAINFOREST, PC_TREES) : MKCOLOUR_XYYX(PC_GRASS_LAND, PC_TREES);
+			return (GetTropicZone(tile) == TropicZone::Rainforest) ? MKCOLOUR_XYYX(PC_RAINFOREST, PC_TREES) : MKCOLOUR_XYYX(PC_GRASS_LAND, PC_TREES);
 
 		default:
 			return ApplyMask(MKCOLOUR_XXXX(PC_GRASS_LAND), &_smallmap_vehicles_andor[t]);
@@ -588,7 +588,7 @@ uint32_t GetSmallMapOwnerPixels(TileIndex tile, TileType t, IncludeHeightmap inc
 		case TileType::Industry: return MKCOLOUR_XXXX(PC_DARK_GREY);
 		case TileType::House:    return MKCOLOUR_XXXX(PC_DARK_RED);
 		case TileType::Road:
-			o = GetRoadOwner(tile, HasRoadTypeRoad(tile) ? RTT_ROAD : RTT_TRAM);
+			o = GetRoadOwner(tile, HasRoadTypeRoad(tile) ? RoadTramType::Road : RoadTramType::Tram);
 			break;
 
 		default:
@@ -719,7 +719,7 @@ protected:
 	inline uint GetLegendHeight(uint num_columns) const
 	{
 		return WidgetDimensions::scaled.framerect.Vertical() +
-				this->GetNumberRowsLegend(num_columns) * GetCharacterHeight(FS_SMALL);
+				this->GetNumberRowsLegend(num_columns) * GetCharacterHeight(FontSize::Small);
 	}
 
 	/**
@@ -1000,7 +1000,7 @@ protected:
 			/* Check if the town sign is within bounds */
 			if (x + t->cache.sign.width_small > dpi->left &&
 					x < dpi->left + dpi->width &&
-					y + GetCharacterHeight(FS_SMALL) > dpi->top &&
+					y + GetCharacterHeight(FontSize::Small) > dpi->top &&
 					y < dpi->top + dpi->height) {
 				/* And draw it. */
 				DrawString(x, x + t->cache.sign.width_small, y, GetString(STR_SMALLMAP_TOWN, t->index));
@@ -1026,7 +1026,7 @@ protected:
 			if (is_blinking) continue;
 
 			if (_industry_to_name_string_width[i->type] == 0) {
-				_industry_to_name_string_width[i->type] = GetStringBoundingBox(tbl.legend, FS_SMALL).width;
+				_industry_to_name_string_width[i->type] = GetStringBoundingBox(tbl.legend, FontSize::Small).width;
 			}
 			const uint16_t &legend_text_width = _industry_to_name_string_width[i->type];
 
@@ -1039,11 +1039,11 @@ protected:
 			/* Check if the industry name is within bounds */
 			if (x + legend_text_width > dpi->left &&
 					x < dpi->left + dpi->width &&
-					y + GetCharacterHeight(FS_SMALL) > dpi->top &&
+					y + GetCharacterHeight(FontSize::Small) > dpi->top &&
 					y < dpi->top + dpi->height) {
 
 				/* And draw it. */
-				DrawString(x, x + legend_text_width, y, tbl.legend, TC_WHITE, SA_LEFT, false, FS_SMALL);
+				DrawString(x, x + legend_text_width, y, tbl.legend, TC_WHITE, SA_LEFT, false, FontSize::Small);
 			}
 		}
 	}
@@ -1407,7 +1407,7 @@ protected:
 	int GetPositionOnLegend(Point pt)
 	{
 		const NWidgetBase *wi = this->GetWidget<NWidgetBase>(WID_SM_LEGEND);
-		uint line = (pt.y - wi->pos_y - WidgetDimensions::scaled.framerect.top) / GetCharacterHeight(FS_SMALL);
+		uint line = (pt.y - wi->pos_y - WidgetDimensions::scaled.framerect.top) / GetCharacterHeight(FontSize::Small);
 		uint columns = this->GetNumberColumnsLegend(wi->current_x);
 		uint number_of_rows = this->GetNumberRowsLegend(columns);
 		if (line >= number_of_rows) return -1;
@@ -1576,7 +1576,7 @@ public:
 		}
 
 		/* Width of the legend blob. */
-		this->legend_width = GetCharacterHeight(FS_SMALL) * 9 / 6;
+		this->legend_width = GetCharacterHeight(FontSize::Small) * 9 / 6;
 
 		/* The width of a column is the minimum width of all texts + the size of the blob + some spacing */
 		this->column_width = min_width + WidgetDimensions::scaled.hsep_normal + this->legend_width + WidgetDimensions::scaled.framerect.Horizontal();
@@ -1617,7 +1617,7 @@ public:
 				uint number_of_rows = this->GetNumberRowsLegend(columns);
 				bool rtl = _current_text_dir == TD_RTL;
 				uint i = 0; // Row counter for industry legend.
-				uint row_height = GetCharacterHeight(FS_SMALL);
+				uint row_height = GetCharacterHeight(FontSize::Small);
 				int padding = ScaleGUITrad(1);
 
 				Rect origin = r.WithWidth(this->column_width, rtl).Shrink(WidgetDimensions::scaled.framerect).WithHeight(row_height);
@@ -1953,18 +1953,18 @@ public:
 		NWidgetBase *display = this->children.front().get();
 		NWidgetBase *bar = this->children.back().get();
 
-		if (sizing == ST_SMALLEST) {
+		if (sizing == SizingType::Smallest) {
 			this->smallest_x = given_width;
 			this->smallest_y = given_height;
 			/* Make display and bar exactly equal to their minimal size. */
-			display->AssignSizePosition(ST_SMALLEST, x, y, display->smallest_x, display->smallest_y, rtl);
-			bar->AssignSizePosition(ST_SMALLEST, x, y + display->smallest_y, bar->smallest_x, bar->smallest_y, rtl);
+			display->AssignSizePosition(SizingType::Smallest, x, y, display->smallest_x, display->smallest_y, rtl);
+			bar->AssignSizePosition(SizingType::Smallest, x, y + display->smallest_y, bar->smallest_x, bar->smallest_y, rtl);
 		}
 
 		uint bar_height = std::max(bar->smallest_y, this->smallmap_window->GetLegendHeight(this->smallmap_window->GetNumberColumnsLegend(given_width - bar->smallest_x)));
 		uint display_height = given_height - bar_height;
-		display->AssignSizePosition(ST_RESIZE, x, y, given_width, display_height, rtl);
-		bar->AssignSizePosition(ST_RESIZE, x, y + display_height, given_width, bar_height, rtl);
+		display->AssignSizePosition(SizingType::Resize, x, y, given_width, display_height, rtl);
+		bar->AssignSizePosition(SizingType::Resize, x, y + display_height, given_width, bar_height, rtl);
 	}
 };
 

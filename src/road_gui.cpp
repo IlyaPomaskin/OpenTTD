@@ -169,8 +169,8 @@ void ConnectRoadToStructure(TileIndex tile, DiagDirection direction)
 	tile += TileOffsByDiagDir(direction);
 	/* if there is a roadpiece just outside of the station entrance, build a connecting route */
 	if (IsNormalRoadTile(tile)) {
-		if (GetRoadBits(tile, GetRoadTramType(_cur_roadtype)) != ROAD_NONE) {
-			Command<Commands::BuildRoad>::Post(tile, DiagDirToRoadBits(ReverseDiagDir(direction)), _cur_roadtype, DRD_NONE, TownID::Invalid());
+		if (GetRoadBits(tile, GetRoadTramType(_cur_roadtype)).Any()) {
+			Command<Commands::BuildRoad>::Post(tile, DiagDirToRoadBits(ReverseDiagDir(direction)), _cur_roadtype, {}, TownID::Invalid());
 		}
 	}
 }
@@ -410,10 +410,10 @@ struct BuildRoadToolbarWindow : Window {
 				this->GetWidget<NWidgetCore>(WID_ROT_BUS_STATION)->SetToolTip(STR_TOOLBAR_DISABLED_NO_VEHICLE_AVAILABLE);
 				this->GetWidget<NWidgetCore>(WID_ROT_TRUCK_STATION)->SetToolTip(STR_TOOLBAR_DISABLED_NO_VEHICLE_AVAILABLE);
 			} else {
-				this->GetWidget<NWidgetCore>(WID_ROT_DEPOT)->SetToolTip(rtt == RTT_ROAD ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_ROAD_VEHICLE_DEPOT : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_TRAM_VEHICLE_DEPOT);
-				this->GetWidget<NWidgetCore>(WID_ROT_BUILD_WAYPOINT)->SetToolTip(rtt == RTT_ROAD ? STR_ROAD_TOOLBAR_TOOLTIP_CONVERT_ROAD_TO_WAYPOINT : STR_ROAD_TOOLBAR_TOOLTIP_CONVERT_TRAM_TO_WAYPOINT);
-				this->GetWidget<NWidgetCore>(WID_ROT_BUS_STATION)->SetToolTip(rtt == RTT_ROAD ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_BUS_STATION : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_PASSENGER_TRAM_STATION);
-				this->GetWidget<NWidgetCore>(WID_ROT_TRUCK_STATION)->SetToolTip(rtt == RTT_ROAD ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_TRUCK_LOADING_BAY : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_CARGO_TRAM_STATION);
+				this->GetWidget<NWidgetCore>(WID_ROT_DEPOT)->SetToolTip(rtt == RoadTramType::Road ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_ROAD_VEHICLE_DEPOT : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_TRAM_VEHICLE_DEPOT);
+				this->GetWidget<NWidgetCore>(WID_ROT_BUILD_WAYPOINT)->SetToolTip(rtt == RoadTramType::Road ? STR_ROAD_TOOLBAR_TOOLTIP_CONVERT_ROAD_TO_WAYPOINT : STR_ROAD_TOOLBAR_TOOLTIP_CONVERT_TRAM_TO_WAYPOINT);
+				this->GetWidget<NWidgetCore>(WID_ROT_BUS_STATION)->SetToolTip(rtt == RoadTramType::Road ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_BUS_STATION : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_PASSENGER_TRAM_STATION);
+				this->GetWidget<NWidgetCore>(WID_ROT_TRUCK_STATION)->SetToolTip(rtt == RoadTramType::Road ? STR_ROAD_TOOLBAR_TOOLTIP_BUILD_TRUCK_LOADING_BAY : STR_ROAD_TOOLBAR_TOOLTIP_BUILD_CARGO_TRAM_STATION);
 			}
 		}
 	}
@@ -697,7 +697,7 @@ struct BuildRoadToolbarWindow : Window {
 
 			case WID_ROT_BUILD_TUNNEL:
 				Command<Commands::BuildTunnel>::Post(STR_ERROR_CAN_T_BUILD_TUNNEL_HERE, CcBuildRoadTunnel,
-						tile, TRANSPORT_ROAD, _cur_roadtype);
+						tile, TRANSPORT_ROAD, INVALID_RAILTYPE, _cur_roadtype);
 				break;
 
 			case WID_ROT_CONVERT_ROAD:
@@ -780,7 +780,7 @@ struct BuildRoadToolbarWindow : Window {
 				default: NOT_REACHED();
 				case DDSP_BUILD_BRIDGE:
 					if (!_settings_client.gui.persistent_buildingtools) ResetObjectToPlace();
-					ShowBuildBridgeWindow(start_tile, end_tile, TRANSPORT_ROAD, _cur_roadtype);
+					ShowBuildBridgeWindow(start_tile, end_tile, TRANSPORT_ROAD, INVALID_RAILTYPE, _cur_roadtype);
 					break;
 
 				case DDSP_DEMOLISH_AREA:
@@ -797,7 +797,7 @@ struct BuildRoadToolbarWindow : Window {
 								end_tile, start_tile, _cur_roadtype, _place_road_dir, start_half, _place_road_end_half);
 					} else {
 						Command<Commands::BuildRoadLong>::Post(GetRoadTypeInfo(this->roadtype)->strings.err_build_road, CcPlaySound_CONSTRUCTION_OTHER,
-								end_tile, start_tile, _cur_roadtype, _place_road_dir, _one_way_button_clicked ? DRD_NORTHBOUND : DRD_NONE, start_half, _place_road_end_half, false);
+								end_tile, start_tile, _cur_roadtype, _place_road_dir, _one_way_button_clicked ? DisallowedRoadDirection::Northbound : DisallowedRoadDirections{}, start_half, _place_road_end_half, false);
 					}
 					break;
 				}
@@ -862,7 +862,7 @@ struct BuildRoadToolbarWindow : Window {
 
 	void OnPlacePresize([[maybe_unused]] Point pt, TileIndex tile) override
 	{
-		Command<Commands::BuildTunnel>::Do(DoCommandFlag::Auto, tile, TRANSPORT_ROAD, _cur_roadtype);
+		Command<Commands::BuildTunnel>::Do(DoCommandFlag::Auto, tile, TRANSPORT_ROAD, INVALID_RAILTYPE, _cur_roadtype);
 		VpSetPresizeRange(tile, _build_tunnel_endtile == 0 ? tile : _build_tunnel_endtile);
 	}
 
@@ -907,12 +907,12 @@ struct BuildRoadToolbarWindow : Window {
 
 	static EventState RoadToolbarGlobalHotkeys(int hotkey)
 	{
-		return RoadTramToolbarGlobalHotkeys(hotkey, _last_built_roadtype, RTT_ROAD);
+		return RoadTramToolbarGlobalHotkeys(hotkey, _last_built_roadtype, RoadTramType::Road);
 	}
 
 	static EventState TramToolbarGlobalHotkeys(int hotkey)
 	{
-		return RoadTramToolbarGlobalHotkeys(hotkey, _last_built_tramtype, RTT_TRAM);
+		return RoadTramToolbarGlobalHotkeys(hotkey, _last_built_tramtype, RoadTramType::Tram);
 	}
 
 	static inline HotkeyList road_hotkeys{"roadtoolbar", {
@@ -1387,7 +1387,7 @@ private:
 public:
 	BuildRoadStationWindow(WindowDesc &desc, Window *parent, RoadStopType rs) : PickerWindow(desc, parent, TRANSPORT_ROAD, GetRoadStopPickerCallbacks(rs))
 	{
-		this->coverage_height = 2 * GetCharacterHeight(FS_NORMAL) + WidgetDimensions::scaled.vsep_normal;
+		this->coverage_height = 2 * GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal;
 
 		/* Trams don't have non-drivethrough stations */
 		if (RoadTypeIsTram(_cur_roadtype) && _roadstop_gui.orientation < DIAGDIR_END) {
@@ -1839,8 +1839,8 @@ DropDownList GetRoadTypeDropDownList(RoadTramTypes rtts, bool for_replacement, b
 	}
 
 	/* Filter listed road types */
-	if (!HasBit(rtts, RTT_ROAD)) used_roadtypes.Reset(GetMaskForRoadTramType(RTT_ROAD));
-	if (!HasBit(rtts, RTT_TRAM)) used_roadtypes.Reset(GetMaskForRoadTramType(RTT_TRAM));
+	if (!rtts.Test(RoadTramType::Road)) used_roadtypes.Reset(GetMaskForRoadTramType(RoadTramType::Road));
+	if (!rtts.Test(RoadTramType::Tram)) used_roadtypes.Reset(GetMaskForRoadTramType(RoadTramType::Tram));
 
 	DropDownList list;
 
@@ -1894,8 +1894,8 @@ DropDownList GetScenRoadTypeDropDownList(RoadTramTypes rtts)
 
 	/* Filter listed road types */
 	used_roadtypes.Reset(_roadtypes_hidden_mask);
-	if (!HasBit(rtts, RTT_ROAD)) used_roadtypes.Reset(GetMaskForRoadTramType(RTT_ROAD));
-	if (!HasBit(rtts, RTT_TRAM)) used_roadtypes.Reset(GetMaskForRoadTramType(RTT_TRAM));
+	if (!rtts.Test(RoadTramType::Road)) used_roadtypes.Reset(GetMaskForRoadTramType(RoadTramType::Road));
+	if (!rtts.Test(RoadTramType::Tram)) used_roadtypes.Reset(GetMaskForRoadTramType(RoadTramType::Tram));
 
 	DropDownList list;
 

@@ -26,19 +26,19 @@
  */
 static ChangeInfoResult RailTypeChangeInfo(uint first, uint last, int prop, ByteReader &buf)
 {
-	ChangeInfoResult ret = CIR_SUCCESS;
+	ChangeInfoResult ret = ChangeInfoResult::Success;
 
 	extern RailTypeInfo _railtypes[RAILTYPE_END];
 	const auto &type_map = _cur_gps.grffile->railtype_map;
 
 	if (last > std::size(type_map)) {
 		GrfMsg(1, "RailTypeChangeInfo: Rail type {} is invalid, max {}, ignoring", last, std::size(type_map));
-		return CIR_INVALID_ID;
+		return ChangeInfoResult::InvalidId;
 	}
 
 	for (uint id = first; id < last; ++id) {
 		RailType rt = type_map[id];
-		if (rt == INVALID_RAILTYPE) return CIR_INVALID_ID;
+		if (rt == INVALID_RAILTYPE) return ChangeInfoResult::InvalidId;
 
 		RailTypeInfo *rti = &_railtypes[rt];
 
@@ -151,7 +151,7 @@ static ChangeInfoResult RailTypeChangeInfo(uint first, uint last, int prop, Byte
 				break;
 
 			default:
-				ret = CIR_UNKNOWN;
+				ret = ChangeInfoResult::Unknown;
 				break;
 		}
 	}
@@ -161,14 +161,14 @@ static ChangeInfoResult RailTypeChangeInfo(uint first, uint last, int prop, Byte
 
 static ChangeInfoResult RailTypeReserveInfo(uint first, uint last, int prop, ByteReader &buf)
 {
-	ChangeInfoResult ret = CIR_SUCCESS;
+	ChangeInfoResult ret = ChangeInfoResult::Success;
 
 	extern RailTypeInfo _railtypes[RAILTYPE_END];
 	auto &type_map = _cur_gps.grffile->railtype_map;
 
 	if (last > std::size(type_map)) {
 		GrfMsg(1, "RailTypeReserveInfo: Rail type {} is invalid, max {}, ignoring", last, std::size(type_map));
-		return CIR_INVALID_ID;
+		return ChangeInfoResult::InvalidId;
 	}
 
 	for (uint id = first; id < last; ++id) {
@@ -236,7 +236,7 @@ static ChangeInfoResult RailTypeReserveInfo(uint first, uint last, int prop, Byt
 				break;
 
 			default:
-				ret = CIR_UNKNOWN;
+				ret = ChangeInfoResult::Unknown;
 				break;
 		}
 	}
@@ -244,5 +244,7 @@ static ChangeInfoResult RailTypeReserveInfo(uint first, uint last, int prop, Byt
 	return ret;
 }
 
+/** @copydoc GrfChangeInfoHandler::Reserve */
 template <> ChangeInfoResult GrfChangeInfoHandler<GSF_RAILTYPES>::Reserve(uint first, uint last, int prop, ByteReader &buf) { return RailTypeReserveInfo(first, last, prop, buf); }
+/** @copydoc GrfChangeInfoHandler::Activation */
 template <> ChangeInfoResult GrfChangeInfoHandler<GSF_RAILTYPES>::Activation(uint first, uint last, int prop, ByteReader &buf) { return RailTypeChangeInfo(first, last, prop, buf); }

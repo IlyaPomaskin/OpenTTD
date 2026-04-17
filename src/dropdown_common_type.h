@@ -16,6 +16,7 @@
 #include "palette_func.h"
 #include "settings_gui.h"
 #include "string_func.h"
+#include "stringfilter_type.h"
 #include "strings_func.h"
 #include "window_gui.h"
 
@@ -26,7 +27,7 @@
  * @tparam TBase Base component.
  * @tparam TFs Font size -- used to determine height.
  */
-template <class TBase, FontSize TFs = FS_NORMAL>
+template <class TBase, FontSize TFs = FontSize::Normal>
 class DropDownDivider : public TBase {
 public:
 	template <typename... Args>
@@ -52,7 +53,7 @@ public:
  * @tparam TFs Font size.
  * @tparam TEnd Position string at end if true, or start if false.
  */
-template <class TBase, FontSize TFs = FS_NORMAL, bool TEnd = false>
+template <class TBase, FontSize TFs = FontSize::Normal, bool TEnd = false>
 class DropDownString : public TBase {
 	std::string string; ///< String to be drawn.
 	Dimension dim; ///< Dimensions of string.
@@ -61,6 +62,13 @@ public:
 	explicit DropDownString(std::string &&string, Args&&... args) : TBase(std::forward<Args>(args)...)
 	{
 		this->SetString(std::move(string));
+	}
+
+	/** @copydoc DropDownListItem::FilterText */
+	void FilterText(StringFilter &string_filter) const override
+	{
+		string_filter.AddLine(this->string);
+		this->TBase::FilterText(string_filter);
 	}
 
 	void SetString(std::string &&string)
@@ -153,7 +161,7 @@ public:
  * @tparam TFs Font size.
  * @tparam TEnd Position checkmark at end if true, or start if false.
  */
-template <class TBase, bool TEnd = false, FontSize TFs = FS_NORMAL>
+template <class TBase, bool TEnd = false, FontSize TFs = FontSize::Normal>
 class DropDownCheck : public TBase {
 	bool checked; ///< Is item checked.
 	Dimension dim; ///< Dimension of checkmark.
@@ -290,7 +298,7 @@ public:
  * Drop down component that makes the item unselectable.
  * @tparam TBase Base component.
  */
-template <class TBase, FontSize TFs = FS_NORMAL>
+template <class TBase, FontSize TFs = FontSize::Normal>
 class DropDownUnselectable : public TBase {
 public:
 	template <typename... Args>
@@ -299,9 +307,9 @@ public:
 	bool Selectable() const override { return false; }
 };
 
-using DropDownListDividerItem = DropDownDivider<DropDownListItem>;
-using DropDownListStringItem = DropDownString<DropDownListItem>;
-using DropDownListIconItem = DropDownIcon<DropDownString<DropDownListItem>>;
-using DropDownListCheckedItem = DropDownIndent<DropDownCheck<DropDownString<DropDownListItem>>>;
+using DropDownListDividerItem = DropDownDivider<DropDownListItem>; ///< Drop down list item that divides list horizontally into two parts.
+using DropDownListStringItem = DropDownString<DropDownListItem>; ///< Drop down list item that contains a single string.
+using DropDownListIconItem = DropDownIcon<DropDownString<DropDownListItem>>; ///< Drop down list item that contains a single string and an icon.
+using DropDownListCheckedItem = DropDownIndent<DropDownCheck<DropDownString<DropDownListItem>>>; ///< Drop down list item with a single string and a space for tick.
 
 #endif /* DROPDOWN_COMMON_TYPE_H */

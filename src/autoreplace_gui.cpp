@@ -317,7 +317,7 @@ public:
 
 			case WID_RV_LEFT_DETAILS:
 			case WID_RV_RIGHT_DETAILS:
-				size.height = GetCharacterHeight(FS_NORMAL) * this->details_height + padding.height;
+				size.height = GetCharacterHeight(FontSize::Normal) * this->details_height + padding.height;
 				break;
 
 			case WID_RV_TRAIN_WAGONREMOVE_TOGGLE: {
@@ -498,7 +498,7 @@ public:
 					const Rect r = this->GetWidget<NWidgetBase>(side == 0 ? WID_RV_LEFT_DETAILS : WID_RV_RIGHT_DETAILS)->GetCurrentRect()
 							.Shrink(WidgetDimensions::scaled.frametext, WidgetDimensions::scaled.framerect);
 					int text_end = DrawVehiclePurchaseInfo(r.left, r.right, r.top, this->sel_engine[side], ted);
-					needed_height = std::max(needed_height, (text_end - r.top) / GetCharacterHeight(FS_NORMAL));
+					needed_height = std::max(needed_height, (text_end - r.top) / GetCharacterHeight(FontSize::Normal));
 				}
 			}
 			if (needed_height != this->details_height) { // Details window are not high enough, enlarge them.
@@ -539,13 +539,17 @@ public:
 				break;
 			}
 
-			case WID_RV_RAIL_TYPE_DROPDOWN: // Railtype selection dropdown menu
-				ShowDropDownList(this, GetRailTypeDropDownList(true, true), this->sel_railtype, widget);
+			case WID_RV_RAIL_TYPE_DROPDOWN: { // Railtype selection dropdown menu
+				static std::string railtype_filter;
+				ShowDropDownList(this, GetRailTypeDropDownList(true, true), this->sel_railtype, widget, 0, DropDownOption::Filterable, &railtype_filter);
 				break;
+			}
 
-			case WID_RV_ROAD_TYPE_DROPDOWN: // Roadtype selection dropdown menu
-				ShowDropDownList(this, GetRoadTypeDropDownList(RTTB_ROAD | RTTB_TRAM, true, true), this->sel_roadtype, widget);
+			case WID_RV_ROAD_TYPE_DROPDOWN: { // Roadtype selection dropdown menu
+				static std::string roadtype_filter;
+				ShowDropDownList(this, GetRoadTypeDropDownList(ROADTRAMTYPES_ALL, true, true), this->sel_roadtype, widget, 0, DropDownOption::Filterable, &roadtype_filter);
 				break;
+			}
 
 			case WID_RV_TRAIN_WAGONREMOVE_TOGGLE: {
 				const Group *g = Group::GetIfValid(this->sel_group);

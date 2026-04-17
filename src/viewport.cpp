@@ -240,7 +240,7 @@ void InitializeWindowViewport(Window *w, int x, int y,
 		const Vehicle *veh;
 
 		vp->follow_vehicle = std::get<VehicleID>(focus);
-		veh = Vehicle::Get(vp->follow_vehicle);
+		veh = Vehicle::Get(vp->follow_vehicle)->GetMovingFront();
 		pt = MapXYZToViewport(*vp, veh->x_pos, veh->y_pos, veh->z_pos);
 	} else {
 		TileIndex tile = std::get<TileIndex>(focus);
@@ -1343,7 +1343,7 @@ std::string *ViewportAddString(const DrawPixelInfo *dpi, const ViewportSign *sig
 	int bottom = top + dpi->height;
 
 	bool small = flags.Test(ViewportStringFlag::Small);
-	int sign_height     = ScaleByZoom(WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FS_SMALL : FS_NORMAL) + WidgetDimensions::scaled.fullbevel.bottom, dpi->zoom);
+	int sign_height     = ScaleByZoom(WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FontSize::Small : FontSize::Normal) + WidgetDimensions::scaled.fullbevel.bottom, dpi->zoom);
 	int sign_half_width = ScaleByZoom((small ? sign->width_small : sign->width_normal) / 2, dpi->zoom);
 
 	if (bottom < sign->top ||
@@ -1358,7 +1358,7 @@ std::string *ViewportAddString(const DrawPixelInfo *dpi, const ViewportSign *sig
 
 static Rect ExpandRectWithViewportSignMargins(Rect r, ZoomLevel zoom)
 {
-	const int fh = std::max(GetCharacterHeight(FS_NORMAL), GetCharacterHeight(FS_SMALL));
+	const int fh = std::max(GetCharacterHeight(FontSize::Normal), GetCharacterHeight(FontSize::Small));
 	const int max_tw = _viewport_sign_maxwidth / 2 + 1;
 	const int expand_y = ScaleByZoom(WidgetDimensions::scaled.fullbevel.top + fh + WidgetDimensions::scaled.fullbevel.bottom, zoom);
 	const int expand_x = ScaleByZoom(WidgetDimensions::scaled.fullbevel.left + max_tw + WidgetDimensions::scaled.fullbevel.right, zoom);
@@ -1559,7 +1559,7 @@ void ViewportSign::UpdatePosition(int center, int top, std::string_view str, std
 
 	/* zoomed out version */
 	if (str_small.empty()) str_small = str;
-	this->width_small = WidgetDimensions::scaled.fullbevel.left + Align(GetStringBoundingBox(str_small, FS_SMALL).width, 2) + WidgetDimensions::scaled.fullbevel.right;
+	this->width_small = WidgetDimensions::scaled.fullbevel.left + Align(GetStringBoundingBox(str_small, FontSize::Small).width, 2) + WidgetDimensions::scaled.fullbevel.right;
 
 	this->MarkDirty();
 }
@@ -1576,7 +1576,7 @@ void ViewportSign::MarkDirty(ZoomLevel maxzoom) const
 
 	/* We don't know which size will be drawn, so mark the largest area dirty. */
 	const uint half_width = std::max(this->width_normal, this->width_small) / 2 + 1;
-	const uint height = WidgetDimensions::scaled.fullbevel.top + std::max(GetCharacterHeight(FS_NORMAL), GetCharacterHeight(FS_SMALL)) + WidgetDimensions::scaled.fullbevel.bottom + 1;
+	const uint height = WidgetDimensions::scaled.fullbevel.top + std::max(GetCharacterHeight(FontSize::Normal), GetCharacterHeight(FontSize::Small)) + WidgetDimensions::scaled.fullbevel.bottom + 1;
 
 	for (ZoomLevel zoom = ZoomLevel::Begin; zoom != ZoomLevel::End; zoom++) {
 		zoomlevels[to_underlying(zoom)].left = this->center - ScaleByZoom(half_width, zoom);
@@ -1794,7 +1794,7 @@ static void ViewportDrawStrings(ZoomLevel zoom, const StringSpriteToDrawVector *
 		int w = ss.width;
 		int x = UnScaleByZoom(ss.x, zoom);
 		int y = UnScaleByZoom(ss.y, zoom);
-		int h = WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FS_SMALL : FS_NORMAL) + WidgetDimensions::scaled.fullbevel.bottom;
+		int h = WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FontSize::Small : FontSize::Normal) + WidgetDimensions::scaled.fullbevel.bottom;
 
 		TextColour colour = TC_WHITE;
 		if (ss.flags.Test(ViewportStringFlag::ColourRect)) {
@@ -1816,10 +1816,10 @@ static void ViewportDrawStrings(ZoomLevel zoom, const StringSpriteToDrawVector *
 		if (small && ss.flags.Test(ViewportStringFlag::Shadow)) {
 			/* Shadow needs to be shifted 1 pixel. */
 			shadow_offset = WidgetDimensions::scaled.fullbevel.top;
-			DrawString(left + shadow_offset, right + shadow_offset, top, ss.string, TC_BLACK, SA_HOR_CENTER, false, FS_SMALL);
+			DrawString(left + shadow_offset, right + shadow_offset, top, ss.string, TC_BLACK, SA_HOR_CENTER, false, FontSize::Small);
 		}
 
-		DrawString(left, right, top - shadow_offset, ss.string, colour, SA_HOR_CENTER, false, small ? FS_SMALL : FS_NORMAL);
+		DrawString(left, right, top - shadow_offset, ss.string, colour, SA_HOR_CENTER, false, small ? FontSize::Small : FontSize::Normal);
 	}
 }
 
@@ -2041,7 +2041,7 @@ void UpdateViewportPosition(Window *w, uint32_t delta_ms)
 	ViewportData &vp = *w->viewport;
 
 	if (vp.follow_vehicle != VehicleID::Invalid()) {
-		const Vehicle *veh = Vehicle::Get(vp.follow_vehicle);
+		const Vehicle *veh = Vehicle::Get(vp.follow_vehicle)->GetMovingFront();
 		Point pt = MapXYZToViewport(vp, veh->x_pos, veh->y_pos, veh->z_pos);
 
 		vp.scrollpos_x = pt.x;
@@ -2322,7 +2322,7 @@ static bool CheckClickOnViewportSign(const Viewport &vp, int x, int y, const Vie
 {
 	bool small = (vp.zoom >= ZoomLevel::Out4x);
 	int sign_half_width = ScaleByZoom((small ? sign->width_small : sign->width_normal) / 2, vp.zoom);
-	int sign_height = ScaleByZoom(WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FS_SMALL : FS_NORMAL) + WidgetDimensions::scaled.fullbevel.bottom, vp.zoom);
+	int sign_height = ScaleByZoom(WidgetDimensions::scaled.fullbevel.top + GetCharacterHeight(small ? FontSize::Small : FontSize::Normal) + WidgetDimensions::scaled.fullbevel.bottom, vp.zoom);
 
 	return y >= sign->top && y < sign->top + sign_height &&
 			x >= sign->center - sign_half_width && x < sign->center + sign_half_width;
@@ -2683,7 +2683,12 @@ void SetTileSelectBigSize(int ox, int oy, int sx, int sy)
 	_thd.new_outersize.y = sy * TILE_SIZE;
 }
 
-/** returns the best autorail highlight type from map coordinates */
+/**
+ * Determine the best autorail highlight type from map coordinates.
+ * @param x The map X-coordinate.
+ * @param y The map Y-coordinate.
+ * @return The best highlight style.
+ */
 static HighLightStyle GetAutorailHT(int x, int y)
 {
 	return HT_RAIL | _autorail_piece[x & TILE_UNIT_MASK][y & TILE_UNIT_MASK];
@@ -2845,7 +2850,12 @@ static void HideMeasurementTooltips()
 	CloseWindowById(WC_TOOLTIPS, 0);
 }
 
-/** highlighting tiles while only going over them with the mouse */
+/**
+ * Prepare state for highlighting tiles while dragging with the mouse.
+ * @param tile The start tile.
+ * @param method The method/limits for what area can be selected.
+ * @param process Unique identifier of the thing to do after the dragging is done.
+ */
 void VpStartPlaceSizing(TileIndex tile, ViewportPlaceMethod method, ViewportDragDropSelectionProcess process)
 {
 	_thd.select_method = method;
@@ -3123,7 +3133,12 @@ static void CheckOverflow(int &test, int &other, int max, int mult)
 	test = max;
 }
 
-/** while dragging */
+/**
+ * Determine and set the draw style, as well as the end point of the drag.
+ * @param x The current X-coordinate of the mouse in map coordinates.
+ * @param y The current Y-coordinate of the mouse in map coordinates.
+ * @param method The user chosen method for dragging rails (specific orientation, autorail).
+ */
 static void CalcRaildirsDrawstyle(int x, int y, int method)
 {
 	HighLightStyle b;

@@ -789,8 +789,9 @@ STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :Доставл�
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :В ожидании
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - Пассажиры и грузы
-STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Запрос
+STR_GRAPH_TOWN_RANGE_PRODUCED                                   :Произведено
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :Перевезено
+STR_GRAPH_TOWN_RANGE_DELIVERED                                  :Доставлено
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}Показать составляющие части рейтинга
 
@@ -1502,8 +1503,13 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HIGH                      :Высокая
 STR_CONFIG_SETTING_RECESSIONS                                   :Экономические кризисы: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :Если эта настройка включена, в игре иногда происходят экономические кризисы. В это время объёмы производства значительно снижаются (и возвращаются к прежнему уровню, когда спад заканчивается).
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :Запретить разворот поездов на станциях: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :Если включено, поезда не будут разворачиваться на проходных станциях, даже если это позволит сократить путь к следующему пункту назначения
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE                           :Разрешить разворот поездов: {STRING}
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_HELPTEXT                  :Укажите, можно ли составам поездов разворачиваться для изменения направления движения. "Везде" - значит, можно в любом месте. "В конце пути" - составы не будут разворачиваться на станциях, если могут продолжить движение вперёд. "Нет" - поезда не будут разворачиваться, но смогут ехать назад со сниженной скоростью, если в хвосте состава нет локомотива.
+
+###length 3
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_ALL                       :везде
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_END_OF_LINE_ONLY          :в конце пути
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_NONE                      :нет
 
 STR_CONFIG_SETTING_DISASTERS                                    :Катастрофы: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :Включение/отключение катастроф, которые могут время от времени блокировать или уничтожать транспортные средства или инфраструктуру
@@ -2054,6 +2060,9 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :При вклю
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :Учитывать ограничение скорости у вагонов: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :При наличии в составе вагонов с ограничением скорости учитывать это ограничение при определении максимальной скорости состава
+
+STR_CONFIG_SETTING_AIRCRAFT_RANGE                               :Ограничение дальности воздушных судов: {STRING}
+STR_CONFIG_SETTING_AIRCRAFT_RANGE_HELPTEXT                      :При включении - модули NewGRF смогут ограничивать максимальную дальность воздушных судов.
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :Не требовать электрификации железной дороги: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :При включении этой настройки электровозы смогут ездить по неэлектрифицированной железной дороге
@@ -2636,15 +2645,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}Гото
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} загружено
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}Загружено {BYTES} / {BYTES}
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) Соединение...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) Авторизация...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) Ожидание...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) Загрузка карты...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) Обработка...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) Регистрация...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}Получение информации об игре...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}Получение информации о компаниях...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}Отключиться
 
@@ -4763,8 +4770,8 @@ STR_VEHICLE_DETAILS_ROAD_VEHICLE_RENAME                         :{BLACK}Пере
 STR_VEHICLE_DETAILS_SHIP_RENAME                                 :{BLACK}Переименовать судно
 STR_VEHICLE_DETAILS_AIRCRAFT_RENAME                             :{BLACK}Переименовать воздушное судно
 
-STR_VEHICLE_INFO_AGE                                            :{COMMA} {P год года лет} ({COMMA})
-STR_VEHICLE_INFO_AGE_RED                                        :{RED}{COMMA} {P год года лет} ({COMMA})
+STR_VEHICLE_INFO_AGE                                            :{COMMA} {P год года лет} / {COMMA} {P года лет лет}
+STR_VEHICLE_INFO_AGE_RED                                        :{RED}{COMMA} {P год года лет} / {COMMA} {P года лет лет}
 STR_VEHICLE_INFO_AGE_RUNNING_COST_YR                            :{BLACK}Возраст: {LTBLUE}{STRING}{BLACK} Стоимость обслуживания: {LTBLUE}{CURRENCY_LONG}/год
 STR_VEHICLE_INFO_AGE_RUNNING_COST_PERIOD                        :{BLACK}Возраст: {LTBLUE}{STRING}{BLACK} Стоимость обслуживания: {LTBLUE}{CURRENCY_LONG}/цикл
 
@@ -4778,7 +4785,7 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}Приб
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}Прибыль в текущем году: {LTBLUE}{CURRENCY_LONG} (в прошлом: {CURRENCY_LONG}) {BLACK}Мин. удельная мощн.: {LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}Прибыль в текущем цикле: {LTBLUE}{CURRENCY_LONG} (в прошлом: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}Прибыль в текущем цикле: {LTBLUE}{CURRENCY_LONG} (в прошлом: {CURRENCY_LONG}) {BLACK}Мин. удельная мощн.: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Надёжность: {LTBLUE}{COMMA}% {BLACK}Поломок после ТО: {LTBLUE}{COMMA}
+STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Надёжность: {LTBLUE}{COMMA}% (макс. {COMMA}%) {BLACK}Поломок после ТО: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}Построен в {LTBLUE}{NUM} г.{BLACK} Стоимость: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}Ёмкость: {LTBLUE}отсутствует{STRING}
@@ -4918,7 +4925,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Выбе
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}Параметр транспорта для сравнения
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :Загрузка (%)
 STR_ORDER_CONDITIONAL_RELIABILITY                               :Надёжность
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :Максимальная скорость
@@ -4946,6 +4953,7 @@ STR_ORDERS_SKIP_BUTTON                                          :{BLACK}Проп
 STR_ORDERS_SKIP_TOOLTIP                                         :{BLACK}Перейти к следующему заданию. Ctrl+щелчок - перейти к выделенному заданию.
 
 STR_ORDERS_DELETE_BUTTON                                        :{BLACK}Удалить
+STR_ORDERS_DELETE_ALL_BUTTON                                    :{BLACK}Удалить все
 STR_ORDERS_DELETE_TOOLTIP                                       :{BLACK}Удалить выделенное задание
 STR_ORDERS_DELETE_ALL_TOOLTIP                                   :{BLACK}Удалить все задания
 STR_ORDERS_STOP_SHARING_BUTTON                                  :{BLACK}Индивидуальный список
@@ -5445,6 +5453,7 @@ STR_ERROR_CAN_T_MOVE_VEHICLE                                    :Невозмо�
 STR_ERROR_REAR_ENGINE_FOLLOW_FRONT                              :тыловой локомотив всегда следует за передней частью
 STR_ERROR_UNABLE_TO_FIND_ROUTE_TO                               :невозможно найти маршрут к депо
 STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT                            :невозможно найти гараж
+STR_ERROR_UNABLE_TO_FIND_LOCAL_HANGAR                           :невозможно найти ангар
 
 STR_ERROR_DEPOT_WRONG_DEPOT_TYPE                                :неверный тип депо
 

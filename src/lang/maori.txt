@@ -727,8 +727,8 @@ STR_MUSIC_TRACK                                                 :{TINY_FONT}{BLA
 STR_MUSIC_XTITLE                                                :{TINY_FONT}{BLACK}Taitara
 STR_MUSIC_SHUFFLE                                               :{TINY_FONT}{BLACK}Riwhiriwhi
 STR_MUSIC_PROGRAM                                               :{TINY_FONT}{BLACK}Hōtaka
-STR_MUSIC_TOOLTIP_SKIP_TO_PREVIOUS_TRACK                        :{BLACK}Peke ki te waiata kua hipa i tēnei tīpako
-STR_MUSIC_TOOLTIP_SKIP_TO_NEXT_TRACK_IN_SELECTION               :{BLACK}Peke ki te waiata e whai ake nei i tēnei tīpako
+STR_MUSIC_TOOLTIP_SKIP_TO_PREVIOUS_TRACK                        :{BLACK}Peke ki te waiata kua hipa i tēnei tīpakonga
+STR_MUSIC_TOOLTIP_SKIP_TO_NEXT_TRACK_IN_SELECTION               :{BLACK}Peke ki te waiata e whai ake nei i tēnei tīpakonga
 STR_MUSIC_TOOLTIP_STOP_PLAYING_MUSIC                            :{BLACK}Kāti te puoro
 STR_MUSIC_TOOLTIP_START_PLAYING_MUSIC                           :{BLACK}Pureitia te puoro
 STR_MUSIC_TOOLTIP_DRAG_SLIDERS_TO_SET_MUSIC                     :{BLACK}Tōia ngā tāneke kia tautuhi te kaha mō te puoro me ngā orotaunaki
@@ -1351,8 +1351,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HIGH                      :Nui
 STR_CONFIG_SETTING_RECESSIONS                                   :Auheke ohaoha: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :Ina kā, ka taea te tūpono e ngā auheke i ētahi wā. I te auheke, ka iti rawa atu te whakaputa katoa (ka hoki ki te kōeke o mua i te mutunga o te auheke)
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :Āraia ngā tereina kei haere whakamuri i roto i ngā teihana: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :Ina kā, kāore ngā tereina e haere whakamuri i roto i ngā teihana ehara i te momo whakamutunga, kāore hoki ina poto ake te ara ki te ūnga mehemea ka haere whakamuri
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :Maikiroa: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :Hohokona ngā maikiroa ka ārai pea, whakangaro pea rānei i ngā waka, te tūāhanga rānei
@@ -1903,6 +1903,7 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :Ina kā, ka pō
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :Whakakāngia ngā tepetere wākena: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :Ina kā, whakamahia ngā tepetere o ngā wākena hei whakatau i te tere mōrahi o te tereina
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :Āraia ngā rēra hiko: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :Ina kā, kāore te whakahiko ara e pīrangitia kia rere ai ngā tereina hiko
@@ -2485,15 +2486,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} {P
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} kua tīkina ake ināianei
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} kua tīkina ake ināianei
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) Kei te hono...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) Kei te whakamana...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) Kei te tatari...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) Kei te tiki ake i te mahere...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) Kei te tukatuka raraunga...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) Kei te rēhita...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}Kei te tiki i te pārongo kēmu...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}Kei te tiki i te pārongo umanga...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}Wete
 
@@ -3679,7 +3678,7 @@ STR_NEWGRF_TOO_MANY_NEWGRFS                                     :Tē taea te tā
 STR_NEWGRF_COMPATIBLE_LOAD_WARNING                              :Kua utaina he newGRF hototahi mō ētahi kōnae ngaro
 STR_NEWGRF_DISABLED_WARNING                                     :Kua āraia he kōnae newGRF ngaro
 STR_NEWGRF_UNPAUSE_WARNING_TITLE                                :{YELLOW}Kōnae newGRF ngaro
-STR_NEWGRF_UNPAUSE_WARNING                                      :{WHITE}Ka taea te hinga e OpenTTD i te purei. Kaua e tuku pūrongo iro mō ngā hinga e whai ake nei.{}Kei te tino hiahia rānei koe kia purei?
+STR_NEWGRF_UNPAUSE_WARNING                                      :{WHITE}Ka taea te hinga e OpenTTD i te purei. Kaua e tuku pūrongo iro mō ngā hinga ā muri atu.{}Kei te tino hiahia rānei koe kia purei?
 
 # NewGRF status
 STR_NEWGRF_LIST_NONE                                            :Kore
@@ -4591,7 +4590,6 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}Monihua 
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}Monihua i tēnei tau: {LTBLUE}{CURRENCY_LONG} (tērā tau: {CURRENCY_LONG}) {BLACK}Pānga mōkito: {LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}Monihua i tēnei wā: {LTBLUE}{CURRENCY_LONG} (tērā wā: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}Monihua i tēnei wā: {LTBLUE}{CURRENCY_LONG} (tērā wā: {CURRENCY_LONG}) {BLACK}Pānga mōkito: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Horopū: {LTBLUE}{COMMA}%  {BLACK}Turingonge mai rānō i te tapi hou rawa atu: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}Rā i hangaia ai: {LTBLUE}{NUM}{BLACK} Uara: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}Kītanga: {LTBLUE}None{STRING}
@@ -4731,7 +4729,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Tīpakon
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}Te raraunga waka me peke ai
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :Ōrau o te utanga
 STR_ORDER_CONDITIONAL_RELIABILITY                               :Horopū
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :Tere mōrahi
@@ -4946,8 +4944,8 @@ STR_ERROR_AI_DEBUG_SERVER_ONLY                                  :{YELLOW}Mō te 
 # AI configuration window
 STR_AI_CONFIG_CAPTION_AI                                        :{WHITE}Tautuhinga Kaitākaro Hangahanga
 STR_AI_CONFIG_CAPTION_GAMESCRIPT                                :{WHITE}Tautuhinga Hōtuhi Kēmu
-STR_AI_CONFIG_GAMELIST_TOOLTIP                                  :{BLACK}Te hōtuhi kēmu ka utaina i te kēmu e whai ake nei
-STR_AI_CONFIG_AILIST_TOOLTIP                                    :{BLACK}Ngā kaitākaro hangahanga ka utaina i te kēmu e whai ake nei
+STR_AI_CONFIG_GAMELIST_TOOLTIP                                  :{BLACK}Te hōtuhi kēmu ka utaina i te kēmu ā muri atu
+STR_AI_CONFIG_AILIST_TOOLTIP                                    :{BLACK}Ngā kaitākaro hangahanga ka utaina i te kēmu ā muri atu
 STR_AI_CONFIG_HUMAN_PLAYER                                      :Kaitākaro tangata
 STR_AI_CONFIG_RANDOM_AI                                         :Kaitākaro hangahanga matapōkere
 STR_AI_CONFIG_NONE                                              :(kore)

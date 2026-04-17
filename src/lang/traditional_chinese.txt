@@ -651,8 +651,9 @@ STR_GRAPH_INDUSTRY_RANGE_DELIVERED                              :已接受
 STR_GRAPH_INDUSTRY_RANGE_WAITING                                :庫存
 
 STR_GRAPH_TOWN_CARGO_CAPTION                                    :{WHITE}{TOWN} - 貨物記錄
-STR_GRAPH_TOWN_RANGE_PRODUCED                                   :供應
+STR_GRAPH_TOWN_RANGE_PRODUCED                                   :已產出
 STR_GRAPH_TOWN_RANGE_TRANSPORTED                                :已運送
+STR_GRAPH_TOWN_RANGE_DELIVERED                                  :已接受
 
 STR_GRAPH_PERFORMANCE_DETAIL_TOOLTIP                            :{BLACK}顯示詳細營運評比
 
@@ -1351,8 +1352,13 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HIGH                      :高
 STR_CONFIG_SETTING_RECESSIONS                                   :經濟衰退：{STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :如果此選項被啟用，經濟衰退將會週期性發生。屆時所有工業生產都會大幅下降，直至衰退結束後回到之前的水平
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :禁止列車在車站內折返：{STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :如果此選項被啟用，即使折返能使列車走較少的路到達下一目的地，列車仍不會在非端點的車站折返。
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE                           :允許列車在倒車時換向：{STRING}
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_HELPTEXT                  :選擇列車可以在那些位置換向折返。在選擇「全部」時，列車可以在任何位置換向折返。選擇「僅在路徑末端」時，如果列車可以繼續往前行，則列車不會在車站內換向折返。選擇「無」時，列車不能換向折返，在需要時才會倒車，但如果列車未端沒有駕駛室，則會慢速行駛
+
+###length 3
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_ALL                       :所有
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_END_OF_LINE_ONLY          :僅在路徑末端
+STR_CONFIG_SETTING_TRAIN_FLIP_REVERSE_NONE                      :無
 
 STR_CONFIG_SETTING_DISASTERS                                    :災難：{STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :切換那些有可能阻礙、摧毀車輛或基礎建設的災難。
@@ -1904,6 +1910,9 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :啟用後，對
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :開啟列車車廂速限：{STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :如啟用此選項，無動力車廂的限速會影響列車的最高速度。
 
+STR_CONFIG_SETTING_AIRCRAFT_RANGE                               :啟用飛機最大航程：{STRING}
+STR_CONFIG_SETTING_AIRCRAFT_RANGE_HELPTEXT                      :啟用後，NewGRF 將能限制飛機的最大航程
+
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :停用電氣化鐵道：{STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :如啟用此選項，電動列車可於普通軌道上行走，毋須鋪設電氣化軌道。
 
@@ -2205,7 +2214,7 @@ STR_CONFIG_SETTING_AI_NPC                                       :電腦玩家
 STR_CONFIG_SETTING_NETWORK                                      :網路
 
 STR_CONFIG_SETTING_REVERSE_AT_SIGNALS                           :在號誌自動倒轉：{STRING}
-STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :設定是否容許列車在號誌前等候超過一段時間後調頭。
+STR_CONFIG_SETTING_REVERSE_AT_SIGNALS_HELPTEXT                  :允許列車在號誌前長時間等候時折返
 
 STR_CONFIG_SETTING_QUERY_CAPTION                                :{WHITE}修改設定值
 
@@ -2485,15 +2494,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}在您�
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} 目前已下載
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} 已下載
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) 連線中...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) 認證中...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) 等待中...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) 下載地圖中...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) 資料處理中...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) 註冊中...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}取得遊戲資訊中...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}取得公司資訊中...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}斷線
 
@@ -4077,8 +4084,8 @@ STR_INDUSTRY_DIRECTORY_NONE                                     :{ORANGE}- 無 -
 STR_INDUSTRY_DIRECTORY_ITEM_INFO                                :{BLACK}{CARGO_LONG}{STRING}{YELLOW} (運送了{COMMA}%)
 STR_INDUSTRY_DIRECTORY_ITEM_NOPROD                              :{ORANGE}{INDUSTRY}
 STR_INDUSTRY_DIRECTORY_ITEM_PROD1                               :{ORANGE}{INDUSTRY} {BLACK}{STRING}
-STR_INDUSTRY_DIRECTORY_ITEM_PROD2                               :{ORANGE}{INDUSTRY} {BLACK}{STRING}, {STRING}
-STR_INDUSTRY_DIRECTORY_ITEM_PROD3                               :{ORANGE}{INDUSTRY} {BLACK}{STRING}, {STRING}, {STRING}
+STR_INDUSTRY_DIRECTORY_ITEM_PROD2                               :{ORANGE}{INDUSTRY} {BLACK}{STRING}、{STRING}
+STR_INDUSTRY_DIRECTORY_ITEM_PROD3                               :{ORANGE}{INDUSTRY} {BLACK}{STRING}、{STRING}、{STRING}
 STR_INDUSTRY_DIRECTORY_ITEM_PRODMORE                            :{ORANGE}{INDUSTRY} {BLACK}{STRING}、{STRING}、{STRING}……（尚有 {NUM} 個未顯示）
 STR_INDUSTRY_DIRECTORY_LIST_TOOLTIP                             :{BLACK}工業名稱 - 點選名稱可將工業置於畫面正中央。按住 <Ctrl> 點選可於工業位置開啟新檢視視窗
 STR_INDUSTRY_DIRECTORY_ACCEPTED_CARGO_FILTER                    :{BLACK}接受貨物：{SILVER}{STRING}
@@ -4576,8 +4583,8 @@ STR_VEHICLE_DETAILS_ROAD_VEHICLE_RENAME                         :{BLACK}命名�
 STR_VEHICLE_DETAILS_SHIP_RENAME                                 :{BLACK}命名船舶
 STR_VEHICLE_DETAILS_AIRCRAFT_RENAME                             :{BLACK}命名飛機
 
-STR_VEHICLE_INFO_AGE                                            :{COMMA} 年 ({COMMA})
-STR_VEHICLE_INFO_AGE_RED                                        :{RED}{COMMA} 年 ({COMMA})
+STR_VEHICLE_INFO_AGE                                            :{COMMA} 年（剩餘年限：{COMMA}）
+STR_VEHICLE_INFO_AGE_RED                                        :{RED}{COMMA} 年（剩餘年限：{COMMA}）
 STR_VEHICLE_INFO_AGE_RUNNING_COST_YR                            :{BLACK}已使用年期︰{LTBLUE}{STRING}{BLACK} 營運成本︰{LTBLUE}{CURRENCY_LONG}/年
 STR_VEHICLE_INFO_AGE_RUNNING_COST_PERIOD                        :{BLACK}已使用年期︰{LTBLUE}{STRING}{BLACK} 營運成本︰{LTBLUE}{CURRENCY_LONG}/週期
 
@@ -4591,7 +4598,7 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}今年�
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}今年盈利：{LTBLUE}{CURRENCY_LONG} (去年盈利：{CURRENCY_LONG}) {BLACK}最差表現：{LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}本期盈利：{LTBLUE}{CURRENCY_LONG}（上期盈利：{CURRENCY_LONG}）
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}本期盈利：{LTBLUE}{CURRENCY_LONG}（上期盈利：{CURRENCY_LONG}）{BLACK}最小功率：{LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}可靠度：{LTBLUE}{COMMA}%  {BLACK}上次維護後的故障次數：{LTBLUE}{COMMA}
+STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}可靠度：{LTBLUE}{COMMA}%（最大：{COMMA}%）{BLACK}上次維護後的故障次數：{LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}興建於：{LTBLUE}{NUM}{BLACK} 價值：{LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}容量：{LTBLUE}無{STRING}
@@ -4731,7 +4738,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}選擇�
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}跳躍指令依據
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :裝載進度 (%)
 STR_ORDER_CONDITIONAL_RELIABILITY                               :可靠度
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :最高速度
@@ -4759,6 +4766,7 @@ STR_ORDERS_SKIP_BUTTON                                          :{BLACK}跳過
 STR_ORDERS_SKIP_TOOLTIP                                         :{BLACK}跳過目前的指令並從下個指令開始。 按住 <Ctrl> 點選可直接跳至所選的指令
 
 STR_ORDERS_DELETE_BUTTON                                        :{BLACK}刪除
+STR_ORDERS_DELETE_ALL_BUTTON                                    :{BLACK}全部刪除
 STR_ORDERS_DELETE_TOOLTIP                                       :{BLACK}刪除選定指令
 STR_ORDERS_DELETE_ALL_TOOLTIP                                   :{BLACK}刪除所有指令
 STR_ORDERS_STOP_SHARING_BUTTON                                  :{BLACK}停止共享
@@ -5258,6 +5266,7 @@ STR_ERROR_CAN_T_MOVE_VEHICLE                                    :無法移動車
 STR_ERROR_REAR_ENGINE_FOLLOW_FRONT                              :後端車頭一定要跟著前端車頭
 STR_ERROR_UNABLE_TO_FIND_ROUTE_TO                               :找不到前往附近機廠的路徑
 STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT                            :找不到附近的車廠
+STR_ERROR_UNABLE_TO_FIND_LOCAL_HANGAR                           :找不到附近的機棚
 
 STR_ERROR_DEPOT_WRONG_DEPOT_TYPE                                :機廠種類錯誤
 

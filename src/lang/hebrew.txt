@@ -1237,8 +1237,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HELPTEXT                  :קבע את ר�
 STR_CONFIG_SETTING_RECESSIONS                                   :מיתונים: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :אם מאופשר מיתונים עלולים להתרחש מדי כמה שנים. בתקופת מיתון כל הייצור קטן יותר באופן משמעותי (הוא חוזר לרמתו הקודמת בסוף המיתון)
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :מנע החלפת כיוון רכבות בתחנות: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :אם מאופשר רכבות לא יחליפו כיוון בתחנות שאינן סופיות, גם אם עקב החלפת כיוון יש נתיב קצר יותר אל היעד הבא
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :אסונות: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :אפשר/מנע אסונות אשר עלולים מדי פעם לחסום או להרוס כלי רכב או תשתיות
@@ -1734,6 +1734,7 @@ STR_CONFIG_SETTING_NOSERVICE_HELPTEXT                           :כאשר מאו
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :{STRING} :אפשר הגבלת מהירות עבור קרונות רכבת
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :כאשר מאופשר, השתמש גם במגבלות מהירות של קרונות לצורך קביעות המהירות המירבית של רכבת
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :{STRING} : בטל פסים חשמליים
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :אפשור הגדרה זו מבטל את הדרישה לחשמל מסילות כדי שקטרים חשמליים יוכלו לנסוע עליהן
@@ -2250,15 +2251,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{P 0 "ש
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} הורדו עד כה
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} :הורדו
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) מתחבר...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) מקבל הרשאה...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) ממתין...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) טוען מפה...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) מעבד נתונים...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) נרשם...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}טוען מידע על המשחק...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}טוען מידע על החברה...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}התנתק
 
@@ -4085,7 +4084,6 @@ STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED                         :{BLACK}משקל
 STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED_MAX_TE                  :{BLACK}משקל: {LTBLUE}{WEIGHT_SHORT} {BLACK}הספק: {LTBLUE}{POWER}{BLACK} מהירות מקסימלית: {LTBLUE}{VELOCITY} {BLACK}T.E. מקסימלי: {LTBLUE}{FORCE}
 
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}רווח בשנה הנוכחת: {LTBLUE}{CURRENCY_LONG} (שנה שעברה: {CURRENCY_LONG})
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}מהימנות: {LTBLUE}{COMMA}%  {BLACK}קלקול מאז טיפול אחרון: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}נבנה: {LTBLUE}{NUM}{BLACK} ערך: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}קיבולת: {LTBLUE}אין{STRING}
@@ -4213,7 +4211,7 @@ STR_ORDER_DROP_HALT_DEPOT                                       :עצור
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}נתוני כלי הרכב עליהם יתבסס הדילוג
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :אחוז טעינה
 STR_ORDER_CONDITIONAL_RELIABILITY                               :אמינות
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :מהירות מירבית

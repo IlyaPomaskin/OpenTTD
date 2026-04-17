@@ -79,12 +79,14 @@
 
 #include "safeguards.h"
 
+#ifndef DOXYGEN_API
+
 NLOHMANN_JSON_SERIALIZE_ENUM(GRFStatus, {
-	{GRFStatus::GCS_UNKNOWN, "unknown"},
-	{GRFStatus::GCS_DISABLED, "disabled"},
-	{GRFStatus::GCS_NOT_FOUND, "not found"},
-	{GRFStatus::GCS_INITIALISED, "initialised"},
-	{GRFStatus::GCS_ACTIVATED, "activated"},
+	{GRFStatus::Unknown, "unknown"},
+	{GRFStatus::Disabled, "disabled"},
+	{GRFStatus::NotFound, "not found"},
+	{GRFStatus::Initialised, "initialised"},
+	{GRFStatus::Activated, "activated"},
 })
 
 NLOHMANN_JSON_SERIALIZE_ENUM(SocialIntegrationPlugin::State, {
@@ -97,6 +99,7 @@ NLOHMANN_JSON_SERIALIZE_ENUM(SocialIntegrationPlugin::State, {
 	{SocialIntegrationPlugin::State::INVALID_SIGNATURE, "invalid_signature"},
 })
 
+#endif /* DOXYGEN_API */
 
 /** Lookup table to convert a VehicleType to a string. */
 static const std::string _vehicle_type_to_string[] = {
@@ -300,10 +303,10 @@ void SurveyConfiguration(nlohmann::json &survey)
  */
 void SurveyFont(nlohmann::json &survey)
 {
-	survey["small"] = FontCache::Get(FS_SMALL)->GetFontName();
-	survey["medium"] = FontCache::Get(FS_NORMAL)->GetFontName();
-	survey["large"] = FontCache::Get(FS_LARGE)->GetFontName();
-	survey["mono"] = FontCache::Get(FS_MONO)->GetFontName();
+	survey["small"] = FontCache::Get(FontSize::Small)->GetFontName();
+	survey["medium"] = FontCache::Get(FontSize::Normal)->GetFontName();
+	survey["large"] = FontCache::Get(FontSize::Large)->GetFontName();
+	survey["mono"] = FontCache::Get(FontSize::Monospace)->GetFontName();
 }
 
 /**

@@ -100,8 +100,8 @@ void CDECL NetworkAddChatMessage(TextColour colour, uint duration, const std::st
 /** Initialize all font-dependent chat box sizes. */
 void NetworkReInitChatBoxSize()
 {
-	_chatmsg_box.y       = 3 * GetCharacterHeight(FS_NORMAL);
-	_chatmsg_box.height  = MAX_CHAT_MESSAGES * (GetCharacterHeight(FS_NORMAL) + ScaleGUITrad(NETWORK_CHAT_LINE_SPACING)) + ScaleGUITrad(4);
+	_chatmsg_box.y       = 3 * GetCharacterHeight(FontSize::Normal);
+	_chatmsg_box.height  = MAX_CHAT_MESSAGES * (GetCharacterHeight(FontSize::Normal) + ScaleGUITrad(NETWORK_CHAT_LINE_SPACING)) + ScaleGUITrad(4);
 }
 
 /** Initialize all buffers of the chat visualisation. */
@@ -216,10 +216,10 @@ void NetworkDrawChatMessage()
 	int string_height = 0;
 	for (auto &cmsg : _chatmsg_list) {
 		if (!show_all && cmsg.remove_time < now) continue;
-		string_height += GetStringLineCount(GetString(STR_JUST_RAW_STRING, cmsg.message), width - 1) * GetCharacterHeight(FS_NORMAL) + NETWORK_CHAT_LINE_SPACING;
+		string_height += GetStringLineCount(GetString(STR_JUST_RAW_STRING, cmsg.message), width - 1) * GetCharacterHeight(FontSize::Normal) + NETWORK_CHAT_LINE_SPACING;
 	}
 
-	string_height = std::min<uint>(string_height, MAX_CHAT_MESSAGES * (GetCharacterHeight(FS_NORMAL) + NETWORK_CHAT_LINE_SPACING));
+	string_height = std::min<uint>(string_height, MAX_CHAT_MESSAGES * (GetCharacterHeight(FontSize::Normal) + NETWORK_CHAT_LINE_SPACING));
 
 	int top = _screen.height - _chatmsg_box.y - string_height - 2;
 	int bottom = _screen.height - _chatmsg_box.y - 2;
@@ -250,16 +250,26 @@ void NetworkDrawChatMessage()
  * @param type The type of destination.
  * @param dest The actual destination index.
  */
-static void SendChat(std::string_view buf, DestType type, int dest)
+static void SendChat(std::string_view buf, NetworkChatDestinationType type, int dest)
 {
 	if (buf.empty()) return;
+
+	NetworkAction action;
+	switch (type) {
+		case NetworkChatDestinationType::Broadcast: action = NetworkAction::ChatBroadcast; break;
+		case NetworkChatDestinationType::Team: action = NetworkAction::ChatTeam; break;
+		case NetworkChatDestinationType::Client: action = NetworkAction::ChatClient; break;
+		default: NOT_REACHED();
+	}
+
 	if (!_network_server) {
-		MyClient::SendChat((NetworkAction)(NETWORK_ACTION_CHAT + type), type, dest, buf, 0);
+		MyClient::SendChat(action, type, dest, buf, 0);
 	} else {
-		NetworkServerSendChat((NetworkAction)(NETWORK_ACTION_CHAT + type), type, dest, buf, CLIENT_ID_SERVER);
+		NetworkServerSendChat(action, type, dest, buf, CLIENT_ID_SERVER);
 	}
 }
 
+/** Implementation of AutoCompletion for nicknames and town names in the chat. */
 class NetworkChatAutoCompletion final : public AutoCompletion {
 public:
 	using AutoCompletion::AutoCompletion;
@@ -296,7 +306,7 @@ private:
 
 /** Window to enter the chat message in. */
 struct NetworkChatWindow : public Window {
-	DestType dtype{}; ///< The type of destination.
+	NetworkChatDestinationType dtype{}; ///< The type of destination.
 	int dest = 0; ///< The identifier of the destination.
 	QueryString message_editbox; ///< Message editbox.
 	NetworkChatAutoCompletion chat_tab_completion; ///< Holds the state and logic of auto-completion of player names and towns on Tab press.
@@ -307,7 +317,7 @@ struct NetworkChatWindow : public Window {
 	 * @param type The type of destination.
 	 * @param dest The actual destination index.
 	 */
-	NetworkChatWindow(WindowDesc &desc, DestType type, int dest)
+	NetworkChatWindow(WindowDesc &desc, NetworkChatDestinationType type, int dest)
 			: Window(desc), dtype(type), dest(dest), message_editbox(NETWORK_CHAT_LENGTH), chat_tab_completion(&message_editbox.text)
 	{
 		this->querystrings[WID_NC_TEXTBOX] = &this->message_editbox;
@@ -354,18 +364,11 @@ struct NetworkChatWindow : public Window {
 	{
 		if (widget != WID_NC_DESTINATION) return this->Window::GetWidgetString(widget, stringid);
 
-		static const StringID chat_captions[] = {
-			STR_NETWORK_CHAT_ALL_CAPTION,
-			STR_NETWORK_CHAT_COMPANY_CAPTION,
-			STR_NETWORK_CHAT_CLIENT_CAPTION
-		};
-		assert((uint)this->dtype < lengthof(chat_captions));
-
-		if (this->dtype == DESTTYPE_CLIENT) {
-			return GetString(STR_NETWORK_CHAT_CLIENT_CAPTION, NetworkClientInfo::GetByClientID((ClientID)this->dest)->client_name);
+		if (this->dtype == NetworkChatDestinationType::Client) {
+			return GetString(STR_NETWORK_CHAT_CLIENT_CAPTION, NetworkClientInfo::GetByClientID(static_cast<ClientID>(this->dest))->client_name);
 		}
 
-		return GetString(chat_captions[this->dtype]);
+		return GetString(this->dtype == NetworkChatDestinationType::Broadcast ? STR_NETWORK_CHAT_ALL_CAPTION : STR_NETWORK_CHAT_COMPANY_CAPTION);
 	}
 
 	void OnClick([[maybe_unused]] Point pt, WidgetID widget, [[maybe_unused]] int click_count) override
@@ -438,7 +441,7 @@ static WindowDesc _chat_window_desc(
  * @param type The type of destination.
  * @param dest The actual destination index.
  */
-void ShowNetworkChatQueryWindow(DestType type, int dest)
+void ShowNetworkChatQueryWindow(NetworkChatDestinationType type, int dest)
 {
 	CloseWindowByClass(WC_SEND_NETWORK_MSG);
 	new NetworkChatWindow(_chat_window_desc, type, dest);

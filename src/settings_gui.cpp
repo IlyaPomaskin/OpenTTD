@@ -104,7 +104,7 @@ struct BaseSetTextfileWindow : public TextfileWindow {
 	BaseSetTextfileWindow(Window *parent, TextfileType file_type, const std::string &name, const std::string &textfile, StringID content_type) : TextfileWindow(parent, file_type), name(name), content_type(content_type)
 	{
 		this->ConstructWindow();
-		this->LoadTextfile(textfile, BASESET_DIR);
+		this->LoadTextfile(textfile, Subdirectory::Baseset);
 	}
 
 	std::string GetWidgetString(WidgetID widget, StringID stringid) const override
@@ -453,7 +453,7 @@ struct GameOptionsWindow : Window {
 	void OnInit() override
 	{
 		BaseSettingEntry::circle_size = maxdim(GetSpriteSize(SPR_CIRCLE_FOLDED), GetSpriteSize(SPR_CIRCLE_UNFOLDED));
-		BaseSettingEntry::line_height = std::max({static_cast<int>(BaseSettingEntry::circle_size.height), SETTING_BUTTON_HEIGHT, GetCharacterHeight(FS_NORMAL)}) + WidgetDimensions::scaled.vsep_normal;
+		BaseSettingEntry::line_height = std::max({static_cast<int>(BaseSettingEntry::circle_size.height), SETTING_BUTTON_HEIGHT, GetCharacterHeight(FontSize::Normal)}) + WidgetDimensions::scaled.vsep_normal;
 
 		this->gui_scale = _gui_scale;
 	}
@@ -731,7 +731,7 @@ struct GameOptionsWindow : Window {
 						default: NOT_REACHED();
 					}
 					DrawString(tr, str);
-					tr.top += GetCharacterHeight(FS_NORMAL);
+					tr.top += GetCharacterHeight(FontSize::Normal);
 
 					auto [param1, param2] = sd->GetValueParams(sd->GetDefaultValue());
 					DrawString(tr, GetString(STR_CONFIG_SETTING_DEFAULT_VALUE, param1, param2));
@@ -745,7 +745,7 @@ struct GameOptionsWindow : Window {
 					DrawPixelInfo tmp_dpi;
 					if (FillDrawPixelInfo(&tmp_dpi, r)) {
 						AutoRestoreBackup dpi_backup(_cur_dpi, &tmp_dpi);
-						int scrolls_pos = this->vscroll_description->GetPosition() * GetCharacterHeight(FS_NORMAL);
+						int scrolls_pos = this->vscroll_description->GetPosition() * GetCharacterHeight(FontSize::Normal);
 						DrawStringMultiLine(0, r.Width() - 1, -scrolls_pos, r.Height() - 1, sd->GetHelp(), TC_WHITE);
 					}
 				}
@@ -770,7 +770,7 @@ struct GameOptionsWindow : Window {
 	void UpdateHelpTextSize()
 	{
 		NWidgetResizeBase *wid = this->GetWidget<NWidgetResizeBase>(WID_GO_HELP_TEXT);
-		this->vscroll_description->SetCount(this->last_clicked ? CeilDiv(this->last_clicked->GetMaxHelpHeight(wid->current_x), GetCharacterHeight(FS_NORMAL)) : 0);
+		this->vscroll_description->SetCount(this->last_clicked ? CeilDiv(this->last_clicked->GetMaxHelpHeight(wid->current_x), GetCharacterHeight(FontSize::Normal)) : 0);
 	}
 
 	void SetTab(WidgetID widget)
@@ -874,12 +874,12 @@ struct GameOptionsWindow : Window {
 				for (const auto &setting_type : setting_types) {
 					size.width = std::max(size.width, GetStringBoundingBox(GetString(STR_CONFIG_SETTING_TYPE, setting_type)).width + padding.width);
 				}
-				size.height = 2 * GetCharacterHeight(FS_NORMAL);
+				size.height = 2 * GetCharacterHeight(FontSize::Normal);
 				break;
 			}
 
 			case WID_GO_HELP_TEXT:
-				size.height = NUM_DESCRIPTION_LINES * GetCharacterHeight(FS_NORMAL);
+				size.height = NUM_DESCRIPTION_LINES * GetCharacterHeight(FontSize::Normal);
 				break;
 
 			case WID_GO_RESTRICT_CATEGORY:
@@ -924,7 +924,7 @@ struct GameOptionsWindow : Window {
 
 		/* Draw the 'some search results are hidden' notice. */
 		if (this->warn_missing != WHR_NONE) {
-			DrawStringMultiLineWithClipping(panel.WithHeight(this->warn_lines * GetCharacterHeight(FS_NORMAL)),
+			DrawStringMultiLineWithClipping(panel.WithHeight(this->warn_lines * GetCharacterHeight(FontSize::Normal)),
 				GetString(warn_str, _game_settings_restrict_dropdown[this->filter.min_cat]),
 				TC_BLACK, SA_CENTER);
 		}
@@ -1143,29 +1143,39 @@ struct GameOptionsWindow : Window {
 				break;
 
 			case WID_GO_BASE_GRF_CONTENT_DOWNLOAD:
-				ShowNetworkContentListWindow(nullptr, CONTENT_TYPE_BASE_GRAPHICS);
+				ShowNetworkContentListWindow(nullptr, ContentType::BaseGraphics);
 				break;
 
 			case WID_GO_BASE_SFX_CONTENT_DOWNLOAD:
-				ShowNetworkContentListWindow(nullptr, CONTENT_TYPE_BASE_SOUNDS);
+				ShowNetworkContentListWindow(nullptr, ContentType::BaseSounds);
 				break;
 
 			case WID_GO_BASE_MUSIC_CONTENT_DOWNLOAD:
-				ShowNetworkContentListWindow(nullptr, CONTENT_TYPE_BASE_MUSIC);
+				ShowNetworkContentListWindow(nullptr, ContentType::BaseMusic);
 				break;
 
-			case WID_GO_CURRENCY_DROPDOWN:
 			case WID_GO_AUTOSAVE_DROPDOWN:
-			case WID_GO_LANG_DROPDOWN:
 			case WID_GO_RESOLUTION_DROPDOWN:
-			case WID_GO_REFRESH_RATE_DROPDOWN:
+			case WID_GO_REFRESH_RATE_DROPDOWN: {
+				int selected;
+				DropDownList list = this->BuildDropDownList(widget, &selected);
+				if (!list.empty()) {
+					ShowDropDownList(this, std::move(list), selected, widget);
+				} else {
+					if (widget == WID_GO_RESOLUTION_DROPDOWN) ShowErrorMessage(GetEncodedString(STR_ERROR_RESOLUTION_LIST_FAILED), {}, WL_ERROR);
+				}
+				break;
+			}
+
+			case WID_GO_CURRENCY_DROPDOWN:
+			case WID_GO_LANG_DROPDOWN:
 			case WID_GO_BASE_GRF_DROPDOWN:
 			case WID_GO_BASE_SFX_DROPDOWN:
 			case WID_GO_BASE_MUSIC_DROPDOWN: {
 				int selected;
 				DropDownList list = this->BuildDropDownList(widget, &selected);
 				if (!list.empty()) {
-					ShowDropDownList(this, std::move(list), selected, widget);
+					ShowDropDownList(this, std::move(list), selected, widget, 0, DropDownOption::Filterable);
 				} else {
 					if (widget == WID_GO_RESOLUTION_DROPDOWN) ShowErrorMessage(GetEncodedString(STR_ERROR_RESOLUTION_LIST_FAILED), {}, WL_ERROR);
 				}
@@ -1659,7 +1669,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_game_options_widgets
 						NWidget(NWID_VERTICAL), SetPIP(0, WidgetDimensions::unscaled.vsep_normal, 0),
 							NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 								NWidget(WWT_TEXT, INVALID_COLOUR), SetStringTip(STR_GAME_OPTIONS_GUI_SCALE_FRAME), SetTextStyle(GAME_OPTIONS_LABEL),
-								NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_GUI_SCALE), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FS_SMALL), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_GAME_OPTIONS_GUI_SCALE_TOOLTIP),
+								NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_GUI_SCALE), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FontSize::Small), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_GAME_OPTIONS_GUI_SCALE_TOOLTIP),
 							EndContainer(),
 							NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 								NWidget(WWT_BOOLBTN, GAME_OPTIONS_BACKGROUND, WID_GO_GUI_SCALE_AUTO), SetAlternateColourTip(GAME_OPTIONS_BUTTON, STR_GAME_OPTIONS_GUI_SCALE_AUTO_TOOLTIP),
@@ -1740,11 +1750,11 @@ static constexpr std::initializer_list<NWidgetPart> _nested_game_options_widgets
 					NWidget(WWT_FRAME, GAME_OPTIONS_BACKGROUND), SetStringTip(STR_GAME_OPTIONS_VOLUME), SetTextStyle(GAME_OPTIONS_FRAME), SetPIP(0, WidgetDimensions::unscaled.vsep_wide, 0),
 						NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 							NWidget(WWT_TEXT, INVALID_COLOUR, WID_GO_TEXT_SFX_VOLUME), SetStringTip(STR_GAME_OPTIONS_SFX_VOLUME), SetTextStyle(GAME_OPTIONS_LABEL),
-							NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_BASE_SFX_VOLUME), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FS_SMALL), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_MUSIC_TOOLTIP_DRAG_SLIDERS_TO_SET_MUSIC),
+							NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_BASE_SFX_VOLUME), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FontSize::Small), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_MUSIC_TOOLTIP_DRAG_SLIDERS_TO_SET_MUSIC),
 						EndContainer(),
 						NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 							NWidget(WWT_TEXT, INVALID_COLOUR, WID_GO_TEXT_MUSIC_VOLUME), SetStringTip(STR_GAME_OPTIONS_MUSIC_VOLUME), SetTextStyle(GAME_OPTIONS_LABEL),
-							NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_BASE_MUSIC_VOLUME), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FS_SMALL), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_MUSIC_TOOLTIP_DRAG_SLIDERS_TO_SET_MUSIC),
+							NWidget(WWT_EMPTY, INVALID_COLOUR, WID_GO_BASE_MUSIC_VOLUME), SetMinimalTextLines(1, 12 + WidgetDimensions::unscaled.vsep_normal, FontSize::Small), SetFill(1, 0), SetResize(1, 0), SetToolTip(STR_MUSIC_TOOLTIP_DRAG_SLIDERS_TO_SET_MUSIC),
 						EndContainer(),
 					EndContainer(),
 
@@ -1837,7 +1847,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_game_options_widgets
 
 		NWidget(NWID_HORIZONTAL),
 			NWidget(NWID_SPACER), SetFill(1, 0), SetResize(1, 0),
-			NWidget(WWT_RESIZEBOX, GAME_OPTIONS_BACKGROUND), SetResizeWidgetTypeTip(RWV_HIDE_BEVEL, STR_TOOLTIP_RESIZE),
+			NWidget(WWT_RESIZEBOX, GAME_OPTIONS_BACKGROUND), SetResizeWidgetTypeTip(ResizeWidgetType::HideBevel, STR_TOOLTIP_RESIZE),
 		EndContainer(),
 	EndContainer(),
 };
@@ -2154,8 +2164,8 @@ static constexpr std::initializer_list<NWidgetPart> _nested_cust_currency_widget
 			NWidget(NWID_VERTICAL, NWidContainerFlag::EqualSize), SetPIP(0, WidgetDimensions::unscaled.vsep_normal, 0),
 				NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 					NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_RATE_DOWN), SetArrowWidgetTypeTip(AWV_DECREASE, STR_CURRENCY_DECREASE_EXCHANGE_RATE_TOOLTIP),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_RATE_UP), SetArrowWidgetTypeTip(AWV_INCREASE, STR_CURRENCY_INCREASE_EXCHANGE_RATE_TOOLTIP),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_RATE_DOWN), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease, STR_CURRENCY_DECREASE_EXCHANGE_RATE_TOOLTIP),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_RATE_UP), SetArrowWidgetTypeTip(ArrowWidgetType::Increase, STR_CURRENCY_INCREASE_EXCHANGE_RATE_TOOLTIP),
 					EndContainer(),
 					NWidget(WWT_TEXT, INVALID_COLOUR, WID_CC_RATE), SetToolTip(STR_CURRENCY_SET_EXCHANGE_RATE_TOOLTIP), SetFill(1, 0),
 				EndContainer(),
@@ -2173,8 +2183,8 @@ static constexpr std::initializer_list<NWidgetPart> _nested_cust_currency_widget
 				EndContainer(),
 				NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 					NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_YEAR_DOWN), SetArrowWidgetTypeTip(AWV_DECREASE, STR_CURRENCY_DECREASE_CUSTOM_CURRENCY_TO_EURO_TOOLTIP),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_YEAR_UP), SetArrowWidgetTypeTip(AWV_INCREASE, STR_CURRENCY_INCREASE_CUSTOM_CURRENCY_TO_EURO_TOOLTIP),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_YEAR_DOWN), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease, STR_CURRENCY_DECREASE_CUSTOM_CURRENCY_TO_EURO_TOOLTIP),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_CC_YEAR_UP), SetArrowWidgetTypeTip(ArrowWidgetType::Increase, STR_CURRENCY_INCREASE_CUSTOM_CURRENCY_TO_EURO_TOOLTIP),
 					EndContainer(),
 					NWidget(WWT_TEXT, INVALID_COLOUR, WID_CC_YEAR), SetToolTip(STR_CURRENCY_SET_CUSTOM_CURRENCY_TO_EURO_TOOLTIP), SetFill(1, 0),
 				EndContainer(),

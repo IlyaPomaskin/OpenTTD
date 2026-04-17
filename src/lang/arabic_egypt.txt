@@ -1170,7 +1170,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HELPTEXT                  :تحديد مس
 
 STR_CONFIG_SETTING_RECESSIONS                                   :حالات الركود: {STRING}
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :عدم السماح بعودة القطار إلى الخلف في المحطات: {STRING}
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :الكوارث: {STRING}
 
@@ -1547,6 +1548,7 @@ STR_CONFIG_SETTING_NOSERVICE                                    :الغاء ال
 
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :السماح بتحديد سرعة العربات: {STRING}
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :تعطيل سكة القطار الكهربائي: {STRING}
 
@@ -1977,15 +1979,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM}ا�
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES}تم تحميل حتى الان
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} حمل حتى الان
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) إتصال..
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6)تصريح الدخول...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) إنتظار..
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) تحميل الخريطة..
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) معالجة البيانات..
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) تسجيل..
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}جلب معلومات اللعبة..
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}جلب معلومات الشركة..
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}فصل
 
@@ -3676,7 +3676,6 @@ STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED                         :{BLACK} الو�
 STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED_MAX_TE                  :{BLACK} الوزن {LTBLUE}{WEIGHT_SHORT} {BLACK} القوة {LTBLUE}{POWER}{BLACK} السرعة القصوى {LTBLUE}{VELOCITY} {BLACK} قوة السحب القصوى {LTBLUE}{FORCE}
 
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK} دخل هذة السنة {LTBLUE}{CURRENCY_LONG} السنة السابقة - {CURRENCY_LONG}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK} الاعتمادية {LTBLUE}{COMMA} % {BLACK} الاعطال منذ اخر صيانة {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK} بني {LTBLUE}{NUM}{BLACK} القيمة {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}السعة: {LTBLUE}بدون{STRING}
@@ -3796,7 +3795,7 @@ STR_ORDER_DROP_HALT_DEPOT                                       :توقف
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}بيانات العربة لتعريف التجاوز الى
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :نسبة التحميل
 STR_ORDER_CONDITIONAL_RELIABILITY                               :الصلاحية
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :السرعة القصوى

@@ -1262,8 +1262,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HELPTEXT                  :கட்டு
 
 STR_CONFIG_SETTING_RECESSIONS                                   :பொருளதாரத் தேக்கங்கள்: {STRING}
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :நிலையங்களில் இரயில்களை திருப்புவதை அனுமதிக்காதே: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :இயக்கப்பட்டால், தலைகீழாக மாறும்போது, அடுத்த இலக்குக்கு குறுகிய பாதை இருந்தாலும், ரயில்கள் டெர்மினஸ் அல்லாத நிலையங்களில் தலைகீழாக மாறாது
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :பேரழிவுகள்: {STRING}
 
@@ -1700,6 +1700,7 @@ STR_CONFIG_SETTING_NOSERVICE_HELPTEXT                           :இயக்க
 STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY               :நிலையத்தை விட நீளமான ரயில்களில் சரக்குகளை ஏற்றினால் ஏற்றும் வேக அபராதம்: {STRING}
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :பெட்டி வேக கட்டுப்பாட்டினை செயல்படுத்தவும்: {STRING}
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :மின்சார இரயில்களை அனுமதிக்காதே: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :இந்த அமைப்பை இயக்குவதால், மின்சார இயந்திரங்கள் இயங்குவதற்கான தடங்களை மின்மயமாக்குவதற்கான தேவையை முடக்குகிறது
@@ -2211,15 +2212,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} cl
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} இதுவரை பதிவிறக்கியது
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} இதுவரை பதிவிறக்கியது
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) இணைக்கப்படுகிறது...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) அனுமதிக்கப்படுகிறது...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) காத்திருக்கிறது...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) வரைபடம் பதிவிறக்கமாகிறது...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) தகவல் பரிசீலிக்கப்படுகின்றது...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) பதிவு செய்யப்படுகிறது...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}ஆட்டத்தின் விவரங்கள் பெறப்படுகின்றது...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}நிறுவனத்தின் விவரம் சேகரிக்கப்படுகிறது...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}இணைப்பை துண்டி
 
@@ -4010,7 +4009,6 @@ STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED_MAX_TE                  :{BLACK}எட�
 
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}இந்த வருட இலாபம்: {LTBLUE}{CURRENCY_LONG} (சென்ற வருடம்: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}இந்த வருட இலாபம்: {LTBLUE}{CURRENCY_LONG} (சென்ற வருடம்: {CURRENCY_LONG}) {BLACK}கு. திறன்: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}நம்பகத்தன்மை: {LTBLUE}{COMMA}%  {BLACK}கடைசிப் பராமரிப்பிற்குப் பின் ஏற்ப்பட்ட பழுதுகள்: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}கட்டப்பட்டது: {LTBLUE}{NUM}{BLACK} மதிப்பு: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}கொள்ளளவு: {LTBLUE}ஒன்றுமில்லை{STRING}
@@ -4135,7 +4133,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}இந�
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}அடிப்படை ஜம்பிங் செய்ய வாகனத் தரவு
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :சுமை அளவு
 STR_ORDER_CONDITIONAL_RELIABILITY                               :நம்பகத்தன்மை
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :அதிகபட்ச வேகம்

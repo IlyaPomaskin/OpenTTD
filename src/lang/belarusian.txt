@@ -1618,8 +1618,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HELPTEXT                  :Усталюй�
 STR_CONFIG_SETTING_RECESSIONS                                   :Спады: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :Калі ўключана, у гульні часам адбываюцца эканамічныя крызісы. Падчас крызісу аб'ёмы вытворчасьці значна змяншаюцца (і вяртаюцца да ранейшага ўзроўня, калі крызіс сканчаецца).
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :Забараніць разварот цягнікоў на станцыях: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :Калі ўключана, цягнікі ня будуць разварочвацца на прахадных станцыях, нават калі гэта дазволіць скараціць шлях да наступнага пункта прызначэньня.
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :Бедствы: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :Пераключыце бедствы, якія могуць час ад часу блякаваць ці зьнішчаць транспартныя сродкі ды інфраструктуру
@@ -2157,6 +2157,7 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :Пры ўклю
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :Уключыць абмежаваньне хуткасьці ваґонаў: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :Калі ўключана, выкарыстоўваць таксама й ліміты хуткасьці ў асобных ваґонаў для вызначэньня максымальнай хуткасьці ўсяго цягніка.
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :Адключыць электрыфікаваную чыгунку: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :Уключэньне гэтай наладкі скасуе неабходнасьць электрыфікаваць чыгунку для запуску цягнікоў на электрычнай цязе.
@@ -2724,15 +2725,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} к
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} запампавана
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}Запампавана {BYTES} / {BYTES}
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) Злучэньне...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) Аўтарызацыя...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) Чаканьне...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) Запампоўваньне мапы...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) Апрацоўка даных...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) Рэґістрацыя...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}Здабыцьцё інфармацыі аб гульні...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}Здабыцьцё інфармацыі пра кампаніі...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}Адлучыцца
 
@@ -4725,7 +4724,6 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}Прыб
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}Прыбытак сёлета: {LTBLUE}{CURRENCY_LONG} (летась: {CURRENCY_LONG}) {BLACK}Мін. удзельная магутн.: {LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}Прыбытак у бягучым цыкле: {LTBLUE}{CURRENCY_LONG} (у мінулым: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}Прыбытак у бягучым цыкле: {LTBLUE}{CURRENCY_LONG} (у мінулым: {CURRENCY_LONG}) {BLACK}Мін. удзельная магут.: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Надзейнасьць: {LTBLUE}{COMMA}%  {BLACK}Паломак з апошняга агляду: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}Пабудаваны ў: {LTBLUE}{NUM} г.{BLACK} Кошт: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}Ёмiстасьць: {LTBLUE}адсутнiчае{STRING}
@@ -4865,7 +4863,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Выбе
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}Парамэтр транспарту для параўнаньня
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :Адсотак пагрузкі
 STR_ORDER_CONDITIONAL_RELIABILITY                               :Надзейнасьць
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :Макс. хуткасьць

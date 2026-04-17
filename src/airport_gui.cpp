@@ -347,7 +347,7 @@ public:
 					size.width = std::max(size.width, GetStringBoundingBox(as->name).width + padding.width);
 				}
 
-				this->line_height = GetCharacterHeight(FS_NORMAL) + padding.height;
+				this->line_height = GetCharacterHeight(FontSize::Normal) + padding.height;
 				size.height = 5 * this->line_height;
 				break;
 			}
@@ -441,13 +441,13 @@ public:
 			if (_settings_game.economy.station_noise_level) {
 				/* show the noise of the selected airport */
 				DrawString(r, GetString(STR_STATION_BUILD_NOISE, as->noise_level));
-				r.top += GetCharacterHeight(FS_NORMAL) + WidgetDimensions::scaled.vsep_normal;
+				r.top += GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal;
 			}
 
 			if (_settings_game.economy.infrastructure_maintenance) {
 				Money monthly = _price[Price::InfrastructureAirport] * as->maintenance_cost >> 3;
 				DrawString(r, GetString(TimerGameEconomy::UsingWallclockUnits() ? STR_STATION_BUILD_INFRASTRUCTURE_COST_PERIOD : STR_STATION_BUILD_INFRASTRUCTURE_COST_YEAR, monthly * 12));
-				r.top += GetCharacterHeight(FS_NORMAL) + WidgetDimensions::scaled.vsep_normal;
+				r.top += GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal;
 			}
 
 			/* strings such as 'Size' and 'Coverage Area' */
@@ -605,9 +605,9 @@ static constexpr std::initializer_list<NWidgetPart> _nested_build_airport_widget
 				EndContainer(),
 				NWidget(WWT_LABEL, INVALID_COLOUR), SetStringTip(STR_STATION_BUILD_ORIENTATION), SetFill(1, 0),
 				NWidget(NWID_HORIZONTAL),
-					NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_AP_LAYOUT_DECREASE), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(AWV_DECREASE),
+					NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_AP_LAYOUT_DECREASE), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease),
 					NWidget(WWT_LABEL, INVALID_COLOUR, WID_AP_LAYOUT_NUM), SetResize(1, 0), SetFill(1, 0),
-					NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_AP_LAYOUT_INCREASE), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(AWV_INCREASE),
+					NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_AP_LAYOUT_INCREASE), SetMinimalSize(12, 0), SetArrowWidgetTypeTip(ArrowWidgetType::Increase),
 				EndContainer(),
 				NWidget(WWT_EMPTY, INVALID_COLOUR, WID_AP_EXTRA_TEXT), SetFill(1, 0), SetMinimalSize(150, 0),
 				NWidget(WWT_LABEL, INVALID_COLOUR), SetStringTip(STR_STATION_BUILD_COVERAGE_AREA_TITLE), SetFill(1, 0),

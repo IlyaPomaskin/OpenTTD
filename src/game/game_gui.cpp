@@ -70,7 +70,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_gs_config_widgets = 
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(NWID_SPACER), SetFill(1, 0), SetResize(1, 0),
-			NWidget(WWT_RESIZEBOX, COLOUR_MAUVE), SetResizeWidgetTypeTip(RWV_HIDE_BEVEL, STR_TOOLTIP_RESIZE),
+			NWidget(WWT_RESIZEBOX, COLOUR_MAUVE), SetResizeWidgetTypeTip(ResizeWidgetType::HideBevel, STR_TOOLTIP_RESIZE),
 		EndContainer(),
 	EndContainer(),
 };
@@ -139,14 +139,14 @@ struct GSConfigWindow : public Window {
 	{
 		switch (widget) {
 			case WID_GSC_SETTINGS:
-				this->line_height = std::max(SETTING_BUTTON_HEIGHT, GetCharacterHeight(FS_NORMAL)) + padding.height;
+				this->line_height = std::max(SETTING_BUTTON_HEIGHT, GetCharacterHeight(FontSize::Normal)) + padding.height;
 				resize.width = 1;
 				fill.height = resize.height = this->line_height;
 				size.height = 5 * this->line_height;
 				break;
 
 			case WID_GSC_GSLIST:
-				this->line_height = GetCharacterHeight(FS_NORMAL) + padding.height;
+				this->line_height = GetCharacterHeight(FontSize::Normal) + padding.height;
 				size.height = 1 * this->line_height;
 				break;
 		}
@@ -187,7 +187,7 @@ struct GSConfigWindow : public Window {
 
 				int y = r.top;
 				int button_y_offset = (this->line_height - SETTING_BUTTON_HEIGHT) / 2;
-				int text_y_offset = (this->line_height - GetCharacterHeight(FS_NORMAL)) / 2;
+				int text_y_offset = (this->line_height - GetCharacterHeight(FontSize::Normal)) / 2;
 
 				const auto [first, last] = this->vscroll->GetVisibleRangeIterators(this->visible_settings);
 				for (auto it = first; it != last; ++it) {
@@ -247,7 +247,7 @@ struct GSConfigWindow : public Window {
 				if (!_network_available) {
 					ShowErrorMessage(GetEncodedString(STR_NETWORK_ERROR_NOTAVAILABLE), {}, WL_ERROR);
 				} else {
-					ShowNetworkContentListWindow(nullptr, CONTENT_TYPE_GAME);
+					ShowNetworkContentListWindow(nullptr, ContentType::Gs);
 				}
 				break;
 

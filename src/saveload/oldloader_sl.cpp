@@ -580,14 +580,14 @@ static const OldChunks town_chunk[] = {
 	OCL_SVAR( OC_FILE_U16 |  OC_VAR_U8, Town, flags ),
 	OCL_NULL( 10 ),        ///< radius,            no longer in use
 
-	OCL_SVAR( OC_INT16, Town, ratings[0] ),
-	OCL_SVAR( OC_INT16, Town, ratings[1] ),
-	OCL_SVAR( OC_INT16, Town, ratings[2] ),
-	OCL_SVAR( OC_INT16, Town, ratings[3] ),
-	OCL_SVAR( OC_INT16, Town, ratings[4] ),
-	OCL_SVAR( OC_INT16, Town, ratings[5] ),
-	OCL_SVAR( OC_INT16, Town, ratings[6] ),
-	OCL_SVAR( OC_INT16, Town, ratings[7] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{0}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{1}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{2}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{3}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{4}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{5}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{6}] ),
+	OCL_SVAR( OC_INT16, Town, ratings[CompanyID{7}] ),
 
 	OCL_SVAR( OC_FILE_U32 | OC_VAR_U16, Town, have_ratings ),
 	OCL_SVAR( OC_FILE_U32 | OC_VAR_U16, Town, statues ),
@@ -607,10 +607,10 @@ static const OldChunks town_chunk[] = {
 
 	OCL_NULL( 2 ),         ///< pct_pass_transported / pct_mail_transported, now computed on the fly
 
-	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TAE_FOOD].new_act ),
-	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TAE_WATER].new_act ),
-	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TAE_FOOD].old_act ),
-	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TAE_WATER].old_act ),
+	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TownAcceptanceEffect::Food].new_act ),
+	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TownAcceptanceEffect::Water].new_act ),
+	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TownAcceptanceEffect::Food].old_act ),
+	OCL_SVAR( OC_TTD | OC_UINT16, Town, received[TownAcceptanceEffect::Water].old_act ),
 
 	OCL_SVAR(  OC_UINT8, Town, road_build_months ),
 	OCL_SVAR(  OC_UINT8, Town, fund_buildings_months ),
@@ -1052,7 +1052,7 @@ static bool LoadOldCompany(LoadgameState &ls, int num)
 		if (c->money == 893288) c->money = c->current_loan = 100000;
 	}
 
-	_company_colours[num] = c->colour;
+	_company_colours[c->index] = c->colour;
 	c->inaugurated_year -= EconomyTime::ORIGINAL_BASE_YEAR;
 
 	return true;

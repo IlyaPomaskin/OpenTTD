@@ -797,6 +797,8 @@ STR_CONFIG_SETTING_REALISTIC                                    :खरेखु
 
 
 
+###length 3
+
 
 
 ###setting-zero-is-special
@@ -989,6 +991,7 @@ STR_CONFIG_SETTING_COMMAND_PAUSE_LEVEL_ALL_ACTIONS              :सर्व �
 
 
 
+
 ###length 3
 
 
@@ -1120,7 +1123,7 @@ STR_NETWORK_SERVER_LIST_DATE_CAPTION                            :{BLACK}ति�
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}आत्तापर्यंत {BYTES} डाऊनलोड झाल्या आहेत.
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} डाऊनलोड झालं आहे
 
-###length 8
+###length 6
 
 
 
@@ -1694,7 +1697,7 @@ STR_ORDER_INDEX                                                 :{COMMA}:{NBSP}
 
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 ###next-name-looks-similar
 
 

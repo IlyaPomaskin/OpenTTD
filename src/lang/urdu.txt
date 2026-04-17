@@ -1046,6 +1046,8 @@ STR_CONFIG_SETTING_HORIZONTAL_POS_RIGHT                         :دائیں
 
 
 
+###length 3
+
 
 
 ###setting-zero-is-special
@@ -1358,6 +1360,7 @@ STR_CONFIG_SETTING_NOSERVICE                                    :گاڑیوں ک
 
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :مال گاڑی کی حد رفتار فعال کریں: {STRING}
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :الیلٹرک ریل گاڑیاں غیر فعال کریں: {STRING}
 
@@ -1715,15 +1718,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}آپ س�
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}اب تک {BYTES} ڈاون لوڈ ہوئی ہیں
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}اب تک {BYTES} / {BYTES} ڈاون لوڈ ہوئی ہیں
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) رابطہ کر رہے ہیں۔ ۔ ۔
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) اختیار دے رہے ہیں ۔ ۔ ۔
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) انتظار کر رہے ہیں ۔ ۔ ۔
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) نقشہ ڈاون لوڈ کر رہے ہیں ۔ ۔ ۔
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) معلومات پر کام کر رہے ہیں ۔ ۔ ۔
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) رجسٹر کر رہے ہیں ۔ ۔ ۔
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}کھیل کے بارے میں معلومات حاصل کر رہے ہیں ۔ ۔ ۔
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}کمپنی کے بارے میں معلومات حاصل کر رہے ہیں ۔ ۔ ۔
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}رابطہ منقطع کریں
 
@@ -2634,7 +2635,7 @@ STR_ORDER_INDEX                                                 :{COMMA}:{NBSP}
 
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 ###next-name-looks-similar
 
 

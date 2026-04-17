@@ -66,6 +66,7 @@ WaterClass GetEffectiveWaterClass(TileIndex tile)
 
 static const uint16_t _ship_sprites[] = {0x0E5D, 0x0E55, 0x0E65, 0x0E6D};
 
+/** @copydoc IsValidImageIndex */
 template <>
 bool IsValidImageIndex<VEH_SHIP>(uint8_t image_index)
 {
@@ -74,7 +75,7 @@ bool IsValidImageIndex<VEH_SHIP>(uint8_t image_index)
 
 static inline TrackBits GetTileShipTrackStatus(TileIndex tile)
 {
-	return TrackStatusToTrackBits(GetTileTrackStatus(tile, TRANSPORT_WATER, 0));
+	return TrackStatusToTrackBits(GetTileTrackStatus(tile, TRANSPORT_WATER, RoadTramType::Invalid));
 }
 
 static void GetShipIcon(EngineID engine, EngineImageType image_type, VehicleSpriteSeq *result)
@@ -724,7 +725,7 @@ static void ShipController(Ship *v)
 						/* Test if continuing forward would lead to a dead-end, moving into the dock. */
 						const DiagDirection exitdir = VehicleExitDir(v->direction, v->state);
 						const TileIndex tile = TileAddByDiagDir(v->tile, exitdir);
-						if (TrackStatusToTrackBits(GetTileTrackStatus(tile, TRANSPORT_WATER, 0, exitdir)) == TRACK_BIT_NONE) return ReverseShip(v);
+						if (TrackStatusToTrackBits(GetTileTrackStatus(tile, TRANSPORT_WATER, RoadTramType::Invalid, exitdir)) == TRACK_BIT_NONE) return ReverseShip(v);
 					} else if (v->dest_tile != INVALID_TILE) {
 						/* We have a target, let's see if we reached it... */
 						if (v->current_order.IsType(OT_GOTO_WAYPOINT) &&

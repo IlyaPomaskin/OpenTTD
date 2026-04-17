@@ -166,7 +166,7 @@ public:
 	{
 		Rect r = this->GetWidget<NWidgetBase>(WID_TA_RATING_INFO)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
 
-		int text_y_offset      = (this->resize.step_height - GetCharacterHeight(FS_NORMAL)) / 2;
+		int text_y_offset      = (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2;
 		int icon_y_offset      = (this->resize.step_height - this->icon_size.height) / 2;
 		int exclusive_y_offset = (this->resize.step_height - this->exclusive_size.height) / 2;
 
@@ -206,7 +206,7 @@ public:
 		Rect r = this->GetWidget<NWidgetBase>(WID_TA_COMMAND_LIST)->GetCurrentRect().Shrink(WidgetDimensions::scaled.framerect);
 
 		DrawString(r, STR_LOCAL_AUTHORITY_ACTIONS_TITLE);
-		r.top += GetCharacterHeight(FS_NORMAL);
+		r.top += GetCharacterHeight(FontSize::Normal);
 
 		/* Draw list of actions */
 		for (TownAction i = {}; i != TownAction::End; ++i) {
@@ -219,7 +219,7 @@ public:
 			if (this->sel_action == i) action_colour = TC_WHITE;
 
 			DrawString(r, STR_LOCAL_AUTHORITY_ACTION_SMALL_ADVERTISING_CAMPAIGN + to_underlying(i), action_colour);
-			r.top += GetCharacterHeight(FS_NORMAL);
+			r.top += GetCharacterHeight(FontSize::Normal);
 		}
 	}
 
@@ -263,7 +263,7 @@ public:
 			}
 
 			case WID_TA_COMMAND_LIST:
-				size.height = (to_underlying(TownAction::End) + 1) * GetCharacterHeight(FS_NORMAL) + padding.height;
+				size.height = (to_underlying(TownAction::End) + 1) * GetCharacterHeight(FontSize::Normal) + padding.height;
 				size.width = GetStringBoundingBox(STR_LOCAL_AUTHORITY_ACTIONS_TITLE).width;
 				for (TownAction i = {}; i != TownAction::End; ++i) {
 					size.width = std::max(size.width, GetStringBoundingBox(STR_LOCAL_AUTHORITY_ACTION_SMALL_ADVERTISING_CAMPAIGN + to_underlying(i)).width + padding.width);
@@ -272,7 +272,7 @@ public:
 				break;
 
 			case WID_TA_RATING_INFO:
-				fill.height = resize.height = std::max({this->icon_size.height + WidgetDimensions::scaled.vsep_normal, this->exclusive_size.height + WidgetDimensions::scaled.vsep_normal, (uint)GetCharacterHeight(FS_NORMAL)});
+				fill.height = resize.height = std::max({this->icon_size.height + WidgetDimensions::scaled.vsep_normal, this->exclusive_size.height + WidgetDimensions::scaled.vsep_normal, (uint)GetCharacterHeight(FontSize::Normal)});
 				size.height = 9 * resize.height + padding.height;
 				break;
 		}
@@ -295,7 +295,7 @@ public:
 			}
 
 			case WID_TA_COMMAND_LIST: {
-				int y = this->GetRowFromWidget(pt.y, WID_TA_COMMAND_LIST, 1, GetCharacterHeight(FS_NORMAL)) - 1;
+				int y = this->GetRowFromWidget(pt.y, WID_TA_COMMAND_LIST, 1, GetCharacterHeight(FontSize::Normal)) - 1;
 
 				auto action = this->enabled_actions.GetNthSetBit(y);
 				if (!action.has_value()) break;
@@ -395,11 +395,11 @@ public:
 		Rect tr = r.Shrink(WidgetDimensions::scaled.framerect);
 
 		DrawString(tr, GetString(STR_TOWN_VIEW_POPULATION_HOUSES, this->town->cache.population, this->town->cache.num_houses));
-		tr.top += GetCharacterHeight(FS_NORMAL);
+		tr.top += GetCharacterHeight(FontSize::Normal);
 
 		StringID str_last_period = TimerGameEconomy::UsingWallclockUnits() ? STR_TOWN_VIEW_CARGO_LAST_MINUTE_MAX : STR_TOWN_VIEW_CARGO_LAST_MONTH_MAX;
 
-		for (auto tpe : {TPE_PASSENGERS, TPE_MAIL}) {
+		for (auto tpe : {TownProductionEffect::Passengers, TownProductionEffect::Mail}) {
 			for (const CargoSpec *cs : CargoSpec::town_production_cargoes[tpe]) {
 				CargoType cargo_type = cs->Index();
 				auto it = this->town->GetCargoSupplied(cargo_type);
@@ -408,19 +408,19 @@ public:
 				} else {
 					DrawString(tr, GetString(str_last_period, 1ULL << cargo_type, it->history[LAST_MONTH].transported, it->history[LAST_MONTH].production));
 				}
-				tr.top += GetCharacterHeight(FS_NORMAL);
+				tr.top += GetCharacterHeight(FontSize::Normal);
 			}
 		}
 
 		bool first = true;
-		for (int i = TAE_BEGIN; i < TAE_END; i++) {
+		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {
 			if (this->town->goal[i] == 0) continue;
 			if (this->town->goal[i] == TOWN_GROWTH_WINTER && (TileHeight(this->town->xy) < LowestSnowLine() || this->town->cache.population <= 90)) continue;
-			if (this->town->goal[i] == TOWN_GROWTH_DESERT && (GetTropicZone(this->town->xy) != TROPICZONE_DESERT || this->town->cache.population <= 60)) continue;
+			if (this->town->goal[i] == TOWN_GROWTH_DESERT && (GetTropicZone(this->town->xy) != TropicZone::Desert || this->town->cache.population <= 60)) continue;
 
 			if (first) {
 				DrawString(tr, STR_TOWN_VIEW_CARGO_FOR_TOWNGROWTH);
-				tr.top += GetCharacterHeight(FS_NORMAL);
+				tr.top += GetCharacterHeight(FontSize::Normal);
 				first = false;
 			}
 
@@ -450,21 +450,21 @@ public:
 				}
 				DrawString(tr.Indent(20, rtl), GetString(string, cargo->Index(), this->town->received[i].old_act, cargo->Index(), this->town->goal[i]));
 			}
-			tr.top += GetCharacterHeight(FS_NORMAL);
+			tr.top += GetCharacterHeight(FontSize::Normal);
 		}
 
 		if (this->town->flags.Test(TownFlag::IsGrowing)) {
 			DrawString(tr, GetString(this->town->fund_buildings_months == 0 ? STR_TOWN_VIEW_TOWN_GROWS_EVERY : STR_TOWN_VIEW_TOWN_GROWS_EVERY_FUNDED, RoundDivSU(this->town->growth_rate + 1, Ticks::DAY_TICKS)));
-			tr.top += GetCharacterHeight(FS_NORMAL);
+			tr.top += GetCharacterHeight(FontSize::Normal);
 		} else {
 			DrawString(tr, STR_TOWN_VIEW_TOWN_GROW_STOPPED);
-			tr.top += GetCharacterHeight(FS_NORMAL);
+			tr.top += GetCharacterHeight(FontSize::Normal);
 		}
 
 		/* only show the town noise, if the noise option is activated. */
 		if (_settings_game.economy.station_noise_level) {
 			DrawString(tr, GetString(STR_TOWN_VIEW_NOISE_IN_TOWN, this->town->noise_reached, this->town->MaxTownNoise()));
-			tr.top += GetCharacterHeight(FS_NORMAL);
+			tr.top += GetCharacterHeight(FontSize::Normal);
 		}
 
 		if (!this->town->text.empty()) {
@@ -534,23 +534,23 @@ public:
 	 */
 	uint GetDesiredInfoHeight(int width) const
 	{
-		uint aimed_height = static_cast<uint>(1 + CargoSpec::town_production_cargoes[TPE_PASSENGERS].size() + CargoSpec::town_production_cargoes[TPE_MAIL].size()) * GetCharacterHeight(FS_NORMAL);
+		uint aimed_height = static_cast<uint>(1 + CargoSpec::town_production_cargoes[TownProductionEffect::Passengers].size() + CargoSpec::town_production_cargoes[TownProductionEffect::Mail].size()) * GetCharacterHeight(FontSize::Normal);
 
 		bool first = true;
-		for (int i = TAE_BEGIN; i < TAE_END; i++) {
+		for (TownAcceptanceEffect i = TownAcceptanceEffect::Begin; i < TownAcceptanceEffect::End; i++) {
 			if (this->town->goal[i] == 0) continue;
 			if (this->town->goal[i] == TOWN_GROWTH_WINTER && (TileHeight(this->town->xy) < LowestSnowLine() || this->town->cache.population <= 90)) continue;
-			if (this->town->goal[i] == TOWN_GROWTH_DESERT && (GetTropicZone(this->town->xy) != TROPICZONE_DESERT || this->town->cache.population <= 60)) continue;
+			if (this->town->goal[i] == TOWN_GROWTH_DESERT && (GetTropicZone(this->town->xy) != TropicZone::Desert || this->town->cache.population <= 60)) continue;
 
 			if (first) {
-				aimed_height += GetCharacterHeight(FS_NORMAL);
+				aimed_height += GetCharacterHeight(FontSize::Normal);
 				first = false;
 			}
-			aimed_height += GetCharacterHeight(FS_NORMAL);
+			aimed_height += GetCharacterHeight(FontSize::Normal);
 		}
-		aimed_height += GetCharacterHeight(FS_NORMAL);
+		aimed_height += GetCharacterHeight(FontSize::Normal);
 
-		if (_settings_game.economy.station_noise_level) aimed_height += GetCharacterHeight(FS_NORMAL);
+		if (_settings_game.economy.station_noise_level) aimed_height += GetCharacterHeight(FontSize::Normal);
 
 		if (!this->town->text.empty()) {
 			aimed_height += GetStringHeight(this->town->text.GetDecodedString(), width - WidgetDimensions::scaled.framerect.Horizontal());
@@ -878,7 +878,7 @@ public:
 						DrawSprite(icon, PAL_NONE, icon_x, tr.top + (this->resize.step_height - icon_size.height) / 2);
 					}
 
-					DrawString(tr.left, tr.right, tr.top + (this->resize.step_height - GetCharacterHeight(FS_NORMAL)) / 2, GetTownString(t, t->cache.population));
+					DrawString(tr.left, tr.right, tr.top + (this->resize.step_height - GetCharacterHeight(FontSize::Normal)) / 2, GetTownString(t, t->cache.population));
 
 					tr.top += this->resize.step_height;
 				}
@@ -1261,7 +1261,7 @@ public:
 				break;
 			}
 			case WID_TF_LOAD_FROM_FILE:
-				ShowSaveLoadDialog(FT_TOWN_DATA, SLO_LOAD);
+				ShowSaveLoadDialog(AbstractFileType::TownData, SaveLoadOperation::Load);
 				break;
 
 			case WID_TF_EXPAND_ALL_TOWNS:
@@ -1645,8 +1645,8 @@ static CargoTypes GetProducedCargoOfHouse(const HouseSpec *hs)
 		}
 	} else {
 		/* Cargo is not controlled by NewGRF, town production effect is used instead. */
-		for (const CargoSpec *cs : CargoSpec::town_production_cargoes[TPE_PASSENGERS]) SetBit(produced, cs->Index());
-		for (const CargoSpec *cs : CargoSpec::town_production_cargoes[TPE_MAIL]) SetBit(produced, cs->Index());
+		for (const CargoSpec *cs : CargoSpec::town_production_cargoes[TownProductionEffect::Passengers]) SetBit(produced, cs->Index());
+		for (const CargoSpec *cs : CargoSpec::town_production_cargoes[TownProductionEffect::Mail]) SetBit(produced, cs->Index());
 	}
 	return produced;
 }

@@ -1351,8 +1351,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HIGH                      :Cao
 STR_CONFIG_SETTING_RECESSIONS                                   :Suy thoái: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :Nếu bật, thì các đợt suy thoái sẽ xảy ra vài năm một lần. Trong suy thoái tất cả sản xuất sẽ giảm mạnh (và sẽ trở lại như cũ sau khi suy thoái kết thúc)
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :Không cho phép tàu hỏa quay đầu ở ga: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :Nếu bật thì tàu hỏa sẽ không quay đẩu đối với ga không phải đầu cuối, kể cả khi đó là đường ngắn nhất đến nơi tiếp theo khi quay đầu
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :Thảm họa: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :Thay đổi tùy chọn để thảm họa đôi lúc ngăn chặn hoặc phá hủy phương tiện và công trình hạ tầng
@@ -1903,6 +1903,7 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :Khi bật, đo�
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :Bật giới hạn tốc độ toa tàu: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :Nếu bật, sử dụng giới hạn tốc độ của toa xe để hạn chế tốc độ của cả đoàn tàu
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :Không dùng tàu điện: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :Bật tùy chọn này sẽ ngăn việc bắt buộc có ray tàu điện mới tạo được đầu máy chạy điện
@@ -2485,15 +2486,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} m�
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}đã tải được {BYTES}
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}đã tải xong {BYTES} / {BYTES}
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) Tạo kết nối..
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) Xác thực..
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) Đợi..
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) Tải bản đồ..
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) Xử lý..
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) Đăng nhập..
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}Tải thông tin ván chơi..
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}Tải thông tin công ty..
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}Ngắt kết nối
 
@@ -3691,7 +3690,7 @@ STR_NEWGRF_BROKEN                                               :{WHITE}Hoạt �
 STR_NEWGRF_BROKEN_POWERED_WAGON                                 :{WHITE}Trạng thái đầu kéo '{1:ENGINE}' được thay đổi khi không ở trong xưởng sửa chữa
 STR_NEWGRF_BROKEN_VEHICLE_LENGTH                                :{WHITE}Nó cắt ngắn độ dài của đoàn tàu '{1:ENGINE}' nếu không ở trong xưởng
 STR_NEWGRF_BROKEN_CAPACITY                                      :{WHITE}Sức chứa của phương tiện bị thay đổi {1:ENGINE}' khi không ở trong xưởng hoặc vì cải biến
-STR_BROKEN_VEHICLE_LENGTH                                       :{WHITE}Đoàn tàu '{VEHICLE}' của '{COMPANY}' có độ dài không hợp lệ. Sự cố có thể có căn nguyên từ NewGRFs. Ván chơi có thể mất đồng bộ hoặc bị treo
+STR_BROKEN_VEHICLE_LENGTH                                       :Đoàn tàu '{VEHICLE}' của '{COMPANY}' có độ dài không hợp lệ. Sự cố có thể có căn nguyên từ NewGRFs. Ván chơi có thể mất đồng bộ hoặc bị treo
 
 STR_NEWGRF_BUGGY                                                :{WHITE}NewGRF '{0:STRING}' không hợp lệ
 STR_NEWGRF_BUGGY_ARTICULATED_CARGO                              :{WHITE}Danh mục hàng hoá/cải biến được cho '{1:ENGINE}' khác với danh mục mua được sau khi đã có. Việc này khiến cho việc tự thay thế hay là tự cải biến không chính xác
@@ -4232,6 +4231,13 @@ STR_PURCHASE_INFO_AIRCRAFT_TYPE                                 :{BLACK}Kiểu m
 STR_PURCHASE_INFO_RAILTYPES                                     :{BLACK}Kiểu đường ray: {GOLD}{STRING}
 
 # Vehicle sort details
+STR_PURCHASE_SORT_DETAILS_COST                                  :{CURRENCY_LONG}
+STR_PURCHASE_SORT_DETAILS_SPEED                                 :{VELOCITY}
+STR_PURCHASE_SORT_DETAILS_POWER                                 :{POWER}
+STR_PURCHASE_SORT_DETAILS_MAX_TE                                :{FORCE}
+STR_PURCHASE_SORT_DETAILS_INTRO_DATE                            :{NUM}
+STR_PURCHASE_SORT_DETAILS_RUNNINGCOST_YEAR                      :{CURRENCY_LONG}/năm
+STR_PURCHASE_SORT_DETAILS_RUNNINGCOST_PERIOD                    :{CURRENCY_LONG}/chu kỳ
 
 ###length 3
 STR_CARGO_TYPE_FILTER_ALL                                       :Tất cả hàng hóa
@@ -4578,7 +4584,6 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}Lợi nh
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}Lợi nhuận năm nay: {LTBLUE}{CURRENCY_LONG} (năm ngoái: {CURRENCY_LONG}) {BLACK}Hiệu suất tối thiểu: {LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}Lợi nhuận kỳ này: {LTBLUE}{CURRENCY_LONG} (kỳ trước: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}Lợi nhuận kỳ này: {LTBLUE}{CURRENCY_LONG} (kỳ trước: {CURRENCY_LONG}) {BLACK}Hiệu suất tối thiểu: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Độ tin cậy: {LTBLUE}{COMMA}%  {BLACK}Hỏng hóc kể từ lần bảo trì cuối: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}Mua lúc: {LTBLUE}{NUM}{BLACK} Giá trị: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}Sức chứa: {LTBLUE}Không{STRING}
@@ -4718,7 +4723,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Chọn m
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}Dữ kiện của phương tiện để xác định
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :Tiến độ bốc xếp
 STR_ORDER_CONDITIONAL_RELIABILITY                               :Độ tin cậy
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :Tốc độ tối đa

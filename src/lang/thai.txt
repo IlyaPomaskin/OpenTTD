@@ -1136,8 +1136,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HELPTEXT                  :การตั
 STR_CONFIG_SETTING_RECESSIONS                                   :เศรษฐกิจถดถอย: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :หากเปิดใช้งาน การถดถอย อาจเกิดขึ้นทุก 2 - 3 ปี ในช่วงเศรษฐกิจตกต่ำในการผลิตทั้งหมด อย่างมีนัยสำคัญต่ำกว่า (มันจะกลับไปที่ระดับก่อนหน้านี้เมื่อภาวะถดถอยจบลง)
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :ไม่อนุญาตให้รถไฟกลับขบวนในสถานี: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :หากเปิดใช้งานรถไฟจะไม่ย้อนกลับในสถานีที่ไม่ใช่ปลายทางถ้ามีเส้นทางที่สั้นไปยังปลายทางต่อไปของพวกเขา จะย้อนกลับ
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :ภัยพิบัติ: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :ภัยพิบัติซึ่งบางครั้งสลับอาจปิดกั้นหรือทำลายยานพาหนะหรือโครงสร้างพื้นฐาน
@@ -1597,6 +1597,7 @@ STR_CONFIG_SETTING_NOSERVICE_HELPTEXT                           :เมื่อ
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :จำกัดความเร็วของรถจักร/รถพ่วง: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :เมื่อเปิดใช้งาน จะทำให้มีจำกัดความเร็วสูงสุดของยานพาหนะและรถพ่วงต่างๆ
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :ปิดระบบสายส่งไฟฟ้า(Electricfield): {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :เมื่อเปิดการใช้งาน จะทำการปิดความต้องการการใช้งานระบบ Electrifield ของรถจักรหรือรถไฟฟ้า
@@ -2092,15 +2093,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} cl
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :ดาวน์โหลดไปแล้ว {BLACK}{BYTES}
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} ดาวโหลดไปแล้วทั้งสิ้น
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) กำลังเชื่อมต่อ...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) กำลังตรวจสอบการเข้าร่วม...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) กรุณารอ...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) ดาวโหลดแผนที่...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) ประมวลข้อมูล...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) ลงทะเบียน...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}รวบรวมข้อมูลเกม...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}รวบรวมข้อมูลบริษัท...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}ตัดการเชื่อมต่อ
 
@@ -3793,7 +3792,6 @@ STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED                         :{BLACK}น้�
 STR_VEHICLE_INFO_WEIGHT_POWER_MAX_SPEED_MAX_TE                  :{BLACK}น้ำหนัก: {LTBLUE}{WEIGHT_SHORT} {BLACK}พลังขับเคลื่อน: {LTBLUE}{POWER}{BLACK} ความเร็วสูงสุด: {LTBLUE}{VELOCITY} {BLACK}กำลังลากจูงสูงสุด: {LTBLUE}{FORCE}
 
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}ผลประกอบการปีนี้: {LTBLUE}{CURRENCY_LONG} (ปีที่แล้ว: {CURRENCY_LONG})
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}ประสิทธิภาพ: {LTBLUE}{COMMA}%  {BLACK}เกิดการชำรุดหลังจากเข้าซ่อมบำรุงครั้งที่แล้ว: {LTBLUE}{COMMA} {BLACK}ครั้ง
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}สร้างเมื่อ: {LTBLUE}{NUM}{BLACK} มูลค่า: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}บรรทุก: {LTBLUE}ไม่มี{STRING}
@@ -3915,7 +3913,7 @@ STR_ORDER_DROP_HALT_DEPOT                                       :หยุด
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}ข้อมูลยานพาหนะที่จะข้ามไป
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :ปริมาณการบรรทุกรวม
 STR_ORDER_CONDITIONAL_RELIABILITY                               :ประสิทธิภาพของพาหนะ
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :ความเร็วสูงสุด

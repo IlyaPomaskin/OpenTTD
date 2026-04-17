@@ -155,7 +155,7 @@ private:
 public:
 	ConfigIniFile(const std::string &filename) : IniFile(list_group_names)
 	{
-		this->LoadFromDisk(filename, NO_DIRECTORY);
+		this->LoadFromDisk(filename, Subdirectory::None);
 	}
 };
 
@@ -955,7 +955,7 @@ static void AILoadConfig(const IniFile &ini, std::string_view grpname)
 
 	/* Clean any configured AI */
 	for (CompanyID c = CompanyID::Begin(); c < MAX_COMPANIES; ++c) {
-		AIConfig::GetConfig(c, AIConfig::SSS_FORCE_NEWGAME)->Change(std::nullopt);
+		AIConfig::GetConfig(c, AIConfig::ScriptSettingSource::ForceNewGame)->Change(std::nullopt);
 	}
 
 	/* If no group exists, return */
@@ -963,7 +963,7 @@ static void AILoadConfig(const IniFile &ini, std::string_view grpname)
 
 	CompanyID c = CompanyID::Begin();
 	for (const IniItem &item : group->items) {
-		AIConfig *config = AIConfig::GetConfig(c, AIConfig::SSS_FORCE_NEWGAME);
+		AIConfig *config = AIConfig::GetConfig(c, AIConfig::ScriptSettingSource::ForceNewGame);
 
 		config->Change(item.name);
 		if (!config->HasScript()) {
@@ -983,14 +983,14 @@ static void GameLoadConfig(const IniFile &ini, std::string_view grpname)
 	const IniGroup *group = ini.GetGroup(grpname);
 
 	/* Clean any configured GameScript */
-	GameConfig::GetConfig(GameConfig::SSS_FORCE_NEWGAME)->Change(std::nullopt);
+	GameConfig::GetConfig(GameConfig::ScriptSettingSource::ForceNewGame)->Change(std::nullopt);
 
 	/* If no group exists, return */
 	if (group == nullptr || group->items.empty()) return;
 
 	const IniItem &item = group->items.front();
 
-	GameConfig *config = GameConfig::GetConfig(AIConfig::SSS_FORCE_NEWGAME);
+	GameConfig *config = GameConfig::GetConfig(AIConfig::ScriptSettingSource::ForceNewGame);
 
 	config->Change(item.name);
 	if (!config->HasScript()) {
@@ -1093,11 +1093,11 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 
 				uint32_t grfid = grfid_buf[0] | (grfid_buf[1] << 8) | (grfid_buf[2] << 16) | (grfid_buf[3] << 24);
 				if (has_md5sum) {
-					const GRFConfig *s = FindGRFConfig(grfid, FGCM_EXACT, &md5sum);
+					const GRFConfig *s = FindGRFConfig(grfid, FindGRFConfigMode::Exact, &md5sum);
 					if (s != nullptr) c = std::make_unique<GRFConfig>(*s);
 				}
-				if (c == nullptr && !FioCheckFileExists(std::string(item_name), NEWGRF_DIR)) {
-					const GRFConfig *s = FindGRFConfig(grfid, FGCM_NEWEST_VALID);
+				if (c == nullptr && !FioCheckFileExists(std::string(item_name), Subdirectory::NewGrf)) {
+					const GRFConfig *s = FindGRFConfig(grfid, FindGRFConfigMode::NewestValid);
 					if (s != nullptr) c = std::make_unique<GRFConfig>(*s);
 				}
 			}
@@ -1121,7 +1121,7 @@ static GRFConfigList GRFLoadConfig(const IniFile &ini, std::string_view grpname,
 		/* Check if item is valid */
 		if (!FillGRFDetails(*c, is_static) || c->flags.Test(GRFConfigFlag::Invalid)) {
 			StringID reason;
-			if (c->status == GCS_NOT_FOUND) {
+			if (c->status == GRFStatus::NotFound) {
 				reason = STR_CONFIG_ERROR_INVALID_GRF_NOT_FOUND;
 			} else if (c->flags.Test(GRFConfigFlag::Unsafe)) {
 				reason = STR_CONFIG_ERROR_INVALID_GRF_UNSAFE;
@@ -1186,7 +1186,7 @@ static void AISaveConfig(IniFile &ini, std::string_view grpname)
 	group.Clear();
 
 	for (CompanyID c = CompanyID::Begin(); c < MAX_COMPANIES; ++c) {
-		AIConfig *config = AIConfig::GetConfig(c, AIConfig::SSS_FORCE_NEWGAME);
+		AIConfig *config = AIConfig::GetConfig(c, AIConfig::ScriptSettingSource::ForceNewGame);
 		std::string name;
 		std::string value = config->SettingsToString();
 
@@ -1205,7 +1205,7 @@ static void GameSaveConfig(IniFile &ini, std::string_view grpname)
 	IniGroup &group = ini.GetOrCreateGroup(grpname);
 	group.Clear();
 
-	GameConfig *config = GameConfig::GetConfig(AIConfig::SSS_FORCE_NEWGAME);
+	GameConfig *config = GameConfig::GetConfig(AIConfig::ScriptSettingSource::ForceNewGame);
 	std::string name;
 	std::string value = config->SettingsToString();
 
@@ -1426,7 +1426,7 @@ void LoadFromConfig(bool startup)
 
 		if (generic_version < IFV_GAME_TYPE && IsConversionNeeded(generic_ini, "network", "server_advertise", "server_game_type", &old_item)) {
 			auto old_value = BoolSettingDesc::ParseSingleValue(*old_item->value);
-			_settings_client.network.server_game_type = old_value.value_or(false) ? SERVER_GAME_TYPE_PUBLIC : SERVER_GAME_TYPE_LOCAL;
+			_settings_client.network.server_game_type = old_value.value_or(false) ? ServerGameType::Public : ServerGameType::Local;
 		}
 
 		if (generic_version < IFV_AUTOSAVE_RENAME && IsConversionNeeded(generic_ini, "gui", "autosave", "autosave_interval", &old_item)) {

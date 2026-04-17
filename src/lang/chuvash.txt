@@ -587,6 +587,8 @@ STR_CONFIG_SETTING_HORIZONTAL_POS_RIGHT                         :Сылтӑмр�
 
 
 
+###length 3
+
 
 
 ###setting-zero-is-special
@@ -769,6 +771,7 @@ STR_CONFIG_SETTING_DATE_FORMAT_IN_SAVE_NAMES_ISO                :ISO (2008-12-31
 ###length 3
 
 ###setting-zero-is-special
+
 
 
 
@@ -990,7 +993,7 @@ STR_NETWORK_START_SERVER_SET_PASSWORD                           :{BLACK}Вырн
 # Network connecting window
 
 
-###length 8
+###length 6
 
 
 
@@ -1552,7 +1555,7 @@ STR_ORDER_INDEX                                                 :{COMMA}:{NBSP}
 
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 ###next-name-looks-similar
 
 

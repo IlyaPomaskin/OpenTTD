@@ -259,7 +259,7 @@ static void InitializeWindowsAndCaches()
 		/* For each company, verify (while loading a scenario) that the inauguration date is the current year and set it
 		 * accordingly if it is not the case.  No need to set it on companies that are not been used already,
 		 * thus the MIN_YEAR (which is really nothing more than Zero, initialized value) test */
-		if (_file_to_saveload.ftype.abstract == FT_SCENARIO && c->inaugurated_year != EconomyTime::MIN_YEAR) {
+		if (_file_to_saveload.ftype.abstract == AbstractFileType::Scenario && c->inaugurated_year != EconomyTime::MIN_YEAR) {
 			c->inaugurated_year = TimerGameEconomy::year;
 		}
 	}
@@ -367,7 +367,7 @@ static void CDECL HandleSavegameLoadCrash(int signum)
 	message.reserve(1024);
 	message += "Loading your savegame caused OpenTTD to crash.\n";
 
-	_saveload_crash_with_missing_newgrfs = std::ranges::any_of(_grfconfig, [](const auto &c) { return c->flags.Test(GRFConfigFlag::Compatible) || c->status == GCS_NOT_FOUND; });
+	_saveload_crash_with_missing_newgrfs = std::ranges::any_of(_grfconfig, [](const auto &c) { return c->flags.Test(GRFConfigFlag::Compatible) || c->status == GRFStatus::NotFound; });
 
 	if (_saveload_crash_with_missing_newgrfs) {
 		message +=
@@ -389,7 +389,7 @@ static void CDECL HandleSavegameLoadCrash(int signum)
 				format_append(message, "NewGRF {:08X} (checksum {}) not found.\n  Loaded NewGRF \"{}\" (checksum {}) with same GRF ID instead.\n",
 						std::byteswap(c->ident.grfid), FormatArrayAsHex(c->original_md5sum), c->filename, FormatArrayAsHex(replaced.md5sum));
 			}
-			if (c->status == GCS_NOT_FOUND) {
+			if (c->status == GRFStatus::NotFound) {
 				format_append(message, "NewGRF {:08X} ({}) not found; checksum {}.\n",
 						std::byteswap(c->ident.grfid), c->filename, FormatArrayAsHex(c->ident.md5sum));
 			}
@@ -439,8 +439,8 @@ static void FixOwnerOfRailTrack(Tile t)
 	/* try to find any connected rail */
 	for (DiagDirection dd = DIAGDIR_BEGIN; dd < DIAGDIR_END; dd++) {
 		TileIndex tt{t + TileOffsByDiagDir(dd)};
-		if (GetTileTrackStatus(t, TRANSPORT_RAIL, 0, dd) != 0 &&
-				GetTileTrackStatus(tt, TRANSPORT_RAIL, 0, ReverseDiagDir(dd)) != 0 &&
+		if (GetTileTrackStatus(t, TRANSPORT_RAIL, RoadTramType::Invalid, dd) != 0 &&
+				GetTileTrackStatus(tt, TRANSPORT_RAIL, RoadTramType::Invalid, ReverseDiagDir(dd)) != 0 &&
 				Company::IsValidID(GetTileOwner(tt))) {
 			SetTileOwner(t, GetTileOwner(tt));
 			return;
@@ -449,8 +449,8 @@ static void FixOwnerOfRailTrack(Tile t)
 
 	if (IsLevelCrossingTile(t)) {
 		/* else change the crossing to normal road (road vehicles won't care) */
-		Owner road = GetRoadOwner(t, RTT_ROAD);
-		Owner tram = GetRoadOwner(t, RTT_TRAM);
+		Owner road = GetRoadOwner(t, RoadTramType::Road);
+		Owner tram = GetRoadOwner(t, RoadTramType::Tram);
 		RoadBits bits = GetCrossingRoadBits(t);
 		bool hasroad = HasBit(t.m7(), 6);
 		bool hastram = HasBit(t.m7(), 7);
@@ -458,10 +458,10 @@ static void FixOwnerOfRailTrack(Tile t)
 		/* MakeRoadNormal */
 		SetTileType(t, TileType::Road);
 		SetTileOwner(t, road);
-		t.m3() = (hasroad ? bits : 0);
-		t.m5() = (hastram ? bits : 0) | to_underlying(RoadTileType::Normal) << 6;
+		t.m3() = (hasroad ? bits.base() : 0);
+		t.m5() = (hastram ? bits.base() : 0) | to_underlying(RoadTileType::Normal) << 6;
 		SB(t.m6(), 2, 4, 0);
-		SetRoadOwner(t, RTT_TRAM, tram);
+		SetRoadOwner(t, RoadTramType::Tram, tram);
 		return;
 	}
 
@@ -708,14 +708,14 @@ bool AfterLoadGame()
 	/* Check if all NewGRFs are present, we are very strict in MP mode */
 	GRFListCompatibility gcf_res = IsGoodGRFConfigList(_grfconfig);
 	for (const auto &c : _grfconfig) {
-		if (c->status == GCS_NOT_FOUND) {
+		if (c->status == GRFStatus::NotFound) {
 			_gamelog.GRFRemove(c->ident.grfid);
 		} else if (c->flags.Test(GRFConfigFlag::Compatible)) {
 			_gamelog.GRFCompatible(c->ident);
 		}
 	}
 
-	if (_networking && gcf_res != GLC_ALL_GOOD) {
+	if (_networking && gcf_res != GRFListCompatibility::AllGood) {
 		SetSaveLoadError(STR_NETWORK_ERROR_CLIENT_NEWGRF_MISMATCH);
 		/* Restore the signals */
 		ResetSignalHandlers();
@@ -723,8 +723,8 @@ bool AfterLoadGame()
 	}
 
 	switch (gcf_res) {
-		case GLC_COMPATIBLE: ShowErrorMessage(GetEncodedString(STR_NEWGRF_COMPATIBLE_LOAD_WARNING), {}, WL_CRITICAL); break;
-		case GLC_NOT_FOUND:  ShowErrorMessage(GetEncodedString(STR_NEWGRF_DISABLED_WARNING), {}, WL_CRITICAL); _pause_mode = PauseMode::Error; break;
+		case GRFListCompatibility::Compatible: ShowErrorMessage(GetEncodedString(STR_NEWGRF_COMPATIBLE_LOAD_WARNING), {}, WL_CRITICAL); break;
+		case GRFListCompatibility::NotFound:  ShowErrorMessage(GetEncodedString(STR_NEWGRF_DISABLED_WARNING), {}, WL_CRITICAL); _pause_mode = PauseMode::Error; break;
 		default: break;
 	}
 
@@ -1247,10 +1247,10 @@ bool AfterLoadGame()
 							SetTileType(t, TileType::Road);
 							t.m2() = town.base();
 							t.m3() = 0;
-							t.m5() = (axis == AXIS_X ? ROAD_Y : ROAD_X) | to_underlying(RoadTileType::Normal) << 6;
+							t.m5() = (axis == AXIS_X ? ROAD_Y : ROAD_X).base() | to_underlying(RoadTileType::Normal) << 6;
 							SB(t.m6(), 2, 4, 0);
 							t.m7() = 1 << 6;
-							SetRoadOwner(t, RTT_TRAM, OWNER_NONE);
+							SetRoadOwner(t, RoadTramType::Tram, OWNER_NONE);
 						}
 					} else {
 						if (GB(t.m5(), 3, 2) == 0) {
@@ -1829,7 +1829,7 @@ bool AfterLoadGame()
 
 			v->current_order.ConvertFromOldSavegame();
 			if (v->type == VEH_ROAD && v->IsPrimaryVehicle() && v->FirstShared() == v) {
-				for (Order &order : v->Orders()) order.SetNonStopType(OrderNonStopFlag::NoIntermediate);
+				for (Order &order : v->Orders()) order.SetNonStopType(OrderNonStopFlag::NonStop);
 			}
 		}
 	} else if (IsSavegameVersionBefore(SLV_94)) {
@@ -1954,7 +1954,7 @@ bool AfterLoadGame()
 				}
 			} else if (IsTileType(t, TileType::Road)) {
 				/* works for all RoadTileType */
-				for (RoadTramType rtt : _roadtramtypes) {
+				for (RoadTramType rtt : ROADTRAMTYPES_ALL) {
 					/* update even non-existing road types to update tile owner too */
 					Owner o = GetRoadOwner(t, rtt);
 					if (o < MAX_COMPANIES && !Company::IsValidID(o)) SetRoadOwner(t, rtt, OWNER_NONE);
@@ -2102,7 +2102,7 @@ bool AfterLoadGame()
 
 		for (Town *t : Town::Iterate()) {
 			if (t->have_ratings.base() == 0xFF) t->have_ratings.Set();
-			for (uint i = 8; i != MAX_COMPANIES; i++) t->ratings[i] = RATING_INITIAL;
+			t->ratings.fill(RATING_INITIAL);
 		}
 	}
 
@@ -2166,7 +2166,6 @@ bool AfterLoadGame()
 					o->build_date    = TimerGameCalendar::date;
 					o->town          = type == OBJECT_STATUE ? Town::Get(t.m2()) : CalcClosestTownFromTile(t, UINT_MAX);
 					t.m2() = o->index.base();
-					Object::IncTypeCount(type);
 				} else {
 					/* We're at an offset, so get the ID from our "root". */
 					Tile northern_tile = t - TileXY(GB(offset, 0, 4), GB(offset, 4, 4));
@@ -2337,14 +2336,14 @@ bool AfterLoadGame()
 				s->awarded = CompanyID::Invalid(); // not awarded to anyone
 				const CargoSpec *cs = CargoSpec::Get(s->cargo_type);
 				switch (cs->town_acceptance_effect) {
-					case TAE_PASSENGERS:
-					case TAE_MAIL:
+					case TownAcceptanceEffect::Passengers:
+					case TownAcceptanceEffect::Mail:
 						/* Town -> Town */
 						s->src.type = s->dst.type = SourceType::Town;
 						if (Town::IsValidID(s->src.ToTownID()) && Town::IsValidID(s->dst.ToTownID())) continue;
 						break;
-					case TAE_GOODS:
-					case TAE_FOOD:
+					case TownAcceptanceEffect::Goods:
+					case TownAcceptanceEffect::Food:
 						/* Industry -> Town */
 						s->src.type = SourceType::Industry;
 						s->dst.type = SourceType::Town;
@@ -2363,8 +2362,8 @@ bool AfterLoadGame()
 				s->remaining = 24 - s->remaining; // convert "age of awarded subsidy" to "remaining"
 				const CargoSpec *cs = CargoSpec::Get(s->cargo_type);
 				switch (cs->town_acceptance_effect) {
-					case TAE_PASSENGERS:
-					case TAE_MAIL: {
+					case TownAcceptanceEffect::Passengers:
+					case TownAcceptanceEffect::Mail: {
 						/* Town -> Town */
 						const Station *ss = Station::GetIfValid(s->src.id);
 						const Station *sd = Station::GetIfValid(s->dst.id);
@@ -2520,7 +2519,7 @@ bool AfterLoadGame()
 	if (IsSavegameVersionBefore(SLV_141)) {
 		for (const auto t : Map::Iterate()) {
 			/* Reset tropic zone for VOID tiles, they shall not have any. */
-			if (IsTileType(t, TileType::Void)) SetTropicZone(t, TROPICZONE_NORMAL);
+			if (IsTileType(t, TileType::Void)) SetTropicZone(t, TropicZone::Normal);
 		}
 
 		/* We need to properly number/name the depots.
@@ -2931,17 +2930,37 @@ bool AfterLoadGame()
 		}
 	}
 
+	if (IsSavegameVersionBefore(SLV_DRIVE_BACKWARDS)) {
+		/* Vehicles used to be reversed immediately when entering depot.
+		 * Now they are reversed when the whole consist has entered.
+		 * Find trains in the process of entering a depot and un-reverse them. */
+		for (Train *t : Train::Iterate()) {
+			if (!t->IsPrimaryVehicle()) continue;
+
+			/* Front not in depot -> consist not entering depot */
+			if (t->track != TRACK_BIT_DEPOT) continue;
+			/* Back in depot -> consist completely in depot */
+			if (t->Last()->track == TRACK_BIT_DEPOT) continue;
+			for (Train *u = t; u->track == TRACK_BIT_DEPOT; u = u->Next()) {
+				u->direction = ReverseDir(u->direction);
+			}
+		}
+
+		/* Update the setting for train flipping. */
+		_settings_game.difficulty.train_flip_reverse_allowed = _settings_game.difficulty.line_reverse_mode ? TrainFlipReversingAllowed::EndOfLineOnly : TrainFlipReversingAllowed::All;
+	}
+
 	if (IsSavegameVersionBefore(SLV_165)) {
 		for (Town *t : Town::Iterate()) {
 			/* Set the default cargo requirement for town growth */
 			switch (_settings_game.game_creation.landscape) {
 				case LandscapeType::Arctic:
-					if (FindFirstCargoWithTownAcceptanceEffect(TAE_FOOD) != nullptr) t->goal[TAE_FOOD] = TOWN_GROWTH_WINTER;
+					if (FindFirstCargoWithTownAcceptanceEffect(TownAcceptanceEffect::Food) != nullptr) t->goal[TownAcceptanceEffect::Food] = TOWN_GROWTH_WINTER;
 					break;
 
 				case LandscapeType::Tropic:
-					if (FindFirstCargoWithTownAcceptanceEffect(TAE_FOOD) != nullptr) t->goal[TAE_FOOD] = TOWN_GROWTH_DESERT;
-					if (FindFirstCargoWithTownAcceptanceEffect(TAE_WATER) != nullptr) t->goal[TAE_WATER] = TOWN_GROWTH_DESERT;
+					if (FindFirstCargoWithTownAcceptanceEffect(TownAcceptanceEffect::Food) != nullptr) t->goal[TownAcceptanceEffect::Food] = TOWN_GROWTH_DESERT;
+					if (FindFirstCargoWithTownAcceptanceEffect(TownAcceptanceEffect::Water) != nullptr) t->goal[TownAcceptanceEffect::Water] = TOWN_GROWTH_DESERT;
 					break;
 
 				default:
@@ -2960,15 +2979,15 @@ bool AfterLoadGame()
 	/* When any NewGRF has been changed the availability of some vehicles might
 	 * have been changed too. e->company_avail must be set to 0 in that case
 	 * which is done by StartupEngines(). */
-	if (gcf_res != GLC_ALL_GOOD) StartupEngines();
+	if (gcf_res != GRFListCompatibility::AllGood) StartupEngines();
 
 	/* The road owner of standard road stops was not properly accounted for. */
 	if (IsSavegameVersionBefore(SLV_172)) {
 		for (const auto t : Map::Iterate()) {
 			if (!IsBayRoadStopTile(t)) continue;
 			Owner o = GetTileOwner(t);
-			SetRoadOwner(t, RTT_ROAD, o);
-			SetRoadOwner(t, RTT_TRAM, o);
+			SetRoadOwner(t, RoadTramType::Road, o);
+			SetRoadOwner(t, RoadTramType::Tram, o);
 		}
 	}
 

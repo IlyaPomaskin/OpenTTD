@@ -361,7 +361,7 @@ struct NewGRFInspectWindow : Window {
 			}
 
 			case WID_NGRFI_MAINPANEL:
-				fill.height = resize.height = std::max(11, GetCharacterHeight(FS_NORMAL) + WidgetDimensions::scaled.vsep_normal);
+				fill.height = resize.height = std::max(11, GetCharacterHeight(FontSize::Normal) + WidgetDimensions::scaled.vsep_normal);
 				resize.width  = 1;
 
 				size.height = 5 * resize.height + WidgetDimensions::scaled.frametext.Vertical();
@@ -636,8 +636,8 @@ static constexpr std::initializer_list<NWidgetPart> _nested_newgrf_inspect_chain
 	EndContainer(),
 	NWidget(WWT_PANEL, COLOUR_GREY),
 		NWidget(NWID_HORIZONTAL),
-			NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_NGRFI_VEH_PREV), SetArrowWidgetTypeTip(AWV_DECREASE),
-			NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_NGRFI_VEH_NEXT), SetArrowWidgetTypeTip(AWV_INCREASE),
+			NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_NGRFI_VEH_PREV), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease),
+			NWidget(WWT_PUSHARROWBTN, COLOUR_GREY, WID_NGRFI_VEH_NEXT), SetArrowWidgetTypeTip(ArrowWidgetType::Increase),
 			NWidget(WWT_EMPTY, INVALID_COLOUR, WID_NGRFI_VEH_CHAIN), SetFill(1, 0), SetResize(1, 0),
 		EndContainer(),
 	EndContainer(),
@@ -890,7 +890,7 @@ struct SpriteAlignerWindow : Window {
 					d = maxdim(d, GetStringBoundingBox(GetString(STR_SPRITE_ALIGNER_SPRITE, spritefile->GetSimplifiedFilename(), GetParamMaxDigits(6))));
 				}
 				size.width = d.width + padding.width;
-				fill.height = resize.height = GetCharacterHeight(FS_NORMAL) + padding.height;
+				fill.height = resize.height = GetCharacterHeight(FontSize::Normal) + padding.height;
 				resize.width = 1;
 				break;
 			}
@@ -1186,7 +1186,7 @@ static constexpr std::initializer_list<NWidgetPart> _nested_sprite_aligner_widge
 		EndContainer(),
 		NWidget(NWID_HORIZONTAL),
 			NWidget(NWID_SPACER), SetFill(1, 0), SetResize(1, 0),
-			NWidget(WWT_RESIZEBOX, COLOUR_GREY), SetResizeWidgetTypeTip(RWV_HIDE_BEVEL, STR_TOOLTIP_RESIZE),
+			NWidget(WWT_RESIZEBOX, COLOUR_GREY), SetResizeWidgetTypeTip(ResizeWidgetType::HideBevel, STR_TOOLTIP_RESIZE),
 		EndContainer(),
 	EndContainer(),
 };

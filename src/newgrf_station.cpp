@@ -222,7 +222,7 @@ static uint32_t GetRailContinuationInfo(TileIndex tile)
 
 	for (i = 0; i < lengthof(x_dir); i++, dir++, diagdir++) {
 		TileIndex neighbour_tile = tile + TileOffsByDir(*dir);
-		TrackBits trackbits = TrackStatusToTrackBits(GetTileTrackStatus(neighbour_tile, TRANSPORT_RAIL, 0));
+		TrackBits trackbits = TrackStatusToTrackBits(GetTileTrackStatus(neighbour_tile, TRANSPORT_RAIL, RoadTramType::Invalid));
 		if (trackbits != TRACK_BIT_NONE) {
 			/* If there is any track on the tile, set the bit in the second byte */
 			SetBit(res, i + 8);
@@ -496,8 +496,8 @@ uint32_t Waypoint::GetNewGRFVariable(const ResolverObject &, uint8_t variable, [
 		case 0xF7: return 0; // airport flags cont.
 	}
 
-	/* Handle cargo variables with parameter, 0x60 to 0x65 */
-	if (variable >= 0x60 && variable <= 0x65) {
+	/* Handle cargo variables with parameter, 0x60 to 0x65 and 0x69. */
+	if ((variable >= 0x60 && variable <= 0x65) || variable == 0x69) {
 		return 0;
 	}
 
@@ -546,7 +546,15 @@ uint32_t Waypoint::GetNewGRFVariable(const ResolverObject &, uint8_t variable, [
 		}
 	}
 
-	if (this->station_scope.statspec->flags.Test(StationSpecFlag::DivByStationSize)) cargo /= (st->train_station.w + st->train_station.h);
+	if (this->station_scope.statspec->flags.Test(StationSpecFlag::DivByStationArea)) {
+		uint area = 0;
+		for (const TileIndex &tile : st->train_station) {
+			if (st->TileBelongsToRailStation(tile)) ++area;
+		}
+		cargo /= area;
+	} else if (this->station_scope.statspec->flags.Test(StationSpecFlag::DivByStationSize)) {
+		cargo /= (st->train_station.w + st->train_station.h); // Old code that uses half of the perimeter as the station size, compatible with TTDPatch.
+	}
 	cargo = std::min(0xfffu, cargo);
 
 	if (cargo > this->station_scope.statspec->cargo_threshold) {
@@ -867,7 +875,7 @@ bool DrawStationTile(int x, int y, RailType railtype, Axis axis, StationClassID 
 	PaletteID pal = sprites->ground.pal;
 	RailTrackOffset overlay_offset;
 	if (rti->UsesOverlay() && SplitGroundSpriteForOverlay(nullptr, &image, &overlay_offset)) {
-		SpriteID ground = GetCustomRailSprite(rti, INVALID_TILE, RTSG_GROUND);
+		SpriteID ground = GetCustomRailSprite(rti, INVALID_TILE, RailSpriteType::Ground);
 		DrawSprite(image, PAL_NONE, x, y);
 		DrawSprite(ground + overlay_offset, PAL_NONE, x, y);
 	} else {

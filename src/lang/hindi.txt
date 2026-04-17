@@ -434,7 +434,8 @@ STR_CONFIG_SETTING_COMPANIES_OFF                                :बन्द
 ###length 3
 
 
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :यदि सक्षम किया गया है, तो ट्रेनें गैर-टर्मिनस स्टेशनों पर रिवर्स नहीं होंगी, भले ही रिवर्स करते समय उनके अगले गंतव्य के लिए छोटा रास्ता हो।
+
+###length 3
 
 
 
@@ -641,6 +642,7 @@ STR_CONFIG_SETTING_AI_BUILDS_AIRCRAFT                           :कंप्य
 
 
 
+
 STR_CONFIG_SETTING_NEWS_ACCIDENTS_DISASTERS                     :दुर्घटनायें / आपदायें : {STRING}
 
 
@@ -795,7 +797,7 @@ STR_NETWORK_SERVER_LIST_REFRESH_TOOLTIP                         :{BLACK}सर�
 # Network connecting window
 
 
-###length 8
+###length 6
 
 
 
@@ -1377,7 +1379,7 @@ STR_ORDER_REFIT_TOOLTIP                                         :{BLACK}इस �
 
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_RELIABILITY                               :विश्वसनीयता
 STR_ORDER_CONDITIONAL_UNCONDITIONALLY                           :हमेशा
 ###next-name-looks-similar

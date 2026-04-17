@@ -317,7 +317,7 @@ uint Vehicle::Crash(bool)
 	InvalidateWindowClassesData(GetWindowClassForVehicleType(this->type), 0);
 	SetWindowWidgetDirty(WC_VEHICLE_VIEW, this->index, WID_VV_START_STOP);
 	SetWindowDirty(WC_VEHICLE_DETAILS, this->index);
-	SetWindowDirty(WC_VEHICLE_DEPOT, this->tile);
+	SetWindowDirty(WC_VEHICLE_DEPOT, this->GetMovingFront()->tile);
 
 	delete this->cargo_payment;
 	assert(this->cargo_payment == nullptr); // cleared by ~CargoPayment
@@ -384,6 +384,7 @@ Vehicle::Vehicle(VehicleID index, VehicleType type) : VehiclePool::PoolItem<&_ve
 	this->group_id           = DEFAULT_GROUP;
 	this->fill_percent_te_id = INVALID_TE_ID;
 	this->first              = this;
+	this->last               = this;
 	this->colourmap          = PAL_NONE;
 	this->cargo_age_counter  = 1;
 	this->last_station_visited = StationID::Invalid();
@@ -1809,8 +1810,8 @@ GetNewVehiclePosResult GetNewVehiclePos(const Vehicle *v)
 		-1, 0, 1, 1, 1, 0,-1,-1, /* y */
 	};
 
-	int x = v->x_pos + _delta_coord[v->direction];
-	int y = v->y_pos + _delta_coord[v->direction + 8];
+	int x = v->x_pos + _delta_coord[v->GetMovingDirection()];
+	int y = v->y_pos + _delta_coord[v->GetMovingDirection() + 8];
 
 	GetNewVehiclePosResult gp;
 	gp.x = x;
@@ -1840,7 +1841,7 @@ Direction GetDirectionTowards(const Vehicle *v, int x, int y)
 		i++;
 	}
 
-	Direction dir = v->direction;
+	Direction dir = v->GetMovingDirection();
 
 	DirDiff dirdiff = DirDifference(_new_direction_table[i], dir);
 	if (dirdiff == DIRDIFF_SAME) return dir;
@@ -1941,7 +1942,7 @@ UnitID GetFreeUnitNumber(VehicleType type)
  * @return true if there is any reason why you may build
  *         the infrastructure for the given vehicle type
  */
-bool CanBuildVehicleInfrastructure(VehicleType type, uint8_t subtype)
+bool CanBuildVehicleInfrastructure(VehicleType type, RoadTramType subtype)
 {
 	assert(IsCompanyBuildableVehicleType(type));
 
@@ -1954,7 +1955,7 @@ bool CanBuildVehicleInfrastructure(VehicleType type, uint8_t subtype)
 			max = _settings_game.vehicle.max_trains;
 			break;
 		case VEH_ROAD:
-			if (!HasAnyRoadTypesAvail(_local_company, (RoadTramType)subtype)) return false;
+			if (!HasAnyRoadTypesAvail(_local_company, subtype)) return false;
 			max = _settings_game.vehicle.max_roadveh;
 			break;
 		case VEH_SHIP:     max = _settings_game.vehicle.max_ships; break;
@@ -1966,7 +1967,7 @@ bool CanBuildVehicleInfrastructure(VehicleType type, uint8_t subtype)
 	if (max > 0) {
 		/* Can we actually build the vehicle type? */
 		for (const Engine *e : Engine::IterateType(type)) {
-			if (type == VEH_ROAD && GetRoadTramType(e->VehInfo<RoadVehicleInfo>().roadtype) != (RoadTramType)subtype) continue;
+			if (type == VEH_ROAD && GetRoadTramType(e->VehInfo<RoadVehicleInfo>().roadtype) != subtype) continue;
 			if (e->company_avail.Test(_local_company)) return true;
 		}
 		return false;
@@ -1974,7 +1975,7 @@ bool CanBuildVehicleInfrastructure(VehicleType type, uint8_t subtype)
 
 	/* We should be able to build infrastructure when we have the actual vehicle type */
 	for (const Vehicle *v : Vehicle::Iterate()) {
-		if (v->type == VEH_ROAD && GetRoadTramType(RoadVehicle::From(v)->roadtype) != (RoadTramType)subtype) continue;
+		if (v->type == VEH_ROAD && GetRoadTramType(RoadVehicle::From(v)->roadtype) != subtype) continue;
 		if (v->owner == _local_company && v->type == type) return true;
 	}
 
@@ -2223,7 +2224,7 @@ void Vehicle::DeleteUnreachedImplicitOrders()
  */
 void Vehicle::BeginLoading()
 {
-	assert(IsTileType(this->tile, TileType::Station) || this->type == VEH_SHIP);
+	assert(IsTileType(this->GetMovingFront()->tile, TileType::Station) || this->type == VEH_SHIP);
 
 	TimerGameTick::Ticks travel_time = TimerGameTick::counter - this->last_loading_tick;
 	if (this->current_order.IsType(OT_GOTO_STATION) &&
@@ -2239,7 +2240,7 @@ void Vehicle::BeginLoading()
 		 * necessary to be known for HandleTrainLoading to determine
 		 * whether the train is lost or not; not marking a train lost
 		 * that arrives at random stations is bad. */
-		this->current_order.SetNonStopType({OrderNonStopFlag::NoIntermediate, OrderNonStopFlag::NoDestination});
+		this->current_order.SetNonStopType({OrderNonStopFlag::NonStop, OrderNonStopFlag::GoVia});
 
 	} else {
 		/* We weren't scheduled to stop here. Insert an implicit order
@@ -2405,9 +2406,10 @@ void Vehicle::LeaveStation()
 
 	if (this->type == VEH_TRAIN && !this->vehstatus.Test(VehState::Crashed)) {
 		/* Trigger station animation (trains only) */
-		if (IsTileType(this->tile, TileType::Station)) {
-			TriggerStationRandomisation(st, this->tile, StationRandomTrigger::VehicleDeparts);
-			TriggerStationAnimation(st, this->tile, StationAnimationTrigger::VehicleDeparts);
+		TileIndex tile = this->GetMovingFront()->tile;
+		if (IsTileType(tile, TileType::Station)) {
+			TriggerStationRandomisation(st, tile, StationRandomTrigger::VehicleDeparts);
+			TriggerStationAnimation(st, tile, StationAnimationTrigger::VehicleDeparts);
 		}
 
 		Train::From(this)->flags.Set(VehicleRailFlag::LeavingStation);
@@ -2615,7 +2617,7 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 			if (flags.Test(DoCommandFlag::Execute)) {
 				this->current_order.SetDepotOrderType({});
 				this->current_order.SetDepotActionType(halt_in_depot ? OrderDepotActionFlags{} : OrderDepotActionFlag::Halt);
-				SetWindowWidgetDirty(WC_VEHICLE_VIEW, this->index, WID_VV_START_STOP);
+				InvalidateWindowData(WC_VEHICLE_VIEW, this->index);
 			}
 			return CommandCost();
 		}
@@ -2632,13 +2634,13 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 			}
 
 			this->current_order.MakeDummy();
-			SetWindowWidgetDirty(WC_VEHICLE_VIEW, this->index, WID_VV_START_STOP);
+			InvalidateWindowData(WC_VEHICLE_VIEW, this->index);
 		}
 		return CommandCost();
 	}
 
 	ClosestDepot closest_depot = this->FindClosestDepot();
-	static const StringID no_depot[] = {STR_ERROR_UNABLE_TO_FIND_ROUTE_TO, STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT, STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT, STR_ERROR_CAN_T_SEND_AIRCRAFT_TO_HANGAR};
+	static const StringID no_depot[] = {STR_ERROR_UNABLE_TO_FIND_ROUTE_TO, STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT, STR_ERROR_UNABLE_TO_FIND_LOCAL_DEPOT, STR_ERROR_UNABLE_TO_FIND_LOCAL_HANGAR};
 	if (!closest_depot.found) return CommandCost(no_depot[this->type]);
 
 	if (flags.Test(DoCommandFlag::Execute)) {
@@ -2652,7 +2654,7 @@ CommandCost Vehicle::SendToDepot(DoCommandFlags flags, DepotCommandFlags command
 		this->SetDestTile(closest_depot.location);
 		this->current_order.MakeGoToDepot(closest_depot.destination.ToDepotID(), {});
 		if (!command.Test(DepotCommandFlag::Service)) this->current_order.SetDepotActionType(OrderDepotActionFlag::Halt);
-		SetWindowWidgetDirty(WC_VEHICLE_VIEW, this->index, WID_VV_START_STOP);
+		InvalidateWindowData(WC_VEHICLE_VIEW, this->index);
 
 		/* If there is no depot in front and the train is not already reversing, reverse automatically (trains only) */
 		if (this->type == VEH_TRAIN && (closest_depot.reverse ^ Train::From(this)->flags.Test(VehicleRailFlag::Reversing))) {
@@ -2838,12 +2840,13 @@ void Vehicle::ShowVisualEffect() const
 
 	if (this->type == VEH_TRAIN) {
 		const Train *t = Train::From(this);
+		const Train *moving_front = t->GetMovingFront();
 		/* For trains, do not show any smoke when:
 		 * - the train is reversing
 		 * - is entering a station with an order to stop there and its speed is equal to maximum station entering speed
 		 */
 		if (t->flags.Test(VehicleRailFlag::Reversing) ||
-				(IsRailStationTile(t->tile) && t->IsFrontEngine() && t->current_order.ShouldStopAtStation(t, GetStationIndex(t->tile)) &&
+				(IsRailStationTile(moving_front->tile) && t->IsFrontEngine() && t->current_order.ShouldStopAtStation(t, GetStationIndex(moving_front->tile)) &&
 				t->cur_speed >= max_speed)) {
 			return;
 		}
@@ -2988,6 +2991,13 @@ void Vehicle::SetNext(Vehicle *next)
 		for (Vehicle *v = this->next; v != nullptr; v = v->Next()) {
 			v->first = this->first;
 		}
+	}
+
+	/* Update last vehicle of the entire chain. */
+	Vehicle *new_last = this;
+	while (new_last->Next() != nullptr) new_last = new_last->Next();
+	for (Vehicle *v = this->first; v!= nullptr; v = v->Next()) {
+		v->last = new_last;
 	}
 }
 

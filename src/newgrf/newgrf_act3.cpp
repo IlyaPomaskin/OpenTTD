@@ -104,7 +104,7 @@ static void VehicleMapSpriteGroup(ByteReader &buf, GrfSpecFeature feature, uint8
 			/* No engine could be allocated?!? Deal with it. Okay,
 			 * this might look bad. Also make sure this NewGRF
 			 * gets disabled, as a half loaded one is bad. */
-			HandleChangeInfoResult("VehicleMapSpriteGroup", CIR_INVALID_ID, feature, 0);
+			HandleChangeInfoResult("VehicleMapSpriteGroup", ChangeInfoResult::InvalidId, feature, 0);
 			return;
 		}
 
@@ -285,7 +285,8 @@ struct ObjectMapSpriteGroupHandler : PurchaseDefaultMapSpriteGroupHandler<Object
 struct RailTypeMapSpriteGroupHandler : MapSpriteGroupHandler {
 	void MapSpecific(uint16_t local_id, uint8_t cid, const SpriteGroup *group) override
 	{
-		if (cid >= RTSG_END) return;
+		RailSpriteType rst{cid};
+		if (rst >= RailSpriteType::End) return;
 
 		const auto &type_map = _cur_gps.grffile->railtype_map;
 		RailType railtype = local_id < std::size(type_map) ? type_map[local_id] : INVALID_RAILTYPE;
@@ -293,8 +294,8 @@ struct RailTypeMapSpriteGroupHandler : MapSpriteGroupHandler {
 
 		extern RailTypeInfo _railtypes[RAILTYPE_END];
 		RailTypeInfo &rti = _railtypes[railtype];
-		rti.grffile[cid] = _cur_gps.grffile;
-		rti.group[cid] = group;
+		rti.grffile[rst] = _cur_gps.grffile;
+		rti.group[rst] = group;
 	}
 
 	void MapDefault(uint16_t, const SpriteGroup *) override {}
@@ -304,16 +305,17 @@ template <RoadTramType TRoadTramType>
 struct RoadTypeMapSpriteGroupHandler : MapSpriteGroupHandler {
 	void MapSpecific(uint16_t local_id, uint8_t cid, const SpriteGroup *group) override
 	{
-		if (cid >= ROTSG_END) return;
+		RoadSpriteType rst{cid};
+		if (rst >= RoadSpriteType::End) return;
 
-		const auto &type_map = (TRoadTramType == RTT_TRAM) ? _cur_gps.grffile->tramtype_map : _cur_gps.grffile->roadtype_map;
+		const auto &type_map = (TRoadTramType == RoadTramType::Tram) ? _cur_gps.grffile->tramtype_map : _cur_gps.grffile->roadtype_map;
 		RoadType roadtype = local_id < std::size(type_map) ? type_map[local_id] : INVALID_ROADTYPE;
 		if (roadtype == INVALID_ROADTYPE) return;
 
 		extern RoadTypeInfo _roadtypes[ROADTYPE_END];
 		RoadTypeInfo &rti = _roadtypes[roadtype];
-		rti.grffile[cid] = _cur_gps.grffile;
-		rti.group[cid] = group;
+		rti.grffile[rst] = _cur_gps.grffile;
+		rti.group[rst] = group;
 	}
 
 	void MapDefault(uint16_t, const SpriteGroup *) override {}
@@ -441,8 +443,8 @@ static void FeatureMapSpriteGroup(ByteReader &buf)
 		case GSF_AIRPORTS: MapSpriteGroup(buf, idcount, AirportMapSpriteGroupHandler{}); return;
 		case GSF_OBJECTS: MapSpriteGroup(buf, idcount, ObjectMapSpriteGroupHandler{}); return;
 		case GSF_RAILTYPES: MapSpriteGroup(buf, idcount, RailTypeMapSpriteGroupHandler{}); return;
-		case GSF_ROADTYPES: MapSpriteGroup(buf, idcount, RoadTypeMapSpriteGroupHandler<RTT_ROAD>{}); return;
-		case GSF_TRAMTYPES: MapSpriteGroup(buf, idcount, RoadTypeMapSpriteGroupHandler<RTT_TRAM>{}); return;
+		case GSF_ROADTYPES: MapSpriteGroup(buf, idcount, RoadTypeMapSpriteGroupHandler<RoadTramType::Road>{}); return;
+		case GSF_TRAMTYPES: MapSpriteGroup(buf, idcount, RoadTypeMapSpriteGroupHandler<RoadTramType::Tram>{}); return;
 		case GSF_AIRPORTTILES: MapSpriteGroup(buf, idcount, AirportTileMapSpriteGroupHandler{}); return;
 		case GSF_ROADSTOPS: MapSpriteGroup(buf, idcount, RoadStopMapSpriteGroupHandler{}); return;
 		case GSF_BADGES: MapSpriteGroup(buf, idcount, BadgeMapSpriteGroupHandler{}); return;
@@ -453,9 +455,15 @@ static void FeatureMapSpriteGroup(ByteReader &buf)
 	}
 }
 
+/** @copybrief GrfActionHandler::FileScan */
 template <> void GrfActionHandler<0x03>::FileScan(ByteReader &) { }
+/** @copydoc GrfActionHandler::SafetyScan */
 template <> void GrfActionHandler<0x03>::SafetyScan(ByteReader &buf) { GRFUnsafe(buf); }
+/** @copybrief GrfActionHandler::LabelScan */
 template <> void GrfActionHandler<0x03>::LabelScan(ByteReader &) { }
+/** @copybrief GrfActionHandler::Init */
 template <> void GrfActionHandler<0x03>::Init(ByteReader &) { }
+/** @copybrief GrfActionHandler::Reserve */
 template <> void GrfActionHandler<0x03>::Reserve(ByteReader &) { }
+/** @copydoc GrfActionHandler::Activation */
 template <> void GrfActionHandler<0x03>::Activation(ByteReader &buf) { FeatureMapSpriteGroup(buf); }

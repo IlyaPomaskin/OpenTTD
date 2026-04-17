@@ -1488,8 +1488,8 @@ STR_CONFIG_SETTING_CONSTRUCTION_COSTS_HIGH                      :висока
 STR_CONFIG_SETTING_RECESSIONS                                   :Рецесії: {STRING}
 STR_CONFIG_SETTING_RECESSIONS_HELPTEXT                          :Якщо увімкнено, рецесії можуть відбуватися кожні кілька років. Під час рецессії обсяг виробництва на всіх підприємствах значно знижений (він повертається на попередній рівень, коли рецесія закінчується)
 
-STR_CONFIG_SETTING_TRAIN_REVERSING                              :Заборонити поїздам розвертатися на станціях: {STRING}
-STR_CONFIG_SETTING_TRAIN_REVERSING_HELPTEXT                     :Якщо увімкнено, поїзди не будуть розвертатися на некінцевих станціях, навіть якщо є коротший шлях до їх наступного пункту призначення, який вимагає розвороту
+
+###length 3
 
 STR_CONFIG_SETTING_DISASTERS                                    :Стихійні лиха: {STRING}
 STR_CONFIG_SETTING_DISASTERS_HELPTEXT                           :Перемкнути стихійні лиха, які можуть випадково зруйнувати транспорт або інфраструктуру
@@ -2034,6 +2034,7 @@ STR_CONFIG_SETTING_STATION_LENGTH_LOADING_PENALTY_HELPTEXT      :Якщо уві
 
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS                             :Враховувати обмеження швидкості вагонів: {STRING}
 STR_CONFIG_SETTING_WAGONSPEEDLIMITS_HELPTEXT                    :При включенні максимальна швидкість потяга враховує обмеження швидкості вагонів.
+
 
 STR_CONFIG_SETTING_DISABLE_ELRAILS                              :Скасувати електрифіковану залізницю: {STRING}
 STR_CONFIG_SETTING_DISABLE_ELRAILS_HELPTEXT                     :При включенні відпадає необхідність побудови електрифікованої колії для потягів на електричній тязі - вони будуть працювати на звичайній залізниці.
@@ -2616,15 +2617,13 @@ STR_NETWORK_CONNECTING_WAITING                                  :{BLACK}{NUM} к
 STR_NETWORK_CONNECTING_DOWNLOADING_1                            :{BLACK}{BYTES} завантажено
 STR_NETWORK_CONNECTING_DOWNLOADING_2                            :{BLACK}{BYTES} / {BYTES} вже завантажено
 
-###length 8
+###length 6
 STR_NETWORK_CONNECTING_1                                        :{BLACK}(1/6) З'єднання...
 STR_NETWORK_CONNECTING_2                                        :{BLACK}(2/6) Авторизація...
 STR_NETWORK_CONNECTING_3                                        :{BLACK}(3/6) Очікування...
 STR_NETWORK_CONNECTING_4                                        :{BLACK}(4/6) Завантаження карти...
 STR_NETWORK_CONNECTING_5                                        :{BLACK}(5/6) Обробка даних...
 STR_NETWORK_CONNECTING_6                                        :{BLACK}(6/6) Реєстрація...
-STR_NETWORK_CONNECTING_SPECIAL_1                                :{BLACK}Запит інформації про гру...
-STR_NETWORK_CONNECTING_SPECIAL_2                                :{BLACK}Запит інформації про компанію...
 
 STR_NETWORK_CONNECTION_DISCONNECT                               :{BLACK}Роз'єднання
 
@@ -2992,7 +2991,18 @@ STR_PICKER_PREVIEW_SHRINK_TOOLTIP                               :Зменшит�
 STR_PICKER_PREVIEW_EXPAND                                       :+
 STR_PICKER_PREVIEW_EXPAND_TOOLTIP                               :Збільшити висоту попереднього перегляду зображень. Ctrl+клац збільшує до верхньої межі
 
+STR_PICKER_SELECT_COLLECTION_TOOLTIP                            :Обрання збірки
+STR_PICKER_COLLECTION_ADD                                       :Додати
+STR_PICKER_COLLECTION_ADD_TOOLTIP                               :Створення нової збірки
+STR_PICKER_COLLECTION_RENAME                                    :Перейменувати
+STR_PICKER_COLLECTION_RENAME_TOOLTIP                            :Перейменування збірки
+STR_PICKER_COLLECTION_DELETE                                    :Видалити
+STR_PICKER_COLLECTION_DELETE_TOOLTIP                            :Видалення збірки
 
+STR_PICKER_COLLECTION_RENAME_QUERY                              :Перейменувати збірку
+STR_PICKER_COLLECTION_DELETE_QUERY                              :Видалити збірку
+STR_PICKER_COLLECTION_DELETE_QUERY_TEXT                         :{YELLOW}Дійсно бажаєте видалити збірку?
+STR_PICKER_COLLECTION_DELETE_QUERY_DISABLED_TEXT                :{YELLOW}Дійсно бажаєте видалити збірку? У списку є відключені NewGRFи!
 
 STR_PICKER_STATION_CLASS_TOOLTIP                                :Виберіть тип станцій для відображення
 STR_PICKER_STATION_TYPE_TOOLTIP                                 :Виберіть тип станції для побудови. Клацніть Ctrl+Клік, щоб додати або видалити зі списку збереженого
@@ -3000,10 +3010,12 @@ STR_PICKER_WAYPOINT_CLASS_TOOLTIP                               :Виберіт�
 STR_PICKER_WAYPOINT_TYPE_TOOLTIP                                :Виберіть тип точки шляху для побудови. Клацніть Ctrl+Клік, щоб додати або видалити зі списку збереженого
 STR_PICKER_ROADSTOP_BUS_CLASS_TOOLTIP                           :Виберіть тип автобусної зупинки для відображення
 STR_PICKER_ROADSTOP_BUS_TYPE_TOOLTIP                            :Виберіть тип автобусної зупинки для побудови. Клацніть Ctrl+Клік, щоб додати або видалити зі списку збереженого
+STR_PICKER_ROADSTOP_BUS_COLLECTION_TOOLTIP                      :Обрання збірки автобусних станцій для показу
 STR_PICKER_ROADSTOP_TRUCK_CLASS_TOOLTIP                         :Виберіть клас вантажної станції для відображення
 STR_PICKER_ROADSTOP_TRUCK_TYPE_TOOLTIP                          :Виберіть тип вантажної станції для побудови. Клацніть Ctrl+Клік, щоб додати або видалити зі списку збереженого
 STR_PICKER_OBJECT_CLASS_TOOLTIP                                 :Виберіть тип об’єкта для його відображення
 STR_PICKER_OBJECT_TYPE_TOOLTIP                                  :Виберіть тип об’єкта для побудови. Ctrl+клац, щоб додати або видалити зі списку збереженого. Ctrl+клац+протягування для виділення діагональної ділянки. Утримуйте Shift для показу очікуваних витрат
+STR_PICKER_OBJECT_COLLECTION_TOOLTIP                            :Обрання збірки чи об'єктів для показу
 STR_PICKER_HOUSE_CLASS_TOOLTIP                                  :Виберіть зону міста для відображення
 STR_PICKER_HOUSE_TYPE_TOOLTIP                                   :Виберіть тип споруди для побудови. Клацніть Ctrl+Клік, щоб додати або видалити зі списку збереженого
 
@@ -4347,6 +4359,15 @@ STR_PURCHASE_INFO_AIRCRAFT_TYPE                                 :{BLACK}Тип �
 STR_PURCHASE_INFO_RAILTYPES                                     :{BLACK}Залізничні колії: {GOLD}{STRING}
 
 # Vehicle sort details
+STR_PURCHASE_SORT_DETAILS_COST                                  :{CURRENCY_LONG}
+STR_PURCHASE_SORT_DETAILS_SPEED                                 :{VELOCITY}
+STR_PURCHASE_SORT_DETAILS_POWER                                 :{POWER}
+STR_PURCHASE_SORT_DETAILS_MAX_TE                                :{FORCE}
+STR_PURCHASE_SORT_DETAILS_INTRO_DATE                            :{NUM}
+STR_PURCHASE_SORT_DETAILS_RUNNINGCOST_YEAR                      :{CURRENCY_LONG}/рік
+STR_PURCHASE_SORT_DETAILS_RUNNINGCOST_PERIOD                    :{CURRENCY_LONG}/період
+STR_PURCHASE_SORT_DETAILS_RELIABILITY                           :{COMMA}%
+STR_PURCHASE_SORT_DETAILS_POWER_VS_RUNNING_COST                 :{DECIMAL}
 
 ###length 3
 STR_CARGO_TYPE_FILTER_ALL                                       :Всі типи вантажів
@@ -4686,7 +4707,6 @@ STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR                     :{BLACK}Дохі
 STR_VEHICLE_INFO_PROFIT_THIS_YEAR_LAST_YEAR_MIN_PERFORMANCE     :{BLACK}Дохід цього року: {LTBLUE}{CURRENCY_LONG} (минулого року: {CURRENCY_LONG}) {BLACK}Найгірше: {LTBLUE}{POWER_TO_WEIGHT}
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD                 :{BLACK}Прибуток цього періоду: {LTBLUE}{CURRENCY_LONG} (минулого періоду: {CURRENCY_LONG})
 STR_VEHICLE_INFO_PROFIT_THIS_PERIOD_LAST_PERIOD_MIN_PERFORMANCE :{BLACK}Прибуток цього періоду: {LTBLUE}{CURRENCY_LONG} (минулого періоду: {CURRENCY_LONG}) {BLACK}Питома потужність: {LTBLUE}{POWER_TO_WEIGHT}
-STR_VEHICLE_INFO_RELIABILITY_BREAKDOWNS                         :{BLACK}Надійність: {LTBLUE}{COMMA}%  {BLACK}Аварії після останнього техогляду: {LTBLUE}{COMMA}
 
 STR_VEHICLE_INFO_BUILT_VALUE                                    :{LTBLUE}{ENGINE} {BLACK}Побудований: {LTBLUE}{NUM}{BLACK} Вартість: {LTBLUE}{CURRENCY_LONG}
 STR_VEHICLE_INFO_NO_CAPACITY                                    :{BLACK}Місткість: {LTBLUE}нема{STRING}
@@ -4826,7 +4846,7 @@ STR_ORDER_HANGAR_ACTION_TOOLTIP                                 :{BLACK}Вибе
 STR_ORDER_CONDITIONAL_VARIABLE_TOOLTIP                          :{BLACK}Дані транспорту для базування завдання
 
 # Conditional order variables, must follow order of OrderConditionVariable enum
-###length 8
+###length 9
 STR_ORDER_CONDITIONAL_LOAD_PERCENTAGE                           :Процент завантаження
 STR_ORDER_CONDITIONAL_RELIABILITY                               :Надійність
 STR_ORDER_CONDITIONAL_MAX_SPEED                                 :Макс. швидкість

@@ -38,15 +38,15 @@ static constexpr std::initializer_list<NWidgetPart> _nested_ai_config_widgets = 
 			NWidget(NWID_VERTICAL), SetPIP(0, WidgetDimensions::unscaled.vsep_sparse, 0),
 				NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 					NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_DECREASE_NUMBER), SetArrowWidgetTypeTip(AWV_DECREASE),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_INCREASE_NUMBER), SetArrowWidgetTypeTip(AWV_INCREASE),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_DECREASE_NUMBER), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_INCREASE_NUMBER), SetArrowWidgetTypeTip(ArrowWidgetType::Increase),
 					EndContainer(),
 					NWidget(WWT_TEXT, INVALID_COLOUR, WID_AIC_NUMBER), SetFill(1, 0),
 				EndContainer(),
 				NWidget(NWID_HORIZONTAL), SetPIP(0, WidgetDimensions::unscaled.hsep_wide, 0),
 					NWidget(NWID_HORIZONTAL, NWidContainerFlag::EqualSize),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_DECREASE_INTERVAL), SetArrowWidgetTypeTip(AWV_DECREASE),
-						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_INCREASE_INTERVAL), SetArrowWidgetTypeTip(AWV_INCREASE),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_DECREASE_INTERVAL), SetArrowWidgetTypeTip(ArrowWidgetType::Decrease),
+						NWidget(WWT_PUSHARROWBTN, COLOUR_YELLOW, WID_AIC_INCREASE_INTERVAL), SetArrowWidgetTypeTip(ArrowWidgetType::Increase),
 					EndContainer(),
 					NWidget(WWT_TEXT, INVALID_COLOUR, WID_AIC_INTERVAL), SetFill(1, 0),
 				EndContainer(),
@@ -141,7 +141,7 @@ struct AIConfigWindow : public Window {
 				break;
 
 			case WID_AIC_LIST:
-				this->line_height = GetCharacterHeight(FS_NORMAL) + padding.height;
+				this->line_height = GetCharacterHeight(FontSize::Normal) + padding.height;
 				fill.height = resize.height = this->line_height;
 				size.height = 8 * this->line_height;
 				break;
@@ -258,7 +258,8 @@ struct AIConfigWindow : public Window {
 
 			case WID_AIC_MOVE_UP:
 				if (IsEditable(this->selected_slot) && IsEditable(static_cast<CompanyID>(this->selected_slot - 1))) {
-					std::swap(GetGameSettings().script_config.ai[this->selected_slot], GetGameSettings().script_config.ai[this->selected_slot - 1]);
+					auto it = std::next(std::begin(GetGameSettings().script_config.ai), this->selected_slot.base());
+					std::swap(*it, *std::prev(it));
 					this->selected_slot = static_cast<CompanyID>(this->selected_slot - 1);
 					this->vscroll->ScrollTowards(this->selected_slot.base());
 					this->InvalidateData();
@@ -267,7 +268,8 @@ struct AIConfigWindow : public Window {
 
 			case WID_AIC_MOVE_DOWN:
 				if (IsEditable(this->selected_slot) && IsEditable(static_cast<CompanyID>(this->selected_slot + 1))) {
-					std::swap(GetGameSettings().script_config.ai[this->selected_slot], GetGameSettings().script_config.ai[this->selected_slot + 1]);
+					auto it = std::next(std::begin(GetGameSettings().script_config.ai), this->selected_slot.base());
+					std::swap(*it, *std::next(it));
 					++this->selected_slot;
 					this->vscroll->ScrollTowards(this->selected_slot.base());
 					this->InvalidateData();
@@ -293,7 +295,7 @@ struct AIConfigWindow : public Window {
 				if (!_network_available) {
 					ShowErrorMessage(GetEncodedString(STR_NETWORK_ERROR_NOTAVAILABLE), {}, WL_ERROR);
 				} else {
-					ShowNetworkContentListWindow(nullptr, CONTENT_TYPE_AI);
+					ShowNetworkContentListWindow(nullptr, ContentType::Ai);
 				}
 				break;
 		}

@@ -146,7 +146,7 @@ GRFError *DisableGrf(StringID message, GRFConfig *config)
 		file = _cur_gps.grffile;
 	}
 
-	config->status = GCS_DISABLED;
+	config->status = GRFStatus::Disabled;
 	if (file != nullptr) ClearTemporaryNewGRFData(file);
 	if (config == _cur_gps.grfconfig) _cur_gps.skip_sprites = -1;
 
@@ -494,8 +494,8 @@ void ResetNewGRFData()
 
 	_loaded_newgrf_features.has_2CC           = false;
 	_loaded_newgrf_features.used_liveries     = 1 << LS_DEFAULT;
-	_loaded_newgrf_features.shore             = SHORE_REPLACE_NONE;
-	_loaded_newgrf_features.tram              = TRAMWAY_REPLACE_DEPOT_NONE;
+	_loaded_newgrf_features.shore             = ShoreReplacement::None;
+	_loaded_newgrf_features.tram              = TramDepotReplacement::None;
 
 	/* Clear all GRF overrides */
 	_grf_id_overrides.clear();
@@ -760,7 +760,7 @@ static void CalculateRefitMasks()
 
 			/* If the original masks set by the grf are zero, the vehicle shall only carry the default cargo.
 			 * Note: After applying the translations, the vehicle may end up carrying no defined cargo. It becomes unavailable in that case. */
-			only_defaultcargo = _gted[engine].refittability != GRFTempEngineData::NONEMPTY;
+			only_defaultcargo = _gted[engine].refittability != GRFTempEngineData::Refittability::NonEmpty;
 
 			if (_gted[engine].cargo_allowed.Any()) {
 				/* Build up the list of cargo types from the set cargo classes. */
@@ -943,12 +943,12 @@ static void FinaliseEngineArray()
 void FinaliseCargoArray()
 {
 	for (CargoSpec &cs : CargoSpec::array) {
-		if (cs.town_production_effect == INVALID_TPE) {
+		if (cs.town_production_effect == TownProductionEffect::Invalid) {
 			/* Set default town production effect by cargo label. */
 			switch (cs.label.base()) {
-				case CT_PASSENGERS.base(): cs.town_production_effect = TPE_PASSENGERS; break;
-				case CT_MAIL.base():       cs.town_production_effect = TPE_MAIL; break;
-				default:                   cs.town_production_effect = TPE_NONE; break;
+				case CT_PASSENGERS.base(): cs.town_production_effect = TownProductionEffect::Passengers; break;
+				case CT_MAIL.base():       cs.town_production_effect = TownProductionEffect::Mail; break;
+				default:                   cs.town_production_effect = TownProductionEffect::None; break;
 			}
 		}
 		if (!cs.IsValid()) {
@@ -1220,12 +1220,12 @@ struct InvokeGrfActionHandler {
 	static void Invoke(ByteReader &buf, GrfLoadingStage stage)
 	{
 		switch (stage) {
-			case GLS_FILESCAN: GrfActionHandler<TAction>::FileScan(buf); break;
-			case GLS_SAFETYSCAN: GrfActionHandler<TAction>::SafetyScan(buf); break;
-			case GLS_LABELSCAN: GrfActionHandler<TAction>::LabelScan(buf); break;
-			case GLS_INIT: GrfActionHandler<TAction>::Init(buf); break;
-			case GLS_RESERVE: GrfActionHandler<TAction>::Reserve(buf); break;
-			case GLS_ACTIVATION: GrfActionHandler<TAction>::Activation(buf); break;
+			case GrfLoadingStage::FileScan: GrfActionHandler<TAction>::FileScan(buf); break;
+			case GrfLoadingStage::SafetyScan: GrfActionHandler<TAction>::SafetyScan(buf); break;
+			case GrfLoadingStage::LabelScan: GrfActionHandler<TAction>::LabelScan(buf); break;
+			case GrfLoadingStage::Init: GrfActionHandler<TAction>::Init(buf); break;
+			case GrfLoadingStage::Reserve: GrfActionHandler<TAction>::Reserve(buf); break;
+			case GrfLoadingStage::Activation: GrfActionHandler<TAction>::Activation(buf); break;
 			default: NOT_REACHED();
 		}
 	}
@@ -1311,7 +1311,7 @@ static void LoadNewGRFFileFromFile(GRFConfig &config, GrfLoadingStage stage, Spr
 		return;
 	}
 
-	if (stage == GLS_INIT || stage == GLS_ACTIVATION) {
+	if (stage == GrfLoadingStage::Init || stage == GrfLoadingStage::Activation) {
 		/* We need the sprite offsets in the init stage for NewGRF sounds
 		 * and in the activation stage for real sprites. */
 		ReadGRFSpriteOffsets(file);
@@ -1407,11 +1407,11 @@ void LoadNewGRFFile(GRFConfig &config, GrfLoadingStage stage, Subdirectory subdi
 	 * During activation, only actions 0, 1, 2, 3, 4, 5, 7, 8, 9, 0A and 0B are
 	 * carried out.  All others are ignored, because they only need to be
 	 * processed once at initialization.  */
-	if (stage != GLS_FILESCAN && stage != GLS_SAFETYSCAN && stage != GLS_LABELSCAN) {
+	if (stage != GrfLoadingStage::FileScan && stage != GrfLoadingStage::SafetyScan && stage != GrfLoadingStage::LabelScan) {
 		_cur_gps.grffile = GetFileByFilename(filename);
 		if (_cur_gps.grffile == nullptr) UserError("File '{}' lost in cache.\n", filename);
-		if (stage == GLS_RESERVE && config.status != GCS_INITIALISED) return;
-		if (stage == GLS_ACTIVATION && !config.flags.Test(GRFConfigFlag::Reserved)) return;
+		if (stage == GrfLoadingStage::Reserve && config.status != GRFStatus::Initialised) return;
+		if (stage == GrfLoadingStage::Activation && !config.flags.Test(GRFConfigFlag::Reserved)) return;
 	}
 
 	bool needs_palette_remap = config.palette & GRFP_USE_MASK;
@@ -1426,17 +1426,17 @@ void LoadNewGRFFile(GRFConfig &config, GrfLoadingStage stage, Subdirectory subdi
 /**
  * Relocates the old shore sprites at new positions.
  *
- * 1. If shore sprites are neither loaded by Action5 nor ActionA, the extra sprites from openttd(w/d).grf are used. (SHORE_REPLACE_ONLY_NEW)
- * 2. If a newgrf replaces some shore sprites by ActionA. The (maybe also replaced) grass tiles are used for corner shores. (SHORE_REPLACE_ACTION_A)
- * 3. If a newgrf replaces shore sprites by Action5 any shore replacement by ActionA has no effect. (SHORE_REPLACE_ACTION_5)
+ * 1. If shore sprites are neither loaded by Action5 nor ActionA, the extra sprites from openttd(w/d).grf are used. (ShoreReplacement::OnlyNew)
+ * 2. If a newgrf replaces some shore sprites by ActionA. The (maybe also replaced) grass tiles are used for corner shores. (ShoreReplacement::ActionA)
+ * 3. If a newgrf replaces shore sprites by Action5 any shore replacement by ActionA has no effect. (ShoreReplacement::Action5)
  */
 static void ActivateOldShore()
 {
 	/* Use default graphics, if no shore sprites were loaded.
 	 * Should not happen, as the base set's extra grf should include some. */
-	if (_loaded_newgrf_features.shore == SHORE_REPLACE_NONE) _loaded_newgrf_features.shore = SHORE_REPLACE_ACTION_A;
+	if (_loaded_newgrf_features.shore == ShoreReplacement::None) _loaded_newgrf_features.shore = ShoreReplacement::ActionA;
 
-	if (_loaded_newgrf_features.shore != SHORE_REPLACE_ACTION_5) {
+	if (_loaded_newgrf_features.shore != ShoreReplacement::Action5) {
 		DupSprite(SPR_ORIGINALSHORE_START +  1, SPR_SHORE_BASE +  1); // SLOPE_W
 		DupSprite(SPR_ORIGINALSHORE_START +  2, SPR_SHORE_BASE +  2); // SLOPE_S
 		DupSprite(SPR_ORIGINALSHORE_START +  6, SPR_SHORE_BASE +  3); // SLOPE_SW
@@ -1447,7 +1447,7 @@ static void ActivateOldShore()
 		DupSprite(SPR_ORIGINALSHORE_START +  5, SPR_SHORE_BASE + 12); // SLOPE_NE
 	}
 
-	if (_loaded_newgrf_features.shore == SHORE_REPLACE_ACTION_A) {
+	if (_loaded_newgrf_features.shore == ShoreReplacement::ActionA) {
 		DupSprite(SPR_FLAT_GRASS_TILE + 16, SPR_SHORE_BASE +  0); // SLOPE_STEEP_S
 		DupSprite(SPR_FLAT_GRASS_TILE + 17, SPR_SHORE_BASE +  5); // SLOPE_STEEP_W
 		DupSprite(SPR_FLAT_GRASS_TILE +  7, SPR_SHORE_BASE +  7); // SLOPE_WSE
@@ -1469,7 +1469,7 @@ static void ActivateOldShore()
  */
 static void ActivateOldTramDepot()
 {
-	if (_loaded_newgrf_features.tram == TRAMWAY_REPLACE_DEPOT_WITH_TRACK) {
+	if (_loaded_newgrf_features.tram == TramDepotReplacement::WithTrack) {
 		DupSprite(SPR_ROAD_DEPOT               + 0, SPR_TRAMWAY_DEPOT_NO_TRACK + 0); // use road depot graphics for "no tracks"
 		DupSprite(SPR_TRAMWAY_DEPOT_WITH_TRACK + 1, SPR_TRAMWAY_DEPOT_NO_TRACK + 1);
 		DupSprite(SPR_ROAD_DEPOT               + 2, SPR_TRAMWAY_DEPOT_NO_TRACK + 2); // use road depot graphics for "no tracks"
@@ -1704,18 +1704,18 @@ static void AfterLoadGRFs()
 			e->VehInfo<RoadVehicleInfo>().max_speed = _gted[e->index].rv_max_speed * 4;
 		}
 
-		RoadTramType rtt = e->info.misc_flags.Test(EngineMiscFlag::RoadIsTram) ? RTT_TRAM : RTT_ROAD;
+		RoadTramType rtt = e->info.misc_flags.Test(EngineMiscFlag::RoadIsTram) ? RoadTramType::Tram : RoadTramType::Road;
 
 		const GRFFile *file = e->GetGRF();
 		if (file == nullptr || _gted[e->index].roadtramtype == 0) {
-			e->VehInfo<RoadVehicleInfo>().roadtype = (rtt == RTT_TRAM) ? ROADTYPE_TRAM : ROADTYPE_ROAD;
+			e->VehInfo<RoadVehicleInfo>().roadtype = (rtt == RoadTramType::Tram) ? ROADTYPE_TRAM : ROADTYPE_ROAD;
 			continue;
 		}
 
 		/* Remove +1 offset. */
 		_gted[e->index].roadtramtype--;
 
-		const std::vector<RoadTypeLabel> *list = (rtt == RTT_TRAM) ? &file->tramtype_list : &file->roadtype_list;
+		const std::vector<RoadTypeLabel> *list = (rtt == RoadTramType::Tram) ? &file->tramtype_list : &file->roadtype_list;
 		if (_gted[e->index].roadtramtype < list->size())
 		{
 			RoadTypeLabel rtl = (*list)[_gted[e->index].roadtramtype];
@@ -1802,7 +1802,7 @@ void LoadNewGRF(SpriteID load_index, uint num_baseset)
 	 * have been enabled.
 	 */
 	for (const auto &c : _grfconfig) {
-		if (c->status != GCS_NOT_FOUND) c->status = GCS_UNKNOWN;
+		if (c->status != GRFStatus::NotFound) c->status = GRFStatus::Unknown;
 	}
 
 	_cur_gps.spriteid = load_index;
@@ -1810,14 +1810,14 @@ void LoadNewGRF(SpriteID load_index, uint num_baseset)
 	/* Load newgrf sprites
 	 * in each loading stage, (try to) open each file specified in the config
 	 * and load information from it. */
-	for (GrfLoadingStage stage = GLS_LABELSCAN; stage <= GLS_ACTIVATION; stage++) {
+	for (GrfLoadingStage stage = GrfLoadingStage::LabelScan; stage <= GrfLoadingStage::Activation; stage++) {
 		/* Set activated grfs back to will-be-activated between reservation- and activation-stage.
 		 * This ensures that action7/9 conditions 0x06 - 0x0A work correctly. */
 		for (const auto &c : _grfconfig) {
-			if (c->status == GCS_ACTIVATED) c->status = GCS_INITIALISED;
+			if (c->status == GRFStatus::Activated) c->status = GRFStatus::Initialised;
 		}
 
-		if (stage == GLS_RESERVE) {
+		if (stage == GrfLoadingStage::Reserve) {
 			static const std::pair<uint32_t, uint32_t> default_grf_overrides[] = {
 				{ std::byteswap(0x44442202), std::byteswap(0x44440111) }, // UKRS addons modifies UKRS
 				{ std::byteswap(0x6D620402), std::byteswap(0x6D620401) }, // DBSetXL ECS extension modifies DBSetXL
@@ -1833,22 +1833,22 @@ void LoadNewGRF(SpriteID load_index, uint num_baseset)
 
 		_cur_gps.stage = stage;
 		for (const auto &c : _grfconfig) {
-			if (c->status == GCS_DISABLED || c->status == GCS_NOT_FOUND) continue;
-			if (stage > GLS_INIT && c->flags.Test(GRFConfigFlag::InitOnly)) continue;
+			if (c->status == GRFStatus::Disabled || c->status == GRFStatus::NotFound) continue;
+			if (stage > GrfLoadingStage::Init && c->flags.Test(GRFConfigFlag::InitOnly)) continue;
 
-			Subdirectory subdir = num_grfs < num_baseset ? BASESET_DIR : NEWGRF_DIR;
+			Subdirectory subdir = num_grfs < num_baseset ? Subdirectory::Baseset : Subdirectory::NewGrf;
 			if (!FioCheckFileExists(c->filename, subdir)) {
 				Debug(grf, 0, "NewGRF file is missing '{}'; disabling", c->filename);
-				c->status = GCS_NOT_FOUND;
+				c->status = GRFStatus::NotFound;
 				continue;
 			}
 
-			if (stage == GLS_LABELSCAN) InitNewGRFFile(*c);
+			if (stage == GrfLoadingStage::LabelScan) InitNewGRFFile(*c);
 
 			if (!c->flags.Test(GRFConfigFlag::Static) && !c->flags.Test(GRFConfigFlag::System)) {
 				if (num_non_static == NETWORK_MAX_GRF_COUNT) {
 					Debug(grf, 0, "'{}' is not loaded as the maximum number of non-static GRFs has been reached", c->filename);
-					c->status = GCS_DISABLED;
+					c->status = GRFStatus::Disabled;
 					c->errors.emplace_back(STR_NEWGRF_ERROR_MSG_FATAL, 0, STR_NEWGRF_ERROR_TOO_MANY_NEWGRFS_LOADED);
 					continue;
 				}
@@ -1858,15 +1858,15 @@ void LoadNewGRF(SpriteID load_index, uint num_baseset)
 			num_grfs++;
 
 			LoadNewGRFFile(*c, stage, subdir, false);
-			if (stage == GLS_RESERVE) {
+			if (stage == GrfLoadingStage::Reserve) {
 				c->flags.Set(GRFConfigFlag::Reserved);
-			} else if (stage == GLS_ACTIVATION) {
+			} else if (stage == GrfLoadingStage::Activation) {
 				c->flags.Reset(GRFConfigFlag::Reserved);
 				assert(GetFileByGRFID(c->ident.grfid) == _cur_gps.grffile);
 				ClearTemporaryNewGRFData(_cur_gps.grffile);
 				BuildCargoTranslationMap();
 				Debug(sprite, 2, "LoadNewGRF: Currently {} sprites are loaded", _cur_gps.spriteid);
-			} else if (stage == GLS_INIT && c->flags.Test(GRFConfigFlag::InitOnly)) {
+			} else if (stage == GrfLoadingStage::Init && c->flags.Test(GRFConfigFlag::InitOnly)) {
 				/* We're not going to activate this, so free whatever data we allocated */
 				ClearTemporaryNewGRFData(_cur_gps.grffile);
 			}

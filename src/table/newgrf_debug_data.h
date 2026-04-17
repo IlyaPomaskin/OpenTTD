@@ -467,7 +467,7 @@ class NIHRailType : public NIHelper {
 	{
 		/* There is no unique GRFFile for the tile. Multiple GRFs can define different parts of the railtype.
 		 * However, currently the NewGRF Debug GUI does not display variables depending on the GRF (like 0x7F) anyway. */
-		RailTypeResolverObject ro(nullptr, TileIndex{index}, TCX_NORMAL, RTSG_END);
+		RailTypeResolverObject ro(nullptr, TileIndex{index}, TCX_NORMAL, RailSpriteType::End);
 		return ro.GetScope(VSG_SCOPE_SELF)->GetVariable(var, param, avail);
 	}
 };
@@ -643,7 +643,7 @@ class NIHRoadType : public NIHelper {
 	{
 		/* There is no unique GRFFile for the tile. Multiple GRFs can define different parts of the railtype.
 		 * However, currently the NewGRF Debug GUI does not display variables depending on the GRF (like 0x7F) anyway. */
-		RoadTypeResolverObject ro(nullptr, TileIndex{index}, TCX_NORMAL, ROTSG_END);
+		RoadTypeResolverObject ro(nullptr, TileIndex{index}, TCX_NORMAL, RoadSpriteType::End);
 		return ro.GetScope(VSG_SCOPE_SELF)->GetVariable(var, param, avail);
 	}
 };
@@ -652,14 +652,14 @@ static const NIFeature _nif_roadtype = {
 	{},
 	{},
 	_niv_roadtypes,
-	std::make_unique<NIHRoadType<RoadTramType::RTT_ROAD>>(),
+	std::make_unique<NIHRoadType<RoadTramType::Road>>(),
 };
 
 static const NIFeature _nif_tramtype = {
 	{},
 	{},
 	_niv_roadtypes,
-	std::make_unique<NIHRoadType<RoadTramType::RTT_TRAM>>(),
+	std::make_unique<NIHRoadType<RoadTramType::Tram>>(),
 };
 
 #define NICRS(cb_id, bit) NIC(cb_id, RoadStopSpec, callback_mask, bit)
@@ -743,7 +743,8 @@ static const NIFeature * const _nifeatures[] = {
 	&_nif_roadtype,     // GSF_ROADTYPES
 	&_nif_tramtype,     // GSF_TRAMTYPES
 	&_nif_roadstop,     // GSF_ROADSTOPS
+	nullptr, // GSF_BADGES
+
 	&_nif_town,         // GSF_FAKE_TOWNS
-	nullptr,
 };
 static_assert(lengthof(_nifeatures) == GSF_FAKE_END);
