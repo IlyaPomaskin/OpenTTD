@@ -41,7 +41,7 @@ void BuildTitleFileList()
 	_title_files.clear();
 
 	/* 1. Default baseset title screen (loaded first). */
-	_title_files.push_back({"opntitle.dat", BASESET_DIR});
+	_title_files.push_back({"opntitle.dat", Subdirectory::Baseset});
 
 	/* 2. Scan title/ directory for .sav files. */
 	std::set<std::string> seen;
@@ -56,7 +56,7 @@ void BuildTitleFileList()
 			if (ext != ".sav") continue;
 			std::string path = entry.path().string();
 			if (seen.insert(entry.path().filename().string()).second) {
-				_title_files.push_back({path, NO_DIRECTORY});
+				_title_files.push_back({path, Subdirectory::None});
 			}
 		}
 	};
@@ -66,7 +66,7 @@ void BuildTitleFileList()
 		scan_title_dir(std::string(*data_env) + PATHSEP);
 	}
 	for (Searchpath sp : _valid_searchpaths) {
-		scan_title_dir(FioGetDirectory(sp, BASE_DIR));
+		scan_title_dir(FioGetDirectory(sp, Subdirectory::Base));
 	}
 
 	Debug(misc, 0, "BuildTitleFileList: {} title files", _title_files.size());
@@ -108,7 +108,7 @@ bool LoadNextTitleMap()
 		const auto &[file, subdir] = _title_files[idx];
 		Debug(misc, 0, "[LOAD] map_load_start: [{}] {}", idx, file);
 		auto t0 = std::chrono::steady_clock::now();
-		SaveOrLoadResult result = SaveOrLoad(file, SLO_LOAD, DFT_GAME_FILE, subdir);
+		SaveOrLoadResult result = SaveOrLoad(file, SaveLoadOperation::Load, DetailedFileType::GameFile, subdir);
 		auto t1 = std::chrono::steady_clock::now();
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 		Debug(misc, 0, "[LOAD] map_load_end: [{}] {} result={} time={}ms", idx, file, static_cast<int>(result), ms);

@@ -121,6 +121,9 @@ execute_process(
         "${OPENTTD_ROOT}"
         -DOPTION_TOOLS_ONLY=ON
         -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_TOOLCHAIN_FILE=
+        -DCMAKE_C_COMPILER=/usr/bin/cc
+        -DCMAKE_CXX_COMPILER=/usr/bin/c++
     WORKING_DIRECTORY "${HOST_TOOLS_BUILD_DIR}"
     RESULT_VARIABLE HOST_CMAKE_RESULT
 )

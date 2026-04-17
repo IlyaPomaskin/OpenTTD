@@ -766,15 +766,14 @@ void DetermineBasePaths(std::string_view exe)
 	if (auto path = GetEnv("OPENTTD_DATA_PATH"); path.has_value()) {
 		std::string p(*path);
 		AppendPathSeparator(p);
-		_searchpaths[SP_BINARY_DIR] = p;
-		_searchpaths[SP_WORKING_DIR] = p;
-		_searchpaths[SP_PERSONAL_DIR] = p;
-		_searchpaths[SP_SHARED_DIR].clear();
-		_searchpaths[SP_INSTALLATION_DIR].clear();
-		_searchpaths[SP_APPLICATION_BUNDLE_DIR].clear();
-		_searchpaths[SP_AUTODOWNLOAD_PERSONAL_DIR] = p + "content_download" + PATHSEP;
-		_searchpaths[SP_AUTODOWNLOAD_PERSONAL_DIR_XDG].clear();
-		_searchpaths[SP_PERSONAL_DIR_XDG].clear();
+		_searchpaths[Searchpath::BinaryDir] = p;
+		_searchpaths[Searchpath::WorkingDir] = p;
+		_searchpaths[Searchpath::PersonalDir] = p;
+		_searchpaths[Searchpath::SharedDir].clear();
+		_searchpaths[Searchpath::InstallationDir].clear();
+		_searchpaths[Searchpath::ApplicationBundleDir].clear();
+		_searchpaths[Searchpath::AutodownloadPersonalDir] = p + "content_download" + PATHSEP;
+		_searchpaths[Searchpath::AutodownloadPersonalDirXdg].clear();
 		return;
 	}
 #endif

@@ -27,6 +27,7 @@
 #	error "Compiling 64 bits without POINTER_IS_64BIT set! (or vice versa)"
 #endif
 
+#if !defined(STRGEN) && !defined(SETTINGSGEN)
 /* Name conflict */
 #define Rect        OTTDRect
 #define Point       OTTDPoint
@@ -54,6 +55,7 @@
 #define GetTime OTTD_GetTime
 
 #define SL_ERROR OSX_SL_ERROR
+#endif /* !STRGEN && !SETTINGSGEN */
 
 /* NSInteger and NSUInteger are part of 10.5 and higher. */
 #ifndef NSInteger
