@@ -155,6 +155,19 @@ public class GameActivity extends SDLActivity {
         pauseParams.rightMargin = 16;
         pauseParams.bottomMargin = 4;
         mLayout.addView(pauseBar, pauseParams);
+
+        // Back button: top-left corner
+        Button back = btn("\u2190 Back", v -> finish());
+        back.setBackgroundColor(0x80000000);
+        RelativeLayout.LayoutParams backParams = new RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.WRAP_CONTENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT);
+        backParams.addRule(RelativeLayout.ALIGN_PARENT_START);
+        backParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        backParams.leftMargin = 16;
+        backParams.topMargin = 16;
+        back.setElevation(10);
+        mLayout.addView(back, backParams);
     }
 
     @Override

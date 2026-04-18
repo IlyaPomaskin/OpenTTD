@@ -33,6 +33,14 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".MapsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
+        <activity
+            android:name=".AssetSetupActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <service
             android:name=".OpenTTDWallpaperService"
             android:label="OpenTTD Wallpaper"

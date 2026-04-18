@@ -49,6 +49,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mNextMapReceiver;
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
+    private BroadcastReceiver mSettingsChangedReceiver;
 
 
     // Same library list as GameActivity.getLibraries()
@@ -128,6 +129,19 @@ public class OpenTTDWallpaperService extends WallpaperService {
         };
         registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA),
             Context.RECEIVER_EXPORTED);
+        mSettingsChangedReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                int interval = SettingsHelper.getMapUpdateInterval(context);
+                int zoom = SettingsHelper.getMapZoom(context);
+                int brightness = SettingsHelper.getBrightness(context);
+                Log.i(TAG, "SETTINGS_CHANGED: interval=" + interval
+                    + " zoom=" + zoom + " brightness=" + brightness);
+            }
+        };
+        registerReceiver(mSettingsChangedReceiver,
+            new IntentFilter(SettingsHelper.ACTION_SETTINGS_CHANGED),
+            Context.RECEIVER_EXPORTED);
     }
 
     @Override
@@ -159,6 +173,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mScrollCameraReceiver != null) {
             unregisterReceiver(mScrollCameraReceiver);
             mScrollCameraReceiver = null;
+        }
+        if (mSettingsChangedReceiver != null) {
+            unregisterReceiver(mSettingsChangedReceiver);
+            mSettingsChangedReceiver = null;
         }
         super.onDestroy();
     }
