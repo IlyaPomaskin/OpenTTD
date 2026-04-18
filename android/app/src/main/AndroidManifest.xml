@@ -22,6 +22,7 @@
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|layoutDirection|colorMode|navigation|touchscreen|keyboard|fontScale|locale"
             android:screenOrientation="sensor"
+            android:process=":game"
             android:preferMinimalPostProcessing="true">
         </activity>
         <activity

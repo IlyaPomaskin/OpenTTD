@@ -190,6 +190,12 @@ public class GameActivity extends SDLActivity {
     protected void onDestroy() {
         Log.w(TAG, "onDestroy: isChangingConfigurations=" + isChangingConfigurations()
             + " isFinishing=" + isFinishing());
+        if (isFinishing()) {
+            // Kill immediately — SDL's onDestroy blocks on mSDLThread.join()
+            // which hangs because OpenTTD doesn't handle SDL_QUIT.
+            // Safe because GameActivity runs in its own :game process.
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
         super.onDestroy();
     }
 
