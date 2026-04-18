@@ -20,6 +20,7 @@ public class GameActivity extends SDLActivity {
     private static native void nativeNavigatePOI(int delta);
     private static native void nativeScrollCamera(int dx, int dy);
     private static native void nativeSetGamePaused(boolean paused);
+    private static native void nativeSetBrightness(float brightness);
 
     @Override
     protected String[] getLibraries() {
@@ -51,6 +52,17 @@ public class GameActivity extends SDLActivity {
         }
         super.onCreate(savedInstanceState);
         addOverlayButtons();
+        pushBrightnessDelayed();
+    }
+
+    private void pushBrightnessDelayed() {
+        // GLESBackend isn't ready until SDL thread starts rendering.
+        // Retry until it accepts the value.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            int value = SettingsHelper.getBrightness(getApplicationContext());
+            float b = 1.0f - (value / 100.0f);
+            nativeSetBrightness(b);
+        }, 2000);
     }
 
     private Button btn(String text, View.OnClickListener listener) {

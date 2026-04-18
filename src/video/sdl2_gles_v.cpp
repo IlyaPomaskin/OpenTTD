@@ -109,6 +109,14 @@ Java_org_openttd_android_GameActivity_nativeSetGamePaused(JNIEnv *, jclass, jboo
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeSetBrightness(JNIEnv *, jclass, jfloat brightness)
+{
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->SetBrightness(brightness);
+	}
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
 {
 	_gles_scroll_dx = dx;
