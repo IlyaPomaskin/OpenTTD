@@ -21,7 +21,7 @@
             android:name=".GameActivity"
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|layoutDirection|colorMode|navigation|touchscreen|keyboard|fontScale|locale"
-            android:screenOrientation="landscape"
+            android:screenOrientation="sensor"
             android:preferMinimalPostProcessing="true">
         </activity>
         <activity

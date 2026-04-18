@@ -10,7 +10,7 @@
         android:layout_height="wrap_content"
         android:padding="16dp"
         android:text="@string/maps_note"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:textSize="14sp" />
     <ListView
         android:id="@+id/list_maps"
@@ -24,7 +24,7 @@
         android:layout_weight="1"
         android:gravity="center"
         android:text="@string/maps_empty"
-        android:textColor="?android:attr/textColorSecondary"
+        android:textColor="?attr/colorOnSurfaceVariant"
         android:textSize="16sp"
         android:visibility="gone" />
     <Button
