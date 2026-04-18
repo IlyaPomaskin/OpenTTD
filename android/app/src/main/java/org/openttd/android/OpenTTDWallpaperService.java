@@ -150,7 +150,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private void pushBrightness() {
         if (!sLibrariesLoaded || !sSDLInitialized) return;
         int value = SettingsHelper.getBrightness(getApplicationContext());
-        float b = 1.0f - (value / 100.0f);
+        float b = value / 100.0f;
         nativeSetBrightness(b);
     }
 

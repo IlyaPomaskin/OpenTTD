@@ -13,7 +13,7 @@ public class SettingsHelper {
 
     public static final int DEFAULT_MAP_INTERVAL = 2;
     public static final int DEFAULT_MAP_ZOOM = 1;
-    public static final int DEFAULT_BRIGHTNESS = 0;
+    public static final int DEFAULT_BRIGHTNESS = 100;
 
     public static final String ACTION_SETTINGS_CHANGED = "org.openttd.android.SETTINGS_CHANGED";
 

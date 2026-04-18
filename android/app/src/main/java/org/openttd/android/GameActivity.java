@@ -60,7 +60,7 @@ public class GameActivity extends SDLActivity {
         // Retry until it accepts the value.
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             int value = SettingsHelper.getBrightness(getApplicationContext());
-            float b = 1.0f - (value / 100.0f);
+            float b = value / 100.0f;
             nativeSetBrightness(b);
         }, 2000);
     }
