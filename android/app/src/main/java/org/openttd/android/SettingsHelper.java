@@ -51,6 +51,10 @@ public class SettingsHelper {
     }
 
     public static void notifySettingsChanged(Context context) {
-        context.sendBroadcast(new Intent(ACTION_SETTINGS_CHANGED));
+        Intent intent = new Intent(ACTION_SETTINGS_CHANGED);
+        intent.putExtra(KEY_MAP_INTERVAL, getMapUpdateInterval(context));
+        intent.putExtra(KEY_MAP_ZOOM, getMapZoom(context));
+        intent.putExtra(KEY_BRIGHTNESS, getBrightness(context));
+        context.sendBroadcast(intent);
     }
 }

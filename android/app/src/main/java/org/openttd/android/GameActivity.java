@@ -62,7 +62,7 @@ public class GameActivity extends SDLActivity {
             int value = SettingsHelper.getBrightness(getApplicationContext());
             float b = value / 100.0f;
             nativeSetBrightness(b);
-        }, 2000);
+        }, 500);
     }
 
     private Button btn(String text, View.OnClickListener listener) {

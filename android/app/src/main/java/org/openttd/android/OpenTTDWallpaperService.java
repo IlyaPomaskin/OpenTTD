@@ -62,6 +62,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
     private static boolean sLibrariesLoaded = false;
     private static boolean sSDLInitialized = false;
+    private int mLastBrightness = SettingsHelper.DEFAULT_BRIGHTNESS;
 
     @Override
     public void onCreate() {
@@ -134,12 +135,16 @@ public class OpenTTDWallpaperService extends WallpaperService {
         mSettingsChangedReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                int interval = SettingsHelper.getMapUpdateInterval(context);
-                int zoom = SettingsHelper.getMapZoom(context);
-                int brightness = SettingsHelper.getBrightness(context);
+                int interval = intent.getIntExtra(SettingsHelper.KEY_MAP_INTERVAL,
+                    SettingsHelper.DEFAULT_MAP_INTERVAL);
+                int zoom = intent.getIntExtra(SettingsHelper.KEY_MAP_ZOOM,
+                    SettingsHelper.DEFAULT_MAP_ZOOM);
+                int brightness = intent.getIntExtra(SettingsHelper.KEY_BRIGHTNESS,
+                    SettingsHelper.DEFAULT_BRIGHTNESS);
                 Log.i(TAG, "SETTINGS_CHANGED: interval=" + interval
                     + " zoom=" + zoom + " brightness=" + brightness);
-                pushBrightness();
+                mLastBrightness = brightness;
+                pushBrightness(brightness);
             }
         };
         registerReceiver(mSettingsChangedReceiver,
@@ -148,8 +153,11 @@ public class OpenTTDWallpaperService extends WallpaperService {
     }
 
     private void pushBrightness() {
+        pushBrightness(mLastBrightness);
+    }
+
+    private void pushBrightness(int value) {
         if (!sLibrariesLoaded || !sSDLInitialized) return;
-        int value = SettingsHelper.getBrightness(getApplicationContext());
         float b = value / 100.0f;
         nativeSetBrightness(b);
     }
@@ -256,6 +264,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
             Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
             nativeSurfaceChanged();
+            new android.os.Handler(android.os.Looper.getMainLooper())
+                .postDelayed(() -> pushBrightness(), 500);
         }
 
         @Override
