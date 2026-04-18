@@ -14,6 +14,7 @@
 #include "../blitter/base.hpp"
 #include "gles_sprite.h"
 #include <GLES3/gl3.h>
+#include <algorithm>
 #include <vector>
 
 /** A single draw command recorded by the GLES blitter. */
@@ -86,6 +87,9 @@ private:
 	/* Blit program uniforms. */
 	GLint blit_screen_loc = -1;
 	GLint blit_tex_loc = -1;
+	GLint blit_brightness_loc = -1;
+
+	float brightness = 1.0f;  ///< Screen brightness multiplier (0.0=black, 1.0=full).
 
 	GLuint palette_tex = 0;      ///< 256x1 RGBA palette texture.
 	GLuint remap_table_tex[2] = {0, 0}; ///< Double-buffered 256x1 remap table textures.
@@ -127,6 +131,7 @@ private:
 
 public:
 	static GLESBackend *Get() { return instance; }
+	void SetBrightness(float b) { this->brightness = std::clamp(b, 0.0f, 1.0f); }
 	static bool Create();
 	static void Destroy();
 

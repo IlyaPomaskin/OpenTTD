@@ -154,10 +154,12 @@ static const char *_gles_frag_shader_blit =
 	"#version 300 es\n"
 	"precision highp float;\n"
 	"uniform sampler2D u_tex;\n"
+	"uniform float u_brightness;\n"
 	"in vec2 v_colour_uv;\n"
 	"layout(location = 0) out vec4 o_colour;\n"
 	"void main() {\n"
-	"  o_colour = texture(u_tex, v_colour_uv);\n"
+	"  vec4 c = texture(u_tex, v_colour_uv);\n"
+	"  o_colour = vec4(c.rgb * u_brightness, c.a);\n"
 	"}\n";
 
 /** Fragment shader for palette resolve pass.

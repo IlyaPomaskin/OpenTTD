@@ -217,6 +217,7 @@ bool GLESBackend::InitShaders()
 
 		this->blit_screen_loc = glGetUniformLocation(this->prog_blit, "screen");
 		this->blit_tex_loc = glGetUniformLocation(this->prog_blit, "u_tex");
+		this->blit_brightness_loc = glGetUniformLocation(this->prog_blit, "u_brightness");
 	}
 
 	glDeleteShader(vs);
@@ -1314,6 +1315,7 @@ void GLESBackend::BlitToScreen(float u_offset, float v_offset)
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, this->fbo_tex);
 	glUniform1i(this->blit_tex_loc, 0);
+	glUniform1f(this->blit_brightness_loc, this->brightness);
 
 	glBindBuffer(GL_ARRAY_BUFFER, this->blit_vbo);
 

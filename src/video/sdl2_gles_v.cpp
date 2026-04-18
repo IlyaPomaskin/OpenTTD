@@ -126,6 +126,14 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, j
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeSetBrightness(JNIEnv *, jclass, jfloat brightness)
+{
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->SetBrightness(brightness);
+	}
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativeSurfaceChanged(JNIEnv *, jclass)
 {
 	Debug(driver, 0, "[CTX] nativeSurfaceChanged: signalling GL thread");

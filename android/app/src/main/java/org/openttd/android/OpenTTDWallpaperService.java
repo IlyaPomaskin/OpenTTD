@@ -41,6 +41,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeSetGamePaused(boolean paused);
     /** Signal GL thread that wallpaper surface changed and EGL needs rebind. */
     private static native void nativeSurfaceChanged();
+    /** Set screen brightness (0.0=black, 1.0=full). */
+    private static native void nativeSetBrightness(float brightness);
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -137,11 +139,19 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 int brightness = SettingsHelper.getBrightness(context);
                 Log.i(TAG, "SETTINGS_CHANGED: interval=" + interval
                     + " zoom=" + zoom + " brightness=" + brightness);
+                pushBrightness();
             }
         };
         registerReceiver(mSettingsChangedReceiver,
             new IntentFilter(SettingsHelper.ACTION_SETTINGS_CHANGED),
             Context.RECEIVER_EXPORTED);
+    }
+
+    private void pushBrightness() {
+        if (!sLibrariesLoaded || !sSDLInitialized) return;
+        int value = SettingsHelper.getBrightness(getApplicationContext());
+        float b = 1.0f - (value / 100.0f);
+        nativeSetBrightness(b);
     }
 
     @Override
@@ -309,6 +319,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
                 }
                 Log.i(TAG, "onVisibilityChanged: resuming game thread");
                 nativeSetGamePaused(false);
+                pushBrightness();
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
