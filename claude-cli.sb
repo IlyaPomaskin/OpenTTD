@@ -1,0 +1,245 @@
+;; macOS Sandbox Profile for Claude CLI
+;; Usage: sandbox-exec -f claude-cli.sb /Users/ilyapomaskin/.local/bin/claude [args...]
+;;
+;; Restricts Claude CLI to:
+;;   - ~/work/openttd and /tmp/openttd (read/write)
+;;   - ~/.claude/ and ~/.local/share/claude/ (read/write)
+;;   - Network (unrestricted)
+;;   - System libraries, shells, git (read/exec)
+;;
+;; macOS path notes:
+;;   /tmp → /private/tmp, /var → /private/var, /etc → /private/etc
+;;   Sandbox resolves real paths, so we allow both symlink and real paths.
+
+(version 1)
+(deny default)
+
+(define home-dir "/Users/ilyapomaskin")
+
+;; ============================================================
+;; Process control — fork/exec for subprocesses (git, shell, etc.)
+;; ============================================================
+(allow process-fork)
+(allow process-exec)
+(allow signal (target self))
+
+;; ============================================================
+;; Sysctl reads (needed by libc, runtime)
+;; ============================================================
+(allow sysctl-read)
+
+;; ============================================================
+;; Mach / IPC — needed for system services (DNS, security, etc.)
+;; ============================================================
+(allow mach-lookup)
+(allow mach-register)
+(allow ipc-posix-shm-read-data)
+(allow ipc-posix-shm-write-data)
+(allow ipc-posix-shm-read-metadata)
+(allow iokit-open)
+(allow user-preference-read)
+
+;; ============================================================
+;; Network — unrestricted (Anthropic API, DNS, MCP, SSH agent)
+;; ============================================================
+(allow network-outbound)
+(allow network-inbound)
+(allow network-bind)
+(allow system-socket)
+
+;; ============================================================
+;; Device access — terminal, random, null
+;; ============================================================
+(allow file-read*
+    (literal "/dev/tty")
+    (literal "/dev/null")
+    (literal "/dev/urandom")
+    (literal "/dev/random")
+    (literal "/dev/zero"))
+
+(allow file-write*
+    (literal "/dev/tty")
+    (literal "/dev/null"))
+
+(allow file-ioctl
+    (literal "/dev/tty"))
+
+;; Pseudo-terminal devices for subprocess I/O
+(allow file-read*
+    (regex #"^/dev/ttys[0-9]+$")
+    (regex #"^/dev/pty[a-z][0-9a-f]+$"))
+
+(allow file-write*
+    (regex #"^/dev/ttys[0-9]+$")
+    (regex #"^/dev/pty[a-z][0-9a-f]+$"))
+
+(allow file-ioctl
+    (regex #"^/dev/ttys[0-9]+$")
+    (regex #"^/dev/pty[a-z][0-9a-f]+$"))
+
+;; ============================================================
+;; System paths (read-only)
+;; ============================================================
+(allow file-read*
+    (literal "/")
+    (subpath "/usr/lib")
+    (subpath "/usr/share")
+    (subpath "/usr/bin")
+    (subpath "/bin")
+    (subpath "/sbin")
+    (subpath "/System")
+    (subpath "/Library")
+    (subpath "/private/etc")
+    (subpath "/private/var"))
+
+;; Symlink path metadata (/, /var, /tmp, /etc, /private are symlinks or intermediaries)
+(allow file-read-metadata
+    (literal "/")
+    (literal "/Users")
+    (literal "/var")
+    (literal "/tmp")
+    (literal "/etc")
+    (literal "/private")
+    (literal "/private/tmp")
+    (literal "/private/var")
+    (literal home-dir)
+    (literal (string-append home-dir "/work"))
+    (literal (string-append home-dir "/.local"))
+    (literal (string-append home-dir "/.local/share"))
+    (literal (string-append home-dir "/.local/bin"))
+    (literal (string-append home-dir "/Library"))
+    (literal (string-append home-dir "/Library/Application Support")))
+
+;; ============================================================
+;; Homebrew (read-only — for zsh, node, npm, build tools)
+;; ============================================================
+(allow file-read*
+    (subpath "/opt/homebrew"))
+
+(allow file-test-existence
+    (subpath "/opt/homebrew"))
+
+(allow process-exec
+    (subpath "/opt/homebrew"))
+
+;; ============================================================
+;; Temp directories — runtime needs (read/write)
+;; ============================================================
+(allow file-read*
+    (subpath "/private/tmp"))
+
+(allow file-write*
+    (subpath "/private/tmp")
+    (subpath "/private/var/folders"))
+
+;; ============================================================
+;; Claude CLI binary and versions (read)
+;; ============================================================
+(allow file-read*
+    (subpath (string-append home-dir "/.local/bin"))
+    (subpath (string-append home-dir "/.local/share/claude")))
+
+;; ============================================================
+;; Claude CLI config — ~/.claude/ and ~/.claude.json (read/write)
+;; ============================================================
+(allow file-read*
+    (subpath (string-append home-dir "/.claude"))
+    (literal (string-append home-dir "/.claude.json")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/.claude"))
+    (literal (string-append home-dir "/.claude.json")))
+
+;; ============================================================
+;; Working directories (read/write)
+;; ============================================================
+
+;; ~/work/openttd — project directory (both casing variants)
+(allow file-read*
+    (subpath (string-append home-dir "/work/openttd"))
+    (subpath (string-append home-dir "/work/OpenTTD")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/work/openttd"))
+    (subpath (string-append home-dir "/work/OpenTTD")))
+
+;; ~/Library/Application Support/OpenTTD — game data directory
+(allow file-read*
+    (subpath (string-append home-dir "/Library/Application Support/OpenTTD")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/Library/Application Support/OpenTTD")))
+
+;; /tmp/openttd — temp build directory
+(allow file-read*
+    (subpath "/private/tmp/openttd"))
+
+(allow file-write*
+    (subpath "/private/tmp/openttd"))
+
+;; ============================================================
+;; User shell config (read-only — for shell init)
+;; ============================================================
+(allow file-read*
+    (literal (string-append home-dir "/.zshrc"))
+    (literal (string-append home-dir "/.zshenv"))
+    (literal (string-append home-dir "/.zprofile"))
+    (literal (string-append home-dir "/.bashrc"))
+    (literal (string-append home-dir "/.bash_profile"))
+    (literal (string-append home-dir "/.profile"))
+    (literal (string-append home-dir "/.inputrc"))
+    (literal (string-append home-dir "/.hushlogin")))
+
+;; ============================================================
+;; Git config and cache (read/write)
+;; ============================================================
+(allow file-read*
+    (literal (string-append home-dir "/.gitconfig"))
+    (literal (string-append home-dir "/.gitignore_global"))
+    (subpath (string-append home-dir "/.config/git")))
+
+(allow file-read*
+    (subpath (string-append home-dir "/.cache")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/.cache")))
+
+;; SSH — read-only access to known_hosts and public keys (for git push)
+(allow file-read*
+    (literal (string-append home-dir "/.ssh/known_hosts"))
+    (literal (string-append home-dir "/.ssh/id_ed25519.pub"))
+    (literal (string-append home-dir "/.ssh/id_rsa.pub"))
+    (literal (string-append home-dir "/.ssh/config")))
+
+(allow file-read-metadata
+    (literal (string-append home-dir "/.ssh")))
+
+;; ============================================================
+;; Android SDK and config (for Gradle / NDK builds)
+;; ============================================================
+(allow file-read*
+    (subpath (string-append home-dir "/Library/Android/sdk"))
+    (subpath (string-append home-dir "/.android"))
+    (subpath (string-append home-dir "/.gradle")))
+
+;; Allow executing binaries from Android SDK (simpleperf, etc.)
+(allow process-exec
+    (subpath (string-append home-dir "/Library/Android/sdk")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/.android"))
+    (subpath (string-append home-dir "/.gradle")))
+
+(allow file-read-metadata
+    (literal (string-append home-dir "/Library/Android")))
+
+;; ============================================================
+;; Node.js / npm (for MCP servers started by Claude)
+;; ============================================================
+(allow file-read*
+    (subpath (string-append home-dir "/.npm"))
+    (subpath (string-append home-dir "/.node")))
+
+(allow file-write*
+    (subpath (string-append home-dir "/.npm")))
+
