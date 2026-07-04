@@ -273,3 +273,11 @@ Append-only. Newest entry at the bottom.
 - **Resolved:** user directive (no survey) → drop on-device verification from Stage 0; APK build = done → Goal, Global Constraints, Task 6 rewritten as wrap-up (record + push); boot verification moved to Stage 1 entry criteria
 - **Still uncertain:** Task 5 drift-fix set (unknowable pre-build, bounded by batch review)
 - **New questions:** none
+
+## Stage 0 Result
+
+**DONE — 2026-07-05.** APK builds from `lwp2` off upstream/master.
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk`, 97,367,236 bytes (~93 MB).
+- Build: `BUILD SUCCESSFUL in 32m 17s` (first full build; attempt 1 failed only on a gitignored, uncommitted `android/local.properties` `sdk.dir` — environmental).
+- Task 5 drift fixes: ZERO. Only upstream-drift adaptation was the ICU imported-targets fix, applied pre-emptively in Task 3 (a7021e0a54).
+- Commits: 41f9f7bc8e (docs/config), 02d8ef6a37 (cmake refactor), a7021e0a54 (android port + ICU), 6623f779ce (compat patch).
