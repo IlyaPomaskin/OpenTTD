@@ -20,6 +20,10 @@
 #include "os/windows/win32.h"
 #endif
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 #include "3rdparty/fmt/chrono.h"
 
 #include "network/network_admin.h"
@@ -125,7 +129,18 @@ void DebugPrint(std::string_view category, int level, std::string &&message)
 		fflush(*f);
 #endif
 	} else {
+#ifdef __ANDROID__
+		int prio = (level == 0) ? ANDROID_LOG_ERROR
+		         : (level == 1) ? ANDROID_LOG_WARN
+		         : (level == 2) ? ANDROID_LOG_INFO
+		         :                ANDROID_LOG_DEBUG;
+		__android_log_print(prio, "OpenTTD", "%sdbg: [%.*s:%d] %.*s",
+			std::string(GetLogPrefix(true)).c_str(),
+			(int)category.size(), category.data(), level,
+			(int)message.size(), message.data());
+#else
 		fmt::print(stderr, "{}dbg: [{}:{}] {}\n", GetLogPrefix(true), category, level, message);
+#endif
 
 		if (_debug_remote_console.load()) {
 			/* Only add to the queue when there is at least one consumer of the data. */
