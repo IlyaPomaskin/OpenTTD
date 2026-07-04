@@ -9,8 +9,13 @@ project(${BINARY_NAME}
     LANGUAGES CXX
 )
 
-if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
-    message(FATAL_ERROR "In-source builds not allowed. Please run \"cmake ..\" from the build directory. You may need to delete \"${CMAKE_SOURCE_DIR}/CMakeCache.txt\" first.")
+# Store the OpenTTD root directory for use in sub-CMakeLists files.
+# CMAKE_SOURCE_DIR points to the top-level CMakeLists.txt which may be
+# an Android wrapper when building via add_subdirectory().
+set(OPENTTD_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
+
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
+    message(FATAL_ERROR "In-source builds not allowed. Please run \"cmake ..\" from the build directory. You may need to delete \"${CMAKE_CURRENT_SOURCE_DIR}/CMakeCache.txt\" first.")
 endif()
 
 # Debug mode by default.
@@ -19,10 +24,10 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 if (EMSCRIPTEN)
-    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/os/emscripten/cmake")
+    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/os/emscripten/cmake")
 endif()
 
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_OSX_DEPLOYMENT_TARGET 10.15)
 
 # Use GNUInstallDirs to allow customisation
@@ -79,8 +84,8 @@ add_custom_target(find_version
                 -DDOXYGEN_WARN_FILE=${DOXYGEN_WARN_FILE}
                 -DDOXYGEN_GS_WARN_FILE=${DOXYGEN_GS_WARN_FILE}
                 -DDOXYGEN_AI_WARN_FILE=${DOXYGEN_AI_WARN_FILE}
-                -P "${CMAKE_SOURCE_DIR}/cmake/scripts/FindVersion.cmake"
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scripts/FindVersion.cmake"
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         BYPRODUCTS ${GENERATED_SOURCE_FILES}
 )
 
@@ -90,7 +95,7 @@ if(DOXYGEN_EXECUTABLE)
     add_custom_target(docs_source
         ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/docs
         COMMAND ${DOXYGEN_EXECUTABLE} ${CMAKE_BINARY_DIR}/Doxyfile
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         COMMENT "Generating documentation for source"
     )
     add_dependencies(docs_source
@@ -107,7 +112,7 @@ if(OPTION_TOOLS_ONLY)
     if(HOST_BINARY_DIR)
         unset(HOST_BINARY_DIR CACHE)
     endif()
-    add_subdirectory(${CMAKE_SOURCE_DIR}/src)
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
     return()
 endif()
 
@@ -121,27 +126,34 @@ set(CMAKE_THREAD_PREFER_PTHREAD YES)
 # Make sure we have Threads available.
 find_package(Threads REQUIRED)
 
-find_package(ZLIB)
-find_package(LibLZMA)
-find_package(LZO)
-find_package(PNG)
+if(NOT ANDROID)
+    find_package(ZLIB)
+    find_package(LibLZMA)
+    find_package(LZO)
+    find_package(PNG)
+endif()
 
 if(WIN32 OR EMSCRIPTEN)
     # Windows uses WinHttp for HTTP requests.
     # Emscripten uses Javascript for HTTP requests.
+elseif(ANDROID)
+    # Android does not use libcurl.
 else()
     # All other targets use libcurl.
     find_package(CURL)
 endif()
 
-# Breakpad doesn't support emscripten.
-if(NOT EMSCRIPTEN)
+# Breakpad doesn't support emscripten or Android.
+if(NOT EMSCRIPTEN AND NOT ANDROID)
     find_package(unofficial-breakpad NO_MODULE)
 endif()
 
 if(NOT OPTION_DEDICATED)
     if(WIN32)
         find_package(Xaudio2)
+    elseif(ANDROID)
+        # On Android, deps are provided by the Android CMakeLists.txt as
+        # imported targets and pre-set cache variables. No find_package needed.
     else()
         find_package(Allegro)
         if(NOT APPLE)
@@ -168,8 +180,14 @@ if(APPLE)
     find_library(QUARTZCORE_LIBRARY QuartzCore)
 endif()
 
-if(NOT EMSCRIPTEN AND NOT OPTION_DEDICATED)
+if(NOT EMSCRIPTEN AND NOT ANDROID AND NOT OPTION_DEDICATED)
     find_package(OpenGL COMPONENTS OpenGL)
+endif()
+
+if(ANDROID)
+    set(OPENGLES_FOUND TRUE)
+    add_definitions(-DWITH_OPENGLES)
+    message(STATUS "OpenGL ES found -- -DWITH_OPENGLES -- (Android built-in)")
 endif()
 
 if(MSVC)
@@ -185,7 +203,7 @@ check_ipo_supported(RESULT IPO_FOUND)
 
 show_options()
 
-if(UNIX AND NOT APPLE AND NOT OPTION_DEDICATED)
+if(UNIX AND NOT APPLE AND NOT ANDROID AND NOT OPTION_DEDICATED)
     if(NOT SDL2_FOUND AND NOT ALLEGRO_FOUND)
         message(FATAL_ERROR "SDL2 or Allegro is required for this platform")
     endif()
@@ -236,19 +254,25 @@ include(CTest)
 include(SourceList)
 
 # Needed by everything that uses Squirrel
-include_directories(${CMAKE_SOURCE_DIR}/src/3rdparty/squirrel/include)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src/3rdparty/squirrel/include)
 
 include(MSVCFilters)
 
 add_library(openttd_lib OBJECT ${GENERATED_SOURCE_FILES})
-add_executable(openttd WIN32)
-add_executable(openttd_test)
+if(ANDROID)
+    add_library(openttd SHARED)
+else()
+    add_executable(openttd WIN32)
+endif()
+if(NOT ANDROID)
+    add_executable(openttd_test)
+endif()
 set_target_properties(openttd PROPERTIES OUTPUT_NAME "${BINARY_NAME}")
 # All other files are added via target_sources()
 
 if(MSVC)
     # Add DPI manifest to project; other WIN32 targets get this via ottdres.rc
-    target_sources(openttd PRIVATE "${CMAKE_SOURCE_DIR}/os/windows/openttd.manifest")
+    target_sources(openttd PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/os/windows/openttd.manifest")
 
     # If target -static is used, switch our project to static (/MT) too.
     # If the target ends on -static-md, it will remain dynamic (/MD).
@@ -266,9 +290,9 @@ target_precompile_headers(openttd_lib
 )
 set_source_files_properties(src/3rdparty/fmt/format.cc PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 
-add_subdirectory(${CMAKE_SOURCE_DIR}/bin)
-add_subdirectory(${CMAKE_SOURCE_DIR}/src)
-add_subdirectory(${CMAKE_SOURCE_DIR}/media)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/bin)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/media)
 
 add_dependencies(openttd
     find_version)
@@ -286,16 +310,19 @@ target_link_libraries(openttd
     openttd::basesets
 )
 
-target_link_libraries(openttd_test PRIVATE openttd_lib)
-if(ANDROID)
-    target_link_libraries(openttd_test PRIVATE log)
-endif()
+if(NOT ANDROID)
+    target_link_libraries(openttd_test PRIVATE openttd_lib)
 
-include(Catch)
-catch_discover_tests(openttd_test)
+    include(Catch)
+    catch_discover_tests(openttd_test)
+endif()
 
 if(HAIKU)
     target_link_libraries(openttd_lib "be" "network" "midi")
+endif()
+
+if(ANDROID)
+    target_link_libraries(openttd_lib android log)
 endif()
 
 if(IPO_FOUND)
@@ -311,7 +338,7 @@ link_package(ZLIB TARGET ZLIB::ZLIB ENCOURAGED)
 link_package(LIBLZMA TARGET LibLZMA::LibLZMA ENCOURAGED)
 link_package(LZO)
 
-if(NOT WIN32 AND NOT EMSCRIPTEN)
+if(NOT WIN32 AND NOT EMSCRIPTEN AND NOT ANDROID)
     link_package(CURL ENCOURAGED)
     target_link_libraries(openttd_lib ${CMAKE_DL_LIBS})
 endif()
@@ -380,33 +407,33 @@ if(EMSCRIPTEN)
     # only ship the English language.
     target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_BINARY_DIR}/baseset@/baseset")
     target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_BINARY_DIR}/lang/english.lng@/lang/english.lng")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/bin/ai@/ai")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/bin/game@/game")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/bin/ai@/ai")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/bin/game@/game")
     # Documentation files for the in-game text file viewer
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/README.md@/README.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/CREDITS.md@/CREDITS.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/CONTRIBUTING.md@/CONTRIBUTING.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/COPYING.md@/COPYING.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/known-bugs.md@/known-bugs.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/changelog.md@/changelog.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/admin_network.md@/docs/admin_network.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/debugging_desyncs.md@/docs/debugging_desyncs.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/desync.md@/docs/desync.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/directory_structure.md@/docs/directory_structure.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/eints.md@/docs/eints.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/fonts.md@/docs/fonts.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/linkgraph.md@/docs/linkgraph.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/logging_and_performance_metrics.md@/docs/logging_and_performance_metrics.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/multiplayer.md@/docs/multiplayer.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/savegame_format.md@/docs/savegame_format.md")
-    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_SOURCE_DIR}/docs/symbol_server.md@/docs/symbol_server.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/README.md@/README.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/CREDITS.md@/CREDITS.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/CONTRIBUTING.md@/CONTRIBUTING.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/COPYING.md@/COPYING.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/known-bugs.md@/known-bugs.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/changelog.md@/changelog.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/admin_network.md@/docs/admin_network.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/debugging_desyncs.md@/docs/debugging_desyncs.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/desync.md@/docs/desync.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/directory_structure.md@/docs/directory_structure.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/eints.md@/docs/eints.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/fonts.md@/docs/fonts.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/linkgraph.md@/docs/linkgraph.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/logging_and_performance_metrics.md@/docs/logging_and_performance_metrics.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/multiplayer.md@/docs/multiplayer.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/savegame_format.md@/docs/savegame_format.md")
+    target_link_libraries(WASM::WASM INTERFACE "--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/docs/symbol_server.md@/docs/symbol_server.md")
 
     # We use IDBFS for persistent storage.
     target_link_libraries(WASM::WASM INTERFACE "-lidbfs.js")
 
     # Use custom pre-js and shell.html.
-    target_link_libraries(WASM::WASM INTERFACE "--pre-js ${CMAKE_SOURCE_DIR}/os/emscripten/pre.js")
-    target_link_libraries(WASM::WASM INTERFACE "--shell-file ${CMAKE_SOURCE_DIR}/os/emscripten/shell.html")
+    target_link_libraries(WASM::WASM INTERFACE "--pre-js ${CMAKE_CURRENT_SOURCE_DIR}/os/emscripten/pre.js")
+    target_link_libraries(WASM::WASM INTERFACE "--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/os/emscripten/shell.html")
 
     # Build the .html (which builds the .js, .wasm, and .data too).
     set_target_properties(openttd PROPERTIES SUFFIX ".html")
@@ -460,12 +487,13 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     add_definitions(-DPOINTER_IS_64BIT)
 endif()
 
-enable_testing()
+if(NOT ANDROID)
+    enable_testing()
+    add_subdirectory(regression)
 
-add_subdirectory(regression)
+    if(APPLE OR WIN32)
+        find_package(Pandoc)
+    endif()
 
-if(APPLE OR WIN32)
-    find_package(Pandoc)
+    include(InstallAndPackage)
 endif()
-
-include(InstallAndPackage)

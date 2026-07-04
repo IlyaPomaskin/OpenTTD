@@ -44,5 +44,8 @@ endfunction()
 # For example: ADD_IF SDL_FOUND AND Allegro_FOUND
 #
 function(add_test_files)
+    if(NOT TARGET openttd_test)
+        return()
+    endif()
     _add_files_tgt(openttd_test ${ARGV})
 endfunction()
