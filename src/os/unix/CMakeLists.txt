@@ -16,6 +16,8 @@ add_files(
     CONDITION Fontconfig_FOUND
 )
 
-if(UNIX AND NOT APPLE)
+if(ANDROID)
+    target_sources(openttd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../android/android_main.cpp)
+elseif(UNIX AND NOT APPLE)
     target_sources(openttd PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unix_main.cpp)
 endif()

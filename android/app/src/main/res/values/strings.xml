@@ -1,0 +1,26 @@
+<resources>
+  <string name="app_name">OpenTTD</string>
+  <string name="wallpaper_description">OpenTTD live wallpaper</string>
+  <string name="set_wallpaper">Set Wallpaper</string>
+  <string name="settings_header">Settings</string>
+  <string name="map_interval_title">Map change interval</string>
+  <string name="map_zoom_title">Map zoom</string>
+  <string name="brightness_title">Brightness</string>
+
+  <string name="title_maps">Maps</string>
+  <string name="debug_game">Debug Game</string>
+  <string name="interval_every_switch">Every home screen switch</string>
+  <string name="interval_10m">10 minutes</string>
+  <string name="interval_30m">30 minutes</string>
+  <string name="interval_2h">2 hours</string>
+  <string name="interval_24h">24 hours</string>
+  <string name="zoom_1x">1x</string>
+  <string name="zoom_2x">2x</string>
+  <string name="zoom_4x">4x</string>
+  <string name="maps_note">Add .sav files to use as wallpaper backgrounds</string>
+  <string name="maps_empty">No title maps found</string>
+  <string name="maps_add">Add map</string>
+  <string name="maps_delete_confirm">Delete %s?</string>
+  <string name="maps_delete">Delete</string>
+  <string name="cancel">Cancel</string>
+</resources>
