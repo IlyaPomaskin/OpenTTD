@@ -35,8 +35,15 @@ class RandomAccessFile {
 	uint8_t *buffer_end;                ///< Last valid byte of buffer.
 	uint8_t buffer_start[BUFFER_SIZE];  ///< Local buffer when read from file.
 
+	const uint8_t *mem_data = nullptr;  ///< In-memory data (null if file-backed).
+	size_t mem_size = 0;                ///< Size of memory buffer.
+	size_t mem_pos = 0;                 ///< Current read position in memory buffer.
+
 public:
 	RandomAccessFile(std::string_view filename, Subdirectory subdir);
+	/** Construct from in-memory buffer. No file I/O. Thread-safe for concurrent reads
+	 *  on separate instances pointing to the same data. */
+	RandomAccessFile(const uint8_t *data, size_t size, std::string_view filename, size_t base_offset = 0);
 	RandomAccessFile(const RandomAccessFile&) = delete;
 	void operator=(const RandomAccessFile&) = delete;
 

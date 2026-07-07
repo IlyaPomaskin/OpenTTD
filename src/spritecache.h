@@ -33,6 +33,7 @@ SpriteFile *GetOriginFile(SpriteID sprite);
 uint32_t GetSpriteLocalID(SpriteID sprite);
 uint GetSpriteCountForFile(const std::string &filename, SpriteID begin, SpriteID end);
 SpriteID GetMaxSpriteID();
+SpriteID GetRegisteredSpriteCount();
 
 
 inline const Sprite *GetSprite(SpriteID sprite, SpriteType type)
@@ -54,6 +55,17 @@ void IncreaseSpriteLRU();
 
 SpriteFile &OpenCachedSpriteFile(const std::string &filename, Subdirectory subdir, bool palette_remap);
 std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles();
+void BufferSpriteFilesToMemory();
+void SaveSpriteFileBuffers();
+
+/** Info needed to decode a sprite on the GL thread. */
+struct SpriteCacheInfo {
+	SpriteFile *file;
+	size_t file_pos;
+	SpriteType type;
+	SpriteCacheCtrlFlags control_flags;
+};
+bool GetSpriteCacheInfo(SpriteID id, SpriteCacheInfo &out);
 
 void ReadGRFSpriteOffsets(SpriteFile &file);
 size_t GetGRFSpriteOffset(uint32_t id);

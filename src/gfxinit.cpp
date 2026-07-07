@@ -21,6 +21,7 @@
 #include "base_media_func.h"
 #include "base_media_graphics.h"
 #include "base_media_sounds.h"
+#include "spritecache.h"
 
 #include "table/sprites.h"
 
@@ -338,8 +339,11 @@ void GfxLoadSprites()
 	SwitchNewGRFBlitter();
 	VideoDriver::GetInstance()->ClearSystemSprites();
 	FontCache::ClearFontCaches(FONTSIZES_ALL);
+	SaveSpriteFileBuffers();
 	GfxInitSpriteMem();
 	LoadSpriteTables();
+	BufferSpriteFilesToMemory();
+	/* Stage1 Task5 adds BuildGLSpriteFiles() here */
 	GfxInitPalettes();
 
 	UpdateCursorSize();

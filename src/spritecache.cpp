@@ -19,6 +19,9 @@
 #include "video/video_driver.hpp"
 #include "spritecache.h"
 #include "spritecache_internal.h"
+#include "gfx_func.h"
+#include <chrono>
+#include <unordered_map>
 
 #include "table/sprites.h"
 #include "table/palette_convert.h"
@@ -75,6 +78,66 @@ static SpriteFile *GetCachedSpriteFileByName(const std::string &filename)
 std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles()
 {
 	return _sprite_files;
+}
+
+/**
+ * Load all cached sprite files into memory buffers.
+ * After this, GL thread can create memory-backed SpriteFile copies.
+ */
+/** Persistent memory buffers surviving GfxInitSpriteMem() clear.
+ *  Keyed by simplified filename → raw file data. */
+static std::unordered_map<std::string, std::vector<uint8_t>> _sprite_file_cache;
+
+void BufferSpriteFilesToMemory()
+{
+	auto t0 = std::chrono::steady_clock::now();
+	size_t total_bytes = 0;
+	int cached = 0, loaded = 0;
+	for (auto &f : _sprite_files) {
+		const std::string &key = f->GetSimplifiedFilename();
+		auto it = _sprite_file_cache.find(key);
+		if (it != _sprite_file_cache.end() && !it->second.empty()) {
+			/* Restore from persistent cache without disk I/O. */
+			f->SetMemoryBuffer(std::move(it->second));
+			_sprite_file_cache.erase(it);
+			cached++;
+		} else {
+			f->LoadIntoMemory();
+			loaded++;
+		}
+		total_bytes += f->GetMemorySize();
+	}
+	auto t1 = std::chrono::steady_clock::now();
+	Debug(sprite, 0, "BufferSpriteFilesToMemory: {} files ({}cached {}loaded), {}KB in {}ms",
+	      _sprite_files.size(), cached, loaded, total_bytes / 1024,
+	      std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count());
+}
+
+/** Save memory buffers before _sprite_files gets cleared. */
+void SaveSpriteFileBuffers()
+{
+	for (auto &f : _sprite_files) {
+		if (f->GetMemoryData() != nullptr) {
+			_sprite_file_cache[f->GetSimplifiedFilename()] = f->TakeMemoryBuffer();
+		}
+	}
+}
+
+/**
+ * Get sprite file info for GL-thread sprite loading.
+ * Data is read-only after GRF loading, safe to read from any thread.
+ */
+bool GetSpriteCacheInfo(SpriteID id, SpriteCacheInfo &out)
+{
+	if (id >= _spritecache.size()) return false;
+	const SpriteCache *sc = &_spritecache[id];
+	if (sc->file == nullptr) return false;
+	if (sc->type == SpriteType::Recolour) return false;
+	out.file = sc->file;
+	out.file_pos = sc->file_pos;
+	out.type = sc->type;
+	out.control_flags = sc->control_flags;
+	return true;
 }
 
 /**
@@ -203,6 +266,15 @@ uint GetSpriteCountForFile(const std::string &filename, SpriteID begin, SpriteID
 SpriteID GetMaxSpriteID()
 {
 	return static_cast<SpriteID>(_spritecache.size());
+}
+
+SpriteID GetRegisteredSpriteCount()
+{
+	SpriteID count = 0;
+	for (const SpriteCache &sc : _spritecache) {
+		if (sc.file != nullptr) count++;
+	}
+	return count;
 }
 
 static bool ResizeSpriteIn(SpriteLoader::SpriteCollection &sprite, ZoomLevel src, ZoomLevel tgt)
