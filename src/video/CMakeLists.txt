@@ -28,6 +28,8 @@ if(NOT OPTION_DEDICATED)
     )
 
     add_files(
+        gles_backend.cpp
+        gles_backend.h
         gles_sprite.cpp
         gles_sprite.h
         CONDITION SDL2_FOUND AND OPENGLES_FOUND
