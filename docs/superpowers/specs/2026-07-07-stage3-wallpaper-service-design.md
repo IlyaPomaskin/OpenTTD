@@ -1,6 +1,6 @@
 # Stage 3 — Live Wallpaper Service (Design Spec)
 
-**Plan-confidence status:** Draft (iteration 2, confidence 82%) — cap: Readiness. Binding blocker: Stage 1 Task 8/9 (`sdl2_gles_v.cpp`) and Stage 2 POI scanner are unmet *external* preconditions no spec edit can close (see Reconciliation Log). The design itself is internally consistent and its Java/manifest/SDL premises are independently verified.
+**Plan-confidence status:** Draft (iteration 3, confidence 88%) — cap: Risk. The former binding blocker (Stage 1 Task 8/9 `sdl2_gles_v.cpp` + the 1:1 JNI natives) is now **RESOLVED**: Stage 1 is complete and device-verified (Pixel 10 Pro, `lwp2` @ `634dd21703`). The `sdl-gles` driver, JNI natives (13/13 1:1), `RecoverContextIfLost()`, the game-pause CV, and the mutex-guarded `ProcessOverlayActions()` all exist in-tree (citations in Context). The residual cap is the **overlapping-engine surface-handover race** — medium, device-only, and *not* exercised by Stage 1's single-engine `:game` gate — plus an offline-unverifiable AGP asset-task name. Stage 2 POI is a STUB (not a hard dependency); the service runs on it.
 
 **Goal:** Make OpenTTD render as an actual Android live wallpaper on the home screen — set via `WallpaperSettingsActivity`, hosted by `OpenTTDWallpaperService` in the `:wallpaper` process, driven through the SDL service-mode glue. Stage 1 proved only the GameActivity debug path (`:game`); this stage proves the real service path and its lifecycle (preview↔live, rotation, screen-off/on, brightness).
 
@@ -8,9 +8,10 @@
 
 ## Context / dependencies
 
-- **Hard dependency:** Stages 1 and 2 complete and green.
-  - Stage 1 must have landed `src/video/sdl2_gles_v.cpp` with **all** JNI natives (both `GameActivity` and `OpenTTDWallpaperService`), `RecoverContextIfLost()` (manual `eglCreateWindowSurface` over `SDLActivity.getNativeSurface()`), `_gles_surface_changed` handling, `SetGameThreadPaused()` + game-pause CV, `ProcessOverlayActions()`, `SetBrightness()` blit-shader uniform, and the `GM_WALLPAPER`/`SM_WALLPAPER` boot in `wallpaper.cpp`. On branch `lwp2` at plan-confidence time Stage 1 is through Task 5 (snapshot recording blitter, commit `4ed6728a26`); `sdl2_gles_v.cpp` still does not exist and `OpenTTDWallpaperService.java` still declares 9 natives (incl. `nativeCycleZoom`) with 0 matching JNI exports. **Stage 3 is HARD-GATED: it cannot begin until Stage 1 Task 8/9 land the driver + its 8 service exports and remove `nativeCycleZoom` (see Q2.1).**
-  - Stage 2 must have landed the real POI scanner (`gles_poi.cpp`) so that `nativePrepareBackground()` (jump-to-next-POI on hide) and resume-at-fresh-POI are observable.
+- **Entry gate — MET.** Stage 3's only *functional* hard dependency is **Stage 1 (complete, device-verified on Pixel 10 Pro, `lwp2` @ `634dd21703`)**. It does **not** depend on Stage 2: the POI scanner is still a Stage-1 STUB (`src/video/gles_poi.cpp:8`, "camera centers on map") and the service runs fine on it — so the entry gate is satisfied *now*.
+  - **Verified present in-tree (Stage 1 landed):** `src/video/sdl2_gles_v.{cpp,h}` exist. Driver class `VideoDriver_SDL_GLES` (`sdl2_gles_v.h:17`, name `"sdl-gles"`). JNI natives 1:1 (13/13): 8 service exports (`sdl2_gles_v.cpp:103,109,115,121,164,171,181,189`) + 5 GameActivity exports (`:127,133,139,146,156`) matching 8 + 5 Java declarations; `nativeCycleZoom` **removed** from `OpenTTDWallpaperService.java` (Task 8 Step 2b done). `RecoverContextIfLost()` — manual `eglCreateWindowSurface` over the new `ANativeWindow` — defined `sdl2_gles_v.cpp:669`, called `:497`; full-loss path calls `RecoverGPUState()` + `SwitchMode::Wallpaper` reload `:826,828`. `_gles_surface_changed` atomic `:63`, handled in the surface-swap block `:678`. Game-pause CV: `SetGameThreadPaused()` (`video_driver.hpp:207`) drives `game_thread_paused` (`:413`) + `game_pause_cv` (`:415`); game thread waits `video_driver.cpp:49–58`; JNI entry `sdl2_gles_v.cpp:171–177` (service) / `:146–152` (game). `ProcessOverlayActions()` defined `:454`, called `:496`, **guarded by `game_state_mutex`** `:467` (Stage-1 device-gate fix for the GL-thread overlay race — blocker C). `SetBrightness()` via `GLESBackend::Get()->SetBrightness()` `:184` (service) / `:159` (game). Wallpaper boot uses scoped enums: `LoadWallpaperGame()` sets `_game_mode = GameMode::Wallpaper` (`wallpaper.cpp:134`), `_switch_mode = SwitchMode::Wallpaper` (`:94`, `openttd.cpp:548`).
+  - **POI = stub (NOT a gate):** `nativePrepareBackground()` sets `_gles_jump_waypoint` (`sdl2_gles_v.cpp:105`) → stub `PrepareBackground()` recenters on map centre. Jump-on-hide + resume are *observable as mechanism* now, but "resume at a **distinct** fresh POI" only becomes true when Stage 2 lands the real scanner. Stage 3 verifies the mechanism and defers distinct-POI acceptance to Stage 2 (see Q3.3).
+  - **Stage-1 device-gate deltas folded in (durable logs: `.superpowers/sdd/progress.md`, this plan's sibling `docs/superpowers/plans/2026-07-05-stage1-gles-renderer.md`, `docs/wallpaper/engine-changes.md`):** audio disabled in wallpaper mode (`InitializeSound`/`InitializeMusic` gated under `#ifndef WALLPAPER_BUILD` — blocker A); recording coords shipped as reference **pointer-math** (explicit-coords reverted — blocker B); atlas pre-allocates 4 layers (~80 MB @2048, ran fine on device) and clears via delete+realloc.
 - **Reference (READ-ONLY):** `git show gles:<path>` / `git diff e24f92ce82..gles -- <files>`. Never modify `gles`.
 - **Spec authorities:** `docs/wallpaper/android-app.md` ("Wallpaper service flow", "Manifest / processes", "Notes for reimpl"), `docs/wallpaper/sdl-android-changes.md` (whole file), `docs/wallpaper/rendering.md` ("Context loss / surface recovery"), `docs/wallpaper/wallpaper-mode.md` ("Android control surface", "Lifecycle summary").
 - **Reimpl principles (binding, `overview.md` + `engine-changes.md`):** no dead scaffolding; hooks over rewrites; one-hunk `#ifdef WALLPAPER_BUILD` guards; additive interface edits, gate-don't-delete; instrumentation gated behind `WALLPAPER_PERF`; wallpaper-only + Android-only, emulator not a target (no gfxstream workarounds).
@@ -34,22 +35,22 @@ These are ported and correct as-is; Stage 3 verifies them and only edits on a pr
 
 ### 1. On-device wire-up + lifecycle verification (the bulk of the stage)
 
-Drive the full lifecycle on the physical device via `WallpaperSettingsActivity` and the broadcast control surface, confirming each transition against the ported Java + reimpl C++. This is the primary deliverable; expect zero or few code edits if Stages 1–2 are truly green.
+Drive the full lifecycle on the physical device via `WallpaperSettingsActivity` and the broadcast control surface, confirming each transition against the ported Java + reimpl C++. This is the primary deliverable; expect zero or few code edits now that Stage 1 is green (Stage 2 POI stub accepted) — bar the overlapping-engine handover (Q3.1).
 
 - **Set-live flow:** launcher → tap "Set wallpaper" → system live-wallpaper preview → confirm → home screen. Verify the `:wallpaper` process starts, libs load once, `SDL_main` runs once (`sSDLInitialized`), map renders and animates on the actual home screen (behind icons).
 - **Preview↔live overlap:** the system creates overlapping engines during preview→home. Verify the stale-engine guard (`sOverrideSurface == mEngineSurface`) prevents the outgoing engine from pausing/destroying the incoming engine's surface, and that exactly one engine ends up driving.
-- **Rotation → `SM_WALLPAPER` full reload:** portrait↔landscape triggers `onSurfaceChanged` (new dimensions) → `nativeSetScreenResolution` + `onNativeResize` + `onNativeSurfaceChanged` + `nativeSurfaceChanged()`; the engine-side dimension-change path forces `_switch_mode = SM_WALLPAPER` (map reload, fixes stale-snapshot-at-old-size). Verify no stretched/torn frame persists.
+- **Rotation → `SwitchMode::Wallpaper` full reload:** portrait↔landscape triggers `onSurfaceChanged` (new dimensions) → `nativeSetScreenResolution` + `onNativeResize` + `onNativeSurfaceChanged` + `nativeSurfaceChanged()`; the engine-side dimension-change path forces `_switch_mode = SwitchMode::Wallpaper` (`main_gui.cpp:644`; map reload, fixes stale-snapshot-at-old-size). Verify no stretched/torn frame persists.
 - **Visibility pause/resume (≈0 CPU when hidden):** screen-off / launcher-open → hide → `nativePrepareBackground()` renders the next POI while still visible, then +150 ms → `nativeSetGamePaused(true)` parks the game thread on the pause CV (GL thread idle-skips swaps) → CPU ≈ 0. Screen-on → show → re-inject surface if lost → unpause (5 warm-up ticks then resume) → brightness re-pushed → renders at the fresh POI.
-- **Surface recovery:** on every surface (re)injection the GL thread must rebind EGL — `_gles_surface_changed` → `RecoverContextIfLost()` manually `eglCreateWindowSurface` over the new `ANativeWindow` from `getNativeSurface()`, destroy old, make-current, resize FBO (SDL never rebinds the wallpaper surface itself). Full context loss → `RecoverGPUState()` + `SM_WALLPAPER` reload. Verify no black screen / context-loss loop across transitions.
+- **Surface recovery:** on every surface (re)injection the GL thread must rebind EGL — `_gles_surface_changed` → `RecoverContextIfLost()` manually `eglCreateWindowSurface` over the new `ANativeWindow` from `getNativeSurface()`, destroy old, make-current, resize FBO (SDL never rebinds the wallpaper surface itself). Full context loss → `RecoverGPUState()` + `SwitchMode::Wallpaper` reload. Verify no black screen / context-loss loop across transitions.
 - **Brightness:** move the `WallpaperSettingsActivity` slider (0–100) → `SETTINGS_CHANGED` broadcast → `nativeSetBrightness(v/100)` → blit-shader `u_brightness` dims the live wallpaper. Confirm the 500 ms retry lands brightness on a freshly-created surface (before the first render completes).
 
 ### 2. Service-only JNI natives 1:1 with Java declarations (verification + assert)
 
-Stage 1 Task 8 is *expected* to export these and remove `nativeCycleZoom` — **not yet done on `lwp2`** (still 9 natives, 0 exports). Stage 3 asserts the invariant holds *as a boot entry-gate*, not an in-stage task, and fixes any drift; see Q2.1.
+Stage 1 Task 8 **already** exported these and removed `nativeCycleZoom` (verified on `lwp2` @ `634dd21703`). Stage 3 asserts the 1:1 invariant still holds *as a boot entry-gate* and fixes any drift only if a later edit breaks it.
 
-- `OpenTTDWallpaperService.java` currently declares **9** `private static native` methods (`grep -c` = 9): `nativePrepareBackground, nativeCycleZoom, nativeSwitchMap, nativeNavigatePOI, nativeRotateMap, nativeScrollCamera, nativeSetGamePaused, nativeSurfaceChanged, nativeSetBrightness`.
-- `nativeCycleZoom` has **no** JNI export in the `gles` reference and **no** caller — Stage 1 removes the Java declaration. After that, the service must have **8** natives, each with a matching `Java_org_openttd_android_OpenTTDWallpaperService_*` export. Reference export set (verified in `gles:src/video/sdl2_gles_v.cpp`): `nativePrepareBackground, nativeSwitchMap, nativeNavigatePOI, nativeRotateMap, nativeScrollCamera, nativeSetGamePaused, nativeSetBrightness, nativeSurfaceChanged`.
-- **Acceptance:** `grep "private static native" .../OpenTTDWallpaperService.java` count == number of `Java_..._OpenTTDWallpaperService_native*` exports in `sdl2_gles_v.cpp`; no orphan in either direction. Same 1:1 check for `GameActivity` (5 natives: `nativeRotateMap, nativeNavigatePOI, nativeScrollCamera, nativeSetGamePaused, nativeSetBrightness`). Any `UnsatisfiedLinkError` in the `:wallpaper` process at boot is a 1:1 violation → fix in `sdl2_gles_v.cpp`, not by stubbing Java.
+- `OpenTTDWallpaperService.java` declares **8** `private static native` methods (lines 29–43): `nativePrepareBackground, nativeSwitchMap, nativeNavigatePOI, nativeRotateMap, nativeScrollCamera, nativeSetGamePaused, nativeSurfaceChanged, nativeSetBrightness` — `nativeCycleZoom` no longer present.
+- Each of the 8 has a matching `Java_org_openttd_android_OpenTTDWallpaperService_*` export in `src/video/sdl2_gles_v.cpp` (`:103, :109, :115, :121, :164, :171, :181, :189`). **8↔8, no orphan in either direction.**
+- **Acceptance (currently PASSING on `lwp2` @ `634dd21703`, 13/13):** `grep "private static native" .../OpenTTDWallpaperService.java` count == number of `Java_..._OpenTTDWallpaperService_native*` exports in `sdl2_gles_v.cpp` (8 == 8); same 1:1 for `GameActivity` (5 natives `nativeRotateMap, nativeNavigatePOI, nativeScrollCamera, nativeSetGamePaused, nativeSetBrightness` == 5 exports `:127–156`); no orphan either direction. Any `UnsatisfiedLinkError` in the `:wallpaper` process at boot is a 1:1 violation → fix in `sdl2_gles_v.cpp`, not by stubbing Java.
 
 ### 3. Asset-packaging build fix (fold in from Stage 1 Q1.1 — single clean build is asset-complete)
 
@@ -65,7 +66,7 @@ The current wart: `copy_assets` (wrapper `CMakeLists.txt:166`) copies `baseset/`
 
 ## Known risk
 
-- **Overlapping-engine surface races (medium).** Preview→home creates two live `OpenTTDEngine` instances briefly sharing the single-process SDL/GL state. The stale-engine guard is the only thing preventing the outgoing engine from tearing down the incoming surface. If transitions flicker/black-out, the fix budget is in the Java engine (guard timing / re-injection in `onVisibilityChanged`) and/or the C++ `RecoverContextIfLost()` surface-swap ordering — **not** a redesign. Mitigation ladder: (1) verify as-ported; (2) add logging around `sOverrideSurface` ownership transitions; (3) tighten the guard or the C++ EGL rebind sequence.
+- **Overlapping-engine surface-handover race (medium — the binding residual).** Preview→home creates two live `OpenTTDEngine` instances briefly sharing the single-process SDL/GL state. Stage 1 device-verified surface recovery for a **single** engine reinjecting its surface in the `:game` process; it did **not** exercise two overlapping engines handing off in `:wallpaper`. The stale-engine guard (`sOverrideSurface == mEngineSurface`) is the only thing preventing the outgoing engine from tearing down the incoming surface, and it is unverified on-device. *Note:* the Stage-1 `game_state_mutex` guard on `ProcessOverlayActions()` (`sdl2_gles_v.cpp:467`) fixed the *broadcast-action* GL-thread/viewport race (blocker C) but does **not** cover the EGL surface handover between two engines. If transitions flicker/black-out, the fix budget is the Java engine (guard timing / re-injection in `onVisibilityChanged`) and/or the C++ `RecoverContextIfLost()` surface-swap ordering — **not** a redesign. Mitigation ladder: (1) verify as-ported; (2) add logging around `sOverrideSurface` ownership transitions; (3) tighten the guard or the C++ EGL rebind sequence. See Q3.1.
 - **Pause/resume warm-up correctness (low–medium).** Resume runs 5 warm-up ticks before unblocking (warms the atlas at the new POI). If resume shows a black/stale frame or a CPU spike, inspect the ordering of surface re-injection vs `nativeSetGamePaused(false)` vs `RESUMED` in `onVisibilityChanged`.
 - **Brightness timing (low).** The 500 ms retry is a race hack against GLESBackend readiness. If brightness intermittently fails to apply on a fresh surface, the retry cadence (or gating on a "backend ready" flag) is the lever.
 - **Two-process state bleed (low).** Confirm nothing shares native statics across `:wallpaper` and `:game`; brightness/args go through intent extras only. A single shared static would corrupt one process's SDL state.
@@ -78,7 +79,7 @@ The current wart: `copy_assets` (wrapper `CMakeLists.txt:166`) copies `baseset/`
 | `android/app/src/main/CMakeLists.txt` | EDIT (maybe) | only if the asset fix is done CMake-side instead of gradle-side (alt to build.gradle edit). |
 | `android/app/src/main/java/org/openttd/android/OpenTTDWallpaperService.java` | VERIFY / bugfix-only | lifecycle already ported; edit only on a proven transition bug. |
 | `android/app/src/main/java/org/libsdl/app/SDLActivity.java`, `SDLSurface.java` | VERIFY / bugfix-only | service-mode hooks already present; edit only on a proven bug (or the fork→patch extraction — Open decision (a)). |
-| `src/video/sdl2_gles_v.cpp` | VERIFY / bugfix-only | service JNI natives + surface recovery + pause CV (**expected from Stage 1 Task 8 — not yet in tree**); assert 1:1 as entry gate, fix interaction bugs only. |
+| `src/video/sdl2_gles_v.{cpp,h}` | VERIFY / bugfix-only | service JNI natives + surface recovery + pause CV + mutex-guarded `ProcessOverlayActions()` **present and device-verified (Stage 1)**; assert 1:1 as entry gate, fix interaction bugs only (surface-handover ordering per Q3.1). |
 | `docs/wallpaper/android-app.md`, this spec/plan | EDIT (Task-9-style) | log deviations + Stage 3 result at the end. |
 
 **No greenfield Java or C++ authoring is planned.** New code appears only if a verification step exposes a bug that cannot be fixed by ordering/guarding existing code.
@@ -90,10 +91,10 @@ Use `/usr/bin/python3 tools/run_android.py all` for the build/install/activate/l
 1. **Single clean build is asset-complete:** from a clean tree, one `assembleDebug`; APK contains `assets/baseset/*`+`assets/lang/*`; no second build required; install + first launch shows no `Error extracting baseset assets`.
 2. **Set as live wallpaper:** `WallpaperSettingsActivity` → "Set wallpaper" → confirm → home screen renders an isometric map and **animates** (water/vehicles) behind the launcher; logcat shows `:wallpaper` process, libs loaded once, no `UnsatisfiedLinkError`, no `FATAL`.
 3. **Preview↔live transition:** enter the system wallpaper picker preview, then apply; verify a single engine ends up rendering, no persistent black frame, logcat shows the stale-engine "skipping pause" path and a clean surface handover.
-4. **Screen rotation:** rotate device; wallpaper reloads (`SM_WALLPAPER`), re-fits new dimensions, no stretched/torn frame persists.
-5. **Screen-off/on:** turn screen off → within ~150 ms the game thread parks (logcat `game_thread_sleep: entering pause wait`), CPU ≈ 0 (confirm via `top`/simpleperf idle); turn on → resumes (`resumed`), renders at a **fresh POI** (moved vs pre-hide frame).
+4. **Screen rotation:** rotate device; wallpaper reloads (`SwitchMode::Wallpaper`), re-fits new dimensions, no stretched/torn frame persists.
+5. **Screen-off/on:** turn screen off → within ~150 ms the game thread parks (logcat `game_thread_sleep: entering pause wait`), CPU ≈ 0 (confirm via `top`/simpleperf idle); turn on → resumes (`resumed`), renders again. NOTE: with the Stage-1 POI **stub**, `nativePrepareBackground()` recenters on the map centre rather than jumping to a *distinct* POI — verify the pause/resume + jump-on-hide **mechanism** here; distinct-fresh-POI acceptance is deferred to Stage 2 (Q3.3).
 6. **Brightness:** move the slider to ~30% → live wallpaper visibly dims; to 100% → full; confirm it applies on a just-created surface (kill+relaunch service, set brightness immediately, verify the 500 ms retry lands).
-7. **Control surface:** `JUMP_POI` moves camera, `SWITCH_MAP` reloads a new map + fresh POI scan, `NEXT_POI`/`PREV_POI`/`NEXT_MAP`/`PREV_MAP`/`SCROLL_CAMERA` all act — no crash.
+7. **Control surface:** `JUMP_POI`/`NEXT_POI`/`PREV_POI` recenter (stub POI), `SWITCH_MAP`/`NEXT_MAP`/`PREV_MAP` reload a new map (`RotateTitleMap`), `SCROLL_CAMERA` pans — all act, no crash. Watch `nativeSwitchMap`: it calls `RotateTitleMap(1)` **synchronously on the JNI binder thread** (`sdl2_gles_v.cpp:111`) — a Stage-1-tracked latent race; if `SWITCH_MAP` misbehaves, route it via a `_gles_switch_map` atomic drained in `ProcessOverlayActions()`.
 8. **Endurance:** leave the wallpaper live through several sleep/wake + rotation + preview cycles; no accumulating context-loss loop, leak, or crash in logcat.
 
 ## Out of scope (later stages)
@@ -113,13 +114,13 @@ Use `/usr/bin/python3 tools/run_android.py all` for the build/install/activate/l
 **(b) Scope boundary — pure verification vs. how much bugfix budget for reimpl-C++ ↔ ported-Java interaction.**
 - *Pure verification* — assume Stages 1–2 green; only assert 1:1 natives + run the gate. Risk: real transition bugs (overlapping engines, surface rebind, warm-up ordering) surface exactly at this integration point and would block the gate with no budget.
 - *Verification + bounded bugfix* — allow edits confined to (i) the Java engine lifecycle ordering/guards and (ii) the C++ surface-recovery / pause sequencing in `sdl2_gles_v.cpp`, following the Known-risk mitigation ladders.
-- **Recommendation (ratified by plan-confidence i2):** verification + bounded bugfix, capped at those two surfaces; anything requiring renderer/POI redesign bounces back to Stage 1/2. Bug-first, minimal-diff, gate-driven.
+- **Recommendation (ratified by plan-confidence i2; reaffirmed i3):** verification + bounded bugfix, capped at those two surfaces; anything requiring renderer/POI redesign bounces back to Stage 1/2. Bug-first, minimal-diff, gate-driven. Stage-1 reality narrows the budget: the C++ surfaces (`RecoverContextIfLost`, pause CV, `ProcessOverlayActions`) are now present and device-proven for the **single-engine** `:game` path, so the only realistic C++ bugfix target left is the **two-engine surface-handover ordering** in `:wallpaper` (Q3.1).
 
 **(c) Asset-packaging fix mechanism.**
 - *Gradle variant hook* — `applicationVariants.all { mergeAssetsProvider.configure { dependsOn(<externalNativeBuild task>) } }` (or `tasks.named("merge${Variant}Assets")`). Directly expresses "assets after native build". Cost: AGP task-name/provider API is version-sensitive and must no-op under `skipNativeBuild`.
 - *CMake-side* — have `copy_assets` write somewhere gradle already treats as a generated-asset input, or wire the copy as a build step gradle consumes. Cost: fights AGP's asset-merge model; brittle.
 - *Unconditional build-twice* — drop the fix, always build twice. Cost: violates the stage goal (single clean build must be asset-complete); rejected.
-- **Recommendation (ratified by plan-confidence i2):** the gradle variant hook (`mergeAssetsProvider.dependsOn`), wrapped so it is skipped when `project.hasProperty('skipNativeBuild')`. Keep it a few lines in `build.gradle`; verify against the exact AGP version in use.
+- **Recommendation (ratified by plan-confidence i2; reaffirmed i3):** the gradle variant hook (`mergeAssetsProvider.dependsOn`), wrapped so it is skipped when `project.hasProperty('skipNativeBuild')`. Keep it a few lines in `build.gradle`; verify against the exact AGP version in use (task name offline-unverifiable — Q3.2). The Stage-1 device gate ran with a **scripted build-twice/asset-precondition workaround** (Stage-1 plan Q2.3), confirming the assetless-first-build wart is real and reproducible — this fix retires that workaround.
 
 **(d) Does GameActivity (debug) need parallel changes, or is it frozen for this stage.**
 - *Frozen* — leave `:game` and its 5 natives untouched; it remains the Stage 1/2 debug viewer.
@@ -128,27 +129,39 @@ Use `/usr/bin/python3 tools/run_android.py all` for the build/install/activate/l
 
 ## Confidence Survey
 
-Edit checkboxes in-place to answer. Mark exactly one option per question with `[x]`. The option labeled `*(Recommended)*` is the skill's best guess given current plan + repo context — override freely. (Iteration 1 was self-assessed and folded into the body — see Reconciliation Log; these are the residual items no document edit can close.)
+Edit checkboxes in-place to answer. Mark exactly one option per question with `[x]`. The option labeled `*(Recommended)*` is the skill's best guess given current plan + repo context — override freely. (Iterations 1–2 folded into the body — see Reconciliation Log. Iteration 2's Q2.1 entry-gate question is now moot: Stage 1 landed and is device-verified, so the gate is MET; the survey below holds only the residual items no document edit can close.)
 
-### Iteration 2 — 2026-07-07
+### Iteration 3 — 2026-07-08
 
-#### Q2.1. `sdl2_gles_v.cpp` is absent from the tree and `OpenTTDWallpaperService.java` still declares 9 natives (incl. `nativeCycleZoom`) with 0 matching JNI exports — the Stage-1 Task 8/9 tail that Stage 3 hard-depends on has not landed, and Stage 2's real POI scanner (`gles_poi.cpp`) is spec-only. How should Stage 3's entry precondition be framed?
-- [ ] Hard entry gate: Stage 3 does not start until Stage 1 Task 8/9 land `sdl2_gles_v.cpp` with the 8 service exports and remove `nativeCycleZoom`, and Stage 2's POI scanner lands; the 1:1 native check is a boot precondition, not an in-stage task  *(Recommended)*
-- [ ] Begin the asset-packaging fix + lifecycle-verification planning in parallel while Stage 1's driver task finishes
-- [ ] Absorb the missing Stage-1 tail (author the 8 exports + remove `nativeCycleZoom`) into Stage 3 itself
-- [ ] Rebaseline the spec's forward-looking "landed Stage 1" claims and defer the whole stage indefinitely
+#### Q3.1. Stage 1 device-verified surface recovery only for a **single** engine in `:game`; the preview→home **two-engine surface handover** in `:wallpaper` (guarded solely by `sOverrideSurface == mEngineSurface`) is still unverified on-device, and it is the binding residual risk. How much to invest before the first on-device service run?
+- [ ] Ship as-ported but add `sOverrideSurface`-ownership transition logging (mitigation-ladder step 2) up front so the first handover is diagnosable; escalate to guard/EGL-rebind ordering only on observed flicker/black-out  *(Recommended)*
+- [ ] Pure as-ported, no pre-emptive logging — add only if a bug appears
+- [ ] Pre-emptively tighten the stale-engine guard / C++ EGL-rebind ordering before the first run
+- [ ] Redesign the surface-handover path (rejected — out of scope)
 
-#### Q2.2. The recommended asset-fix (`mergeAssetsProvider.dependsOn(<externalNativeBuild task>)`) uses an AGP-version-sensitive task/provider name that cannot be confirmed offline. How to de-risk the mechanism?
+#### Q3.2. The recommended asset-fix (`mergeAssetsProvider.dependsOn(<externalNativeBuild task>)`) uses an AGP-version-sensitive task/provider name that cannot be confirmed offline. How to de-risk the mechanism?
 - [ ] Resolve the exact task name against the in-use AGP version (`./gradlew :app:tasks`) first, guard it under `skipNativeBuild`, and prove it with the clean-tree repro (`rm -rf .cxx build src/main/assets`) before relying on it  *(Recommended)*
 - [ ] Hardcode `tasks.named("mergeDebugAssets")` and fix only if it throws
 - [ ] Do the ordering fix CMake-side (have `copy_assets` write where gradle already consumes) to avoid the AGP API entirely
 - [ ] Keep building twice; drop the single-clean-build goal
 
-#### Q2.3. The overlapping-engine surface race (medium) is observable only on the physical device during preview→home; the stale-engine guard (`sOverrideSurface == mEngineSurface`) is unverified there. How much to invest before the first on-device run?
-- [ ] Ship as-ported but add the `sOverrideSurface`-ownership transition logging (mitigation-ladder step 2) up front so the first run is diagnosable; escalate to guard/EGL-ordering only on observed flicker  *(Recommended)*
-- [ ] Pure as-ported, no pre-emptive logging — add only if a bug appears
-- [ ] Pre-emptively tighten the guard / C++ EGL-rebind ordering before the first run
-- [ ] Redesign the surface-handover path (rejected — out of scope)
+#### Q3.3. POI is a Stage-1 STUB (`gles_poi.cpp` recenters on map centre); the real scanner lands in Stage 2. Verification steps 5 & 7 reference POI behavior Stage 3 can only exercise as *stub recenter*. How should the POI-dependent acceptance be framed?
+- [ ] Verify the **mechanism** only (jump-on-hide fires, resume renders, `JUMP_POI`/`NEXT_POI` recenter without crash) and explicitly defer distinct-fresh-POI acceptance to Stage 2 — do NOT gate the Stage 3 pass on POI quality  *(Recommended)*
+- [ ] Gate Stage 3 on distinct-POI behavior anyway (would force pulling the Stage 2 scanner forward)
+- [ ] Drop the POI-touching verification steps from Stage 3 entirely until Stage 2 lands
+- [ ] Land a minimal real POI scanner inside Stage 3 to make the steps meaningful
+
+#### Q3.4. Stage 1 disabled audio in wallpaper mode (`InitializeSound`/`InitializeMusic` gated `#ifndef WALLPAPER_BUILD`). The `:wallpaper` process boots the same init path Stage 1 exercised in `:game`. What is Stage 3's obligation here?
+- [ ] Informational only — Stage 3 confirms no audio-init crash at *service* boot (blocker A did not recur) but does not re-open audio; audio stays a Stage-1 decision  *(Recommended)*
+- [ ] Re-verify the full audio-disable path from scratch in the service process as a first-class gate item
+- [ ] Re-enable audio for the wallpaper and add a mute toggle (out of scope — Stage 4/5)
+- [ ] Ignore audio entirely; it is fully closed by Stage 1
+
+#### Q3.5. The atlas pre-allocates 4 layers (~80 MB @2048) and ran fine on Pixel 10 Pro in `:game`. `:wallpaper` is a second SDL/GL context; during debug both processes can be alive. Does two-process VRAM need a Stage-3 check?
+- [ ] Note it as a Stage-3 endurance watch item (normally only one process renders; both coexist only during debug) and defer memory-pressure hardening to Stage 5  *(Recommended)*
+- [ ] Add a dedicated two-process VRAM stress test to the Stage 3 gate
+- [ ] Reduce the pre-alloc to 2 layers for the wallpaper process now
+- [ ] Not a concern — single active process at runtime, close it
 
 ## Reconciliation Log
 
@@ -175,3 +188,19 @@ Append-only. Newest entry at the bottom.
 - **Honesty note on the cap:** unlike a normal tech-spec, this stage's readiness is bounded by *external build state*, not document quality. `sdl2_gles_v.cpp` is absent and the service still has 9 natives / 0 JNI exports; Stage 2's POI scanner is spec-only. Folding survey answers cannot lift this — it lifts only when Stage 1 Task 8/9 and Stage 2 land. Confidence is held at 82% and does NOT reach ≥90%. This plateau is the honest ceiling for the current tree.
 - **Still uncertain:** Readiness (Q2.1 external dependency is the binding blocker; Q2.2 AGP API needs offline-unverifiable confirmation; Q2.3 race is on-device-only).
 - **New questions:** Q2.1 … Q2.3
+
+### Iteration 3 — 2026-07-08
+- **Trigger:** external state change, not a survey fold — **Stage 1 is now complete and device-verified** (Pixel 10 Pro, `lwp2` @ `634dd21703`). Re-checked every Stage-1-dependent premise against the current tree and folded reality into the body.
+- **Confidence:** 88% (cap from **Risk** — the overlapping-engine surface-handover race in `:wallpaper` is medium-severity and device-only, and Stage 1 exercised only the single-engine `:game` path; secondary: Readiness, the AGP asset-task name is offline-unverifiable). Up from 82%: the former binding **Readiness** blocker (missing driver + broken 1:1 natives) is cleared.
+- **Verified against current tree (`lwp2` @ `634dd21703`):** `src/video/sdl2_gles_v.{cpp,h}` EXIST ✓; driver `VideoDriver_SDL_GLES` name `"sdl-gles"` (`.h:17`) ✓; JNI **13/13 1:1** — 8 service exports (`sdl2_gles_v.cpp:103,109,115,121,164,171,181,189`) ↔ 8 Java natives (`OpenTTDWallpaperService.java:29–43`), 5 GameActivity exports (`:127–156`) ↔ 5 Java natives ✓; `nativeCycleZoom` **removed** from service Java (0 refs) ✓; `RecoverContextIfLost()` def `:669` / call `:497`, full-loss `RecoverGPUState()`+reload `:826,828` ✓; `_gles_surface_changed` `:63`/`:678` ✓; pause CV `video_driver.hpp:207/413/415` + game-thread wait `video_driver.cpp:49–58` ✓; `ProcessOverlayActions()` `:454`, mutex-guarded `:467` (blocker-C fix) ✓; `SetBrightness` `:159/:184` ✓; scoped enums `GameMode::Wallpaper`/`SwitchMode::Wallpaper/None` throughout, **no** `GM_`/`SM_` macros in tree ✓; POI = STUB (`gles_poi.cpp:8`) ✓.
+- **Resolved / folded from Stage-1 reality:**
+  - Entry gate re-framed from "Stages 1 **and** 2 hard-gated / driver absent" → "**MET**: depends on Stage 1 (done); Stage 2 POI is a stub, not a gate" → Context/dependencies rewritten.
+  - Q2.1 (i2) **dissolved** — its premise (driver absent, 9 natives/0 exports) is now false; the 1:1 check moves from "boot precondition that cannot yet hold" to "currently PASSING (13/13)" → Scope §2 rewritten, acceptance marked passing.
+  - Scoped-enum drift (`SM_WALLPAPER` → `SwitchMode::Wallpaper`) corrected in Scope §1 (rotation reload, surface recovery).
+  - Files table: `sdl2_gles_v.{cpp,h}` re-marked present + device-verified.
+  - Known-risk "overlapping-engine" sharpened: Stage 1 proved single-engine recovery only; `ProcessOverlayActions` mutex fix covers broadcast-action race, NOT surface handover.
+  - Stage-1 device-gate deltas folded (audio disabled; pointer-math coords; 4-layer/~80 MB atlas; delete+realloc clear).
+  - Open decisions (b) + (c) reaffirmed with Stage-1-narrowed framing (C++ bugfix budget now ≈ two-engine handover only; asset workaround confirmed real by the Stage-1 gate).
+  - Verification steps 5 & 7 caveated for the POI stub + the `nativeSwitchMap` binder-thread latent race.
+- **Still uncertain (why not ≥90%):** Risk — the two-engine surface handover is unexercised and only observable on the device (Q3.1); Readiness — the AGP merge-assets task name can't be confirmed offline (Q3.2). Both are on-device / external and no document edit closes them; this is the honest ceiling until the Stage 3 device run.
+- **New questions:** Q3.1 … Q3.5 (Q3.2 carries i2's Q2.2; Q3.1 carries+sharpens i2's Q2.3; Q3.3–Q3.5 are new residuals surfaced by Stage-1 reality: POI-stub acceptance, audio-disable obligation, two-process VRAM).

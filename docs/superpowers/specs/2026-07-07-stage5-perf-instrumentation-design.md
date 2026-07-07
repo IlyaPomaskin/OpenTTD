@@ -1,6 +1,6 @@
 # Stage 5 — Perf Instrumentation, Tooling & Hardening (Design Spec)
 
-**Plan-confidence status:** Draft (iteration 2, confidence 80%). Cap: Readiness — Stage 5 hard-depends on Stages 1–4 green, and Stage 1 is verified **incomplete** on `lwp2` (no `sdl2_gles_v.*` driver, no `GM_WALLPAPER`, no PERF-log block, no `GLES_PERF_SCOPE`). The §2 instrumentation sites attach to code that does not yet exist in-tree; their exact placement/line-context can only be finalized against the post-Stage-1 guarded files. See Confidence Survey Q2.2.
+**Plan-confidence status:** Draft (iteration 3, confidence 88%). **Stage 1 is now COMPLETE and device-verified** (Pixel 10 Pro, `lwp2` tip `634dd21703`). `src/video/sdl2_gles_v.cpp` ships with the 500 ms PERF-log block (`Debug(driver,3)`, cadence at L867, six lines L873/885/893/931/938/944), the whole block wrapped in `GLES_PERF_COUNT({…})` (L841–955, incl. the `p = {}` per-period reset at L951). The `GameMode::Wallpaper` boot + the guarded `viewport.cpp`/`openttd.cpp`/`landscape.cpp` forms exist — so the §2 sites are now **pinned to real file:line** (below) instead of reference templates. The entry-readiness cap that held this spec at 80% is **LIFTED**. Residual cap (why not 90%): §4 perf-tuning is a bounded pass whose findings are empirical (device-run-dependent); a few counter-fidelity choices remain (Q2.3/Q2.4); the `gameloop_ticks` producer moved (new Q3.1); and config-load is still readiness-blocked on Stage 3/4 (Q2.1). None is a spec defect — they need device data + Stage 3/4, not more editing of this doc.
 
 **Goal:** Close the instrumentation gap Stage 1 deferred and make the wallpaper shipping-quality. Add the `GLES_PERF_SCOPE(field)` RAII chrono macro; wire the viewport/gameloop timing **sites** through it and `GLES_PERF_COUNT` as 1-line hunks (mergeability rule 4); port the offline/live perf parsers from `gles` so the C++ PERF log lines are consumable; run a bounded perf-tuning pass against `tools/run_android.py perf/fps` + simpleperf baselines; and land the hardening items Stage 1 punted (atlas-clear verification, config-load decision, battery/idle behaviour).
 
@@ -8,13 +8,15 @@
 
 ## Context / dependencies
 
-- **Hard dependency:** Stages 1–4 complete and green. Stage 5 needs the driver's 500 ms PERF-log block (Stage 1 Task 8, reference `gles:src/video/sdl2_gles_v.cpp:690-772`), the `GM_WALLPAPER` boot + guards (Stage 1 Task 7), the real POI scanner (Stage 2), and the WallpaperService lifecycle (Stage 3) all in place. This stage adds no new rendering behaviour.
+- **Real dependency (reassessed — was "hard dep on Stages 1–4").** Stage 5 *functionally* needs only **Stage 1**: the driver's 500 ms PERF-log block (`src/video/sdl2_gles_v.cpp:867`/`873-944`) and the `GameMode::Wallpaper` boot + guards. That is now **MET** (device-verified). The macro (§1), the §2 wiring, the tools port (§3), and the hardening items (§5) can all proceed now. Stages 2–4 (real POI scanner, WallpaperService lifecycle, settings surface) are **benefits, not gates**: they make the §4 tuning pass exercise a realistic workload, and Stage 3/4's settings-storage is the deciding input for config-load (b) — but nothing in the Stage-1-complete tree blocks starting Stage 5. This stage adds no new rendering behaviour.
 - **Reference (read-only):** `gles:src/viewport.cpp` (ViewportDoDraw chrono block, lines 1846-1889), `gles:src/openttd.cpp` (StateGameLoop, lines 1242-1324), `gles:src/landscape.cpp:844`, `gles:src/video/sdl2_gles_v.cpp` (PERF log block + jank ring buffer, ~670-772), `gles:tools/{perf_monitor.py,perf_stats.py,perf_collect.sh,extract_vehicles.py}`. Extract with `git show gles:<path>`; NEVER modify `gles`.
 - **Spec authority:** `docs/wallpaper/rendering.md` ("Frame rendering" three frame classes, "CPU-side render optimizations", "Perf counters"), `docs/wallpaper/engine-changes.md` (mergeability rule 4; "Misc" instrumentation sites), `docs/wallpaper/tools.md` (the matched C++/python pair), `docs/wallpaper/overview.md` (instrumentation-gated decision).
-- **Current-tree state (verified on `lwp2`, 2026-07-07):**
-  - `src/video/gles_perf.h` ships `GLESPerfCounters`, `extern _gles_perf`, and `GLES_PERF_COUNT(stmt)` (no-op unless `WALLPAPER_PERF`). **`GLES_PERF_SCOPE` does not exist.**
-  - `src/viewport.cpp`, `src/openttd.cpp`, `src/landscape.cpp` contain **zero** `_gles_perf` writes. Consequently the struct fields `vp_land_us`, `vp_vehicles_us`, `vp_sort_us`, `vp_draw_us`, `vp_tiles_iterated`, `vp_parent_sprites`, `vp_child_sprites`, `vp_calls`, `vp_area_w/h`, `tileloop_us`, `tileloop_count`, `vehicletick_us`, `gameloop_us`, `gameloop_ticks`, `vehicle_trains/road/ships/aircraft` are populated by nothing — the driver PERF block prints them as **0**. Wiring these is the core of this stage.
-  - `GLES_PERF_COUNT` is already used in `gles_backend.cpp`, `gles_sprite.cpp` (GL-thread render/atlas counters were done in Stage 1). No bare `_gles_perf.` writes exist outside the macro anywhere in `src/`.
+- **Current-tree state (verified on `lwp2` tip `634dd21703`, 2026-07-08):**
+  - **Stage 1 driver present:** `src/video/sdl2_gles_v.cpp` exists (37 KB). PERF-log block: cadence gate `if (fps_now - fps_last >= 500ms)` at L867; six `Debug(driver,3)` lines — `PERF` L873, `  VP` L885, `  TICK` L893, `  CPU` L931, `  EXTRA` L938, `  GPU_SNAP` L944 — all inside one `GLES_PERF_COUNT({…})` opened at L841 and closed at L955, which also does the per-period `p = {}` reset (L951). So an OFF build drops the entire block (Q1.8 invariant **confirmed**, not merely assumed).
+  - `src/video/gles_perf.h` ships `GLESPerfCounters`, `extern _gles_perf`, and `GLES_PERF_COUNT(stmt)` (L173-177, no-op unless `WALLPAPER_PERF`). **`GLES_PERF_SCOPE` still does not exist**, and the header has **no `#include`** at all — so §1 adding `<chrono>` + the guard struct under the ON branch is confirmed-new surface.
+  - `src/viewport.cpp`, `src/openttd.cpp`, `src/landscape.cpp` still contain **zero** `_gles_perf`/`GLES_PERF` writes (`git grep` empty). Consequently `vp_land_us`, `vp_vehicles_us`, `vp_sort_us`, `vp_draw_us`, `vp_tiles_iterated`, `vp_parent_sprites`, `vp_child_sprites`, `vp_calls`, `vp_area_w/h`, `tileloop_us`, `tileloop_count`, `vehicletick_us`, `gameloop_us`, `vehicle_trains/road/ships/aircraft` are populated by nothing — the driver PERF block prints them as **0**. Wiring these is the core of this stage (the Stage-1 DEFERRAL "instrumentation sites mostly UNWIRED — PERF logs read ~0"; `.superpowers/sdd/progress.md`).
+  - **Exception — `gameloop_ticks` is already non-zero:** the driver's `RecordSnapshot()` (once per recorded game tick) does `GLES_PERF_COUNT(_gles_perf.gameloop_ticks++)` at **sdl2_gles_v.cpp:450**. In the `gles` reference this increment lived in `StateGameLoop` (`gles:src/openttd.cpp:1307`) and the gles driver only *read* it (`gles:sdl2_gles_v.cpp:753/759`, `gt = max(1, gameloop_ticks)`). So `gameloop_ticks` has moved producers between branches — the §2 openttd.cpp site must NOT re-add it or it double-counts. See §2 note + Q3.1.
+  - `GLES_PERF_COUNT` is already used in `sdl2_gles_v.cpp`, `gles_backend.cpp`, `gles_sprite.cpp` (GL-thread render/atlas/snapshot counters, done in Stage 1). No bare `_gles_perf.` writes exist outside the macro anywhere in `src/`.
   - `tools/run_android.py` and `tools/test_wallpaper.sh` are present and **byte-identical** to `gles` (same blob hashes). `tools/{perf_monitor.py,perf_stats.py,perf_collect.sh,extract_vehicles.py}` exist **only in `gles`**.
 - **Binding principles (overview.md + engine-changes.md):** no dead scaffolding; instrumentation KEPT but collection gated behind compile-time `WALLPAPER_PERF`; **mergeability rule 4 is central** — timing in shared upstream files goes through header macros, never inline chrono blocks; the `_gles_perf` global links unconditionally.
 
@@ -35,38 +37,40 @@ Placement rationale (rule 1 + 4): the macro lives in the fork-owned `gles_perf.h
 
 Every site below replaces a reference **inline chrono block** (10–20 lines of `_t0.._t5` timestamps + a batch-accumulate `{}`) with per-phase macro calls, per mergeability rule 4. Total added hunks kept **< 5 per file**.
 
-**`src/viewport.cpp` — `ViewportDoDraw`** (reference block: `gles:src/viewport.cpp:1846-1889`). Each phase call gets wrapped in a brace-scoped `GLES_PERF_SCOPE`:
+**`src/viewport.cpp` — `ViewportDoDraw`** (current tree: function opens at **L1820**; reference block `gles:src/viewport.cpp:1846-1889`). Each phase call gets wrapped in a brace-scoped `GLES_PERF_SCOPE`. Pinned sites (verified 2026-07-08):
 
-| Field (`_gles_perf.`) | Site |
+| Field (`_gles_perf.`) | Site (current `lwp2` file:line) |
 |---|---|
-| `vp_land_us` | scope around `ViewportAddLandscape()` |
-| `vp_vehicles_us` | scope around `ViewportAddVehicles(&_vd.dpi)` |
-| `vp_tilesprites_us` (+ `vp_signs_tiles_us`) | scope around `ViewportDrawTileSprites(...)` |
-| `vp_sort_us` | scope around `_vp_sprite_sorter(...)` |
-| `vp_draw_us` | scope around `ViewportDrawParentSprites(...)` |
+| `vp_land_us` | scope around `ViewportAddLandscape()` — **L1840** |
+| `vp_vehicles_us` | scope around `ViewportAddVehicles(&_vd.dpi)` — **L1841** |
+| `vp_tilesprites_us` | scope around `if (!…empty()) ViewportDrawTileSprites(…)` — **L1854** |
+| `vp_sort_us` | scope around `_vp_sprite_sorter(&_vd.parent_sprites_to_sort)` — **L1860** |
+| `vp_draw_us` | scope around `ViewportDrawParentSprites(…)` — **L1861** |
 
-Count fields via `GLES_PERF_COUNT` (one call each): `vp_calls++`, `vp_tile_sprites`, `vp_strings_queued`, `vp_sprites_generated`, `vp_parent_sprites`, `vp_child_sprites`, `vp_area_w`/`vp_area_h` (`= std::max(...)`). The `vp_tiles_iterated++` site is a single `GLES_PERF_COUNT` inside `ViewportAddLandscape` (reference line 1324).
-Note: `vp_kdtree_us`, `vp_texteff_us`, `vp_kdtree_found`, `vp_strings_queued` sit inside the `if (_game_mode != GM_WALLPAPER)` branch Stage 1 already guards — in wallpaper they read ≈0. Keep the sites (harmless, and correct for a non-wallpaper/upstream build); do not special-case them.
+Count fields via `GLES_PERF_COUNT` (one call each, near the end of `ViewportDoDraw` ~L1899-1903 before the `.clear()` calls): `vp_calls++`, `vp_tile_sprites`, `vp_sprites_generated`, `vp_parent_sprites`, `vp_child_sprites`, `vp_area_w`/`vp_area_h` (`= std::max(...)`). The `vp_tiles_iterated++` site is a single `GLES_PERF_COUNT` inside `ViewportAddLandscape` per-tile inner loop (**~L1264**, the `IsInsideBS(...)` per-tile body; def starts L1216).
 
-**`src/openttd.cpp` — `StateGameLoop`** (reference: `gles:src/openttd.cpp:1242-1324`):
+**Stage-1 guard wrinkle (new — verify before impl).** Stage 1 wrapped the signs/text-effects calls in `#ifdef WALLPAPER_BUILD ... #else ... #endif` (L1843-1852): the `WALLPAPER_BUILD` copy is `if (_game_mode != GameMode::Wallpaper) { ViewportAddKdtreeSigns(...); DrawTextEffects(...); }` (L1844-1847); the `#else` copy is unconditional (L1849-1851). So `vp_kdtree_us`/`vp_texteff_us`/`vp_signs_tiles_us` (and `vp_kdtree_found`, `vp_strings_queued`) now sit in a **textually duplicated** region — a per-call scope there costs **2 hunks each** (one per `#ifdef` arm) and reads ≈0 in wallpaper anyway. **Recommend: skip these three `*_us` sub-timers** (leave them 0; they measure the non-wallpaper path only) rather than double the viewport hunk count; this also keeps the file ≤5 hunks. If a non-wallpaper/upstream build ever wants them, add the scope only to the `#else` arm. Folds into the fidelity delta (Q2.3).
 
-| Field | Site |
+**`src/openttd.cpp` — `StateGameLoop`** (current tree: function opens at **L1268**; reference `gles:src/openttd.cpp:1242-1324`). The pause/modal guard returns at L1275-1289; the `if (_game_mode == GameMode::Editor)` branch is L1294-1303; the **normal branch** (wallpaper path) is the `else` at L1304+, with `RunTileLoop()` L1324, `CallVehicleTicks()` L1325, `CallLandscapeTick()` L1326. Pinned sites:
+
+| Field | Site (current `lwp2` file:line) |
 |---|---|
-| `gameloop_us` | scope spanning the tick body (from first sim call to end), `GLES_PERF_SCOPE(gameloop_us)` at top of the active branch |
-| `tileloop_us` | scope around `RunTileLoop()` |
-| `vehicletick_us` | scope around `CallVehicleTicks()` |
-| `gameloop_ticks` | `GLES_PERF_COUNT(_gles_perf.gameloop_ticks++)` |
-| `vehicle_trains/road/ships/aircraft` | the `Vehicle::Iterate()` counting loop wrapped as **one** `GLES_PERF_COUNT({ ...block... })` hunk (the macro's `do { stmt; } while(0)` form accepts a braced block with no top-level commas) |
+| `gameloop_us` | `GLES_PERF_SCOPE(gameloop_us)` spanning the whole tick body — place after the pause-guard `return` and before the `if (_game_mode == GameMode::Editor)` (**~L1290-1291**) so it covers both branches (matches the reference `gl_t0`-before-branch extent; Q2.4) |
+| `tileloop_us` | scope around `RunTileLoop()` — **L1324** |
+| `vehicletick_us` | scope around `CallVehicleTicks()` — **L1325** |
+| `vehicle_trains/road/ships/aircraft` | the `Vehicle::Iterate()` counting loop wrapped as **one** `GLES_PERF_COUNT({ …block… })` hunk (the macro's `do { stmt; } while(0)` form accepts a braced block with no top-level commas); this loop is **new fork code**, not present in `lwp2` yet |
 
-The reference instruments both the `GM_EDITOR` and normal branches; the wallpaper only ever runs the normal branch, so instrument that one (add the editor branch too only if trivially symmetric — otherwise skip it, no wallpaper impact). This keeps `openttd.cpp` to ~4 hunks.
+**`gameloop_ticks` — DO NOT add here (correction).** The driver already produces it: `RecordSnapshot()` does `GLES_PERF_COUNT(_gles_perf.gameloop_ticks++)` at `sdl2_gles_v.cpp:450`. Re-adding it in `StateGameLoop` would double-count. Two coherent shapes (Q3.1): **(A)** keep the driver's L450 increment, drop it from §2 openttd.cpp — fewest edits, but `gameloop_ticks` then counts *recorded snapshots*, which can differ from *executed ticks* if the game thread skips a snapshot when the draw thread is behind, making the per-tick divisors (`tileloop_us/gt`, `vehicletick_us/gt`) slightly off; **(B)** move the single producer into `StateGameLoop` next to the `tileloop_us`/`vehicletick_us` timers (so numerator and divisor are written in the same scope, matching the `gles` reference at `gles:openttd.cpp:1307`) and delete the driver's L450 increment (driver is a fork-owned file — free to edit). **Recommend (B)** for divisor coherence; flagged Q3.1.
 
-**`src/landscape.cpp`** — single `GLES_PERF_COUNT(_gles_perf.tileloop_count += 1 << (Map::LogX() + Map::LogY() - TILE_UPDATE_FREQUENCY_LOG))` at reference line 844 (inside `RunTileLoop`).
+The scoped enum is `GameMode::Editor` (not `GM_EDITOR`; Stage 1 migrated all `GM_*` → `GameMode::*`). The reference instruments both the editor and normal branches; the wallpaper only ever runs the normal branch, so instrument that one (add the editor branch only if trivially symmetric — otherwise skip, no wallpaper impact). With `gameloop_ticks` folded to a single site, this keeps `openttd.cpp` to ~4 hunks.
+
+**`src/landscape.cpp` — `RunTileLoop`** (current tree: function opens at **L804**). The tile count is already computed into a local `uint count` at **L822** (`1 << (Map::LogX() + Map::LogY() - TILE_UPDATE_FREQUENCY_LOG)`); it is then decremented at L831/L834. So the single hunk is `GLES_PERF_COUNT(_gles_perf.tileloop_count += count)` placed **immediately after L822** (before the `count--` / `while (count--)` mutate it) — reuse the local rather than recomputing the shift.
 
 **Map-load / saveload timing (optional, secondary):** engine-changes.md "Misc" lists saveload timing, but `gles` has **no `_gles_perf` field** for it — the reference logs map-load duration as a plain `Debug(...)` line in `LoadIntroGame` (gles openttd.cpp ~333-362). Recommendation: port that as a single `Debug(driver, 1, ...ms)` line (not a counter) if map-switch latency needs a number; otherwise drop it. Flagged in Open decision (a) as tuning-scope.
 
-**Counter-semantics caveat (verified against `gles`, still-open Q2.3/Q2.4).** The reference does NOT time these phases with tidy per-call scopes; it uses overlapping `_t*`/`gl_t*` spans: `tileloop_us` = `gl_t0..gl_t1` (spans `AnimateAnimatedTiles` + `TimerManager::Elapsed` + `RunTileLoop`, **not** `RunTileLoop` alone); `gameloop_us` `gl_t0` is set *before* the `GM_EDITOR`/normal branch (spans the whole tick body); `vp_signs_tiles_us` = `_t2.._t3` (overlaps `vp_tilesprites_us` = `_t2b.._t3`). A literal "scope around `RunTileLoop()`" per §2 therefore yields a **narrower** number than the reference. Whether the bounded tuning pass needs reference-comparable values (→ wrap the broader spans) or the tidier per-call semantics are fine (→ document the delta) is Confidence Survey Q2.3; the `gameloop_us` extent + whether to instrument the `GM_EDITOR` branch is Q2.4.
+**Counter-semantics caveat (verified against `gles`, still-open Q2.3/Q2.4).** The reference does NOT time these phases with tidy per-call scopes; it uses overlapping `_t*`/`gl_t*` spans: `tileloop_us` = `gl_t0..gl_t1` (spans `AnimateAnimatedTiles` [current L1318] + the `TimerManager<…>::Elapsed` calls [L1319-1323] + `RunTileLoop` [L1324], **not** `RunTileLoop` alone); `gameloop_us` `gl_t0` is set *before* the `GameMode::Editor`/normal branch (spans the whole tick body — §2 now matches this, placing the scope at ~L1290); `vp_signs_tiles_us` = `_t2.._t3` (overlaps `vp_tilesprites_us` = `_t2b.._t3`, and per the §2 guard-wrinkle these signs/text sub-timers are recommended dropped in wallpaper). A literal "scope around `RunTileLoop()`" per §2 therefore yields a **narrower** `tileloop_us` than the reference. Whether the bounded tuning pass needs reference-comparable values (→ wrap the broader `L1318..L1324` region) or the tidier per-call semantics are fine (→ document the delta) is Q2.3; the `gameloop_us` extent + whether to instrument the `GameMode::Editor` branch is Q2.4.
 
-**Invariant to preserve:** the driver's PERF-log block already reads all of the above fields (Stage 1 Task 8). This stage only makes them non-zero. No change to the log block itself except confirming every field it prints now has a producer, and confirming the whole block + every `_gles_perf.*` read in it remains wrapped in `GLES_PERF_COUNT` (Q1.8) so an OFF build drops it entirely.
+**Invariant to preserve (now confirmed in-tree):** the driver's PERF-log block reads all of the above fields, and the whole block (jank ring buffer + all six `Debug` lines + the `p = {}` reset) is already wrapped in one `GLES_PERF_COUNT({…})` at `sdl2_gles_v.cpp:841-955` — so the Q1.8 "OFF build drops it entirely" invariant is verified, not assumed. This stage only makes the §2 fields non-zero; no change to the log block itself, only confirming every field it prints now has a producer.
 
 ### 3. Perf tooling port (`tools/`)
 
@@ -104,6 +108,18 @@ Recommended target metrics (surface as the stop condition, not a hard SLA): sust
 - Game-thread pause → ≈0 CPU: on screen-off / background, `SDL_APP_DIDENTERBACKGROUND` → `SetGameThreadPaused(true)` blocks the game thread on its CV after the 5 warm-up ticks (engine-changes.md video_driver). Confirm no wakeups, ≈0% CPU with `adb shell top`/simpleperf while screen-off.
 - GL-thread idle-blit skip → no swaps: frame class 3 (nothing changed) returns without `SwapWindow` (rendering.md). Confirm `idle_blits` rises and `swap_us`/`full_renders` fall when the scene is static.
 
+**Atlas VRAM pre-alloc (Stage-1 DEFERRAL — memory/perf).** Stage 1 (Task 3) changed the atlas to pre-allocate **all `MAX_ATLAS_LAYERS` (4) layers up front** via `GLESSpriteAtlas::AllocLayers()` (`src/video/gles_sprite.cpp:24`, called from the ctor L66; two `glTexImage3D` array textures RGBA + R8 at `atlas_size²×4`), to avoid `glCopyTexSubImage3D` growth cost. That is **~80 MB VRAM @2048² / ~320 MB @4096²** reserved regardless of occupancy. It **ran fine on the Pixel 10 Pro** (device-verified boot: `atlas(2048x2048x4)`), so this is a watch-item, not a blocker. Stage-5 action: with the `atlas_occ` counters (`EXTRA` line) confirm real occupancy under a full spectator run; **decide whether to lazy-alloc layers on demand** (grow to N layers only when packing needs them) to cut idle VRAM — but only if occupancy shows the upper layers are usually empty AND a lower-memory device is a target. Recommend: measure, keep eager-alloc unless a memory-constrained device forces it (eager-alloc avoids mid-run growth stalls, which matters for a smooth wallpaper).
+
+**Robustness / sprite-cache hardening (Stage-1 DEFERRAL — tracked at `progress.md` S1 Task 2).** Two faithful-port latent bugs, non-triggering in Stage 1's fixed-GRF Android path but real:
+- `RandomAccessFile` mem-mode **nullptr-sentinel crash on a legitimately empty file**: when `mem_data == nullptr` the code falls to the file path and dereferences an unset `file_handle` (`src/random_access_file.cpp`). Fix = distinguish "no mem buffer" from "empty file".
+- `_sprite_file_cache` is keyed by **`GetSimplifiedFilename()` (basename only), with no size/hash check** (`src/spritecache.cpp:97`/`121`) → a same-named GRF swap serves a stale buffer. Fix = include size (or content hash) in the key. (Also minor: dup filename-parse in two ctors; possibly-unused `gfx_func.h` include.)
+- Stage-5 action: land both as small localized fixes (they touch fork-owned/additive code, low merge risk). In scope for Stage 5 hardening.
+
+**Desktop / non-`WALLPAPER_BUILD` build breaks (Stage-1 DEFERRAL — tracked at `progress.md` S1 Task 7; mergeability rule 4/6).** Stage 1 left the non-Android build broken in two places (out of Stage 1's Android-only scope, unverifiable there):
+- `src/openttd.cpp` — **ungated `LoadWallpaperGame()` case bodies**: `SafeLoad`'s `switch (ogm)` at **L1040** (`case GameMode::Wallpaper: LoadWallpaperGame();`) and `SwitchToMode`'s `switch` at **L1213-1215** (`case SwitchMode::Wallpaper:`). Both switches have a `default`, so a 2×`#ifdef WALLPAPER_BUILD` gate around just those case bodies is `-Wswitch`-safe.
+- `src/wallpaper.cpp` — **compiled unconditionally but references `GLESBackend`/`video/gles_backend.h`** (includes at L23/L28, `GLESBackend::Get()` at L138) → link/compile break on a non-GLES desktop build. Fix = gate the file's registration (or its GLES refs) behind `WALLPAPER_BUILD`.
+- **Scope call (SURFACED):** these do **not** block Android (the shipping target), so they are strictly *mergeability* hardening. `docs/wallpaper/engine-changes.md`'s "Upstream mergeability" rule wants a clean upstream merge, which argues for fixing them here. **Recommend: include in Stage 5** (cheap, `#ifdef`-only, no logic change) so the fork stays merge-clean — but they are legitimately deferrable to a dedicated "desktop-build restore" task if Stage 5 must stay Android-only. Decision → Q3.2.
+
 ## Known risk / non-goals
 
 - **Race (same as Stage 2's known risk):** the timing sites in `ViewportDoDraw` run on the draw thread; the `StateGameLoop`/`landscape.cpp` sites run on the game thread under `game_state_mutex`. The macros only read the clock and `+=` into distinct fields; the driver resets the struct at period end. Cross-thread `+=` on `_gles_perf` is already the reference's accepted model (single-writer-per-field in practice, best-effort counters — not required to be exact). No new synchronization is introduced. Assessed **low**.
@@ -114,12 +130,17 @@ Recommended target metrics (surface as the stop condition, not a hard SLA): sust
 
 | File | Status | Change |
 |---|---|---|
-| `src/video/gles_perf.h` | EDIT | add `GLES_PERF_SCOPE(field)` RAII timer macro (+ guard struct, `<chrono>`) under the `WALLPAPER_PERF` branch; OFF branch = `do {} while(0)` |
-| `src/viewport.cpp` | EDIT | ViewportDoDraw phase timers + count sites (≤5 hunks, macros only) |
-| `src/openttd.cpp` | EDIT | StateGameLoop tileloop/vehicletick/gameloop timers + vehicle-count block + `gameloop_ticks` (≤4 hunks) |
-| `src/landscape.cpp` | EDIT | single `tileloop_count` `GLES_PERF_COUNT` in RunTileLoop |
+| `src/video/gles_perf.h` | EDIT | add `GLES_PERF_SCOPE(field)` RAII timer macro (+ guard struct, `<chrono>`) under the `WALLPAPER_PERF` branch (header currently has no includes); OFF branch = `do {} while(0)` |
+| `src/viewport.cpp` | EDIT | ViewportDoDraw (L1820) phase timers L1840/1841/1854/1860/1861 + tiles-iterated ~L1264 + count sites (≤5 hunks, macros only); skip signs/text `*_us` (guard-split, ≈0 in wallpaper) |
+| `src/openttd.cpp` | EDIT | StateGameLoop (L1268) `gameloop_us` ~L1290 + `tileloop_us` L1324 + `vehicletick_us` L1325 + vehicle-count block; `gameloop_ticks` single-producer per Q3.1 (do NOT double-add) (≤4 hunks) |
+| `src/landscape.cpp` | EDIT | single `GLES_PERF_COUNT(_gles_perf.tileloop_count += count)` after RunTileLoop L822 |
 | `src/openttd.cpp` (opt.) | EDIT | map-load `Debug(...ms)` line — Open decision (a) |
-| `src/openttd.cpp` (opt.) | EDIT | config-load `#ifndef WALLPAPER_BUILD` revisit — Open decision (b) |
+| `src/openttd.cpp` (opt.) | EDIT | config-load `#ifndef WALLPAPER_BUILD` revisit — Open decision (b) / Q2.1 |
+| `src/openttd.cpp` (hardening) | EDIT | gate `LoadWallpaperGame()` case bodies at L1040 + L1213-1215 behind `#ifdef WALLPAPER_BUILD` — Q3.2 |
+| `src/wallpaper.cpp` (hardening) | EDIT | gate GLES refs / registration behind `WALLPAPER_BUILD` (non-Android build) — Q3.2 |
+| `src/random_access_file.cpp` (hardening) | EDIT | empty-file nullptr-sentinel fix |
+| `src/spritecache.cpp` (hardening) | EDIT | `_sprite_file_cache` key: add size/hash (basename-only stale-buffer bug) |
+| `src/video/gles_sprite.cpp` (opt.) | EDIT | lazy-alloc atlas layers — only if occupancy warrants (atlas-VRAM item) |
 | `tools/perf_monitor.py` | NEW (port) | live TUI dashboard from `gles` |
 | `tools/perf_stats.py` | NEW (port) | offline stats from `gles` |
 | `tools/perf_collect.sh` | NEW (port) | collect+breakdown wrapper from `gles` |
@@ -131,7 +152,7 @@ No CMake change (all touched `.cpp` already registered; `gles_perf.h` already li
 
 1. **PERF-ON build** (default): install, launch wallpaper. logcat shows PERF/VP/TICK/CPU/EXTRA/GPU_SNAP lines at 500 ms cadence with the §2 fields **non-zero** (`vp_land_us`, `vp_draw_us`, `tileloop_us`, `vehicletick_us`, `gameloop_us`, `vehicle_*` all > 0 during a steady run).
 2. **Parsers consume it:** `python3 tools/perf_stats.py 20` prints TICK/VP/game-thread breakdowns with sane numbers (no "no data" / all-zero sections); `python3 tools/perf_monitor.py` draws live graphs and its adb-broadcast remote (screen 0) drives map/POI; `tools/perf_collect.sh 20` prints its three breakdown tables.
-3. **PERF-OFF build compiles clean with zero perf sites:** a `-DWALLPAPER_PERF` -absent build is `BUILD SUCCESSFUL`. Grep proof (folded Q1.8): `git grep -n '_gles_perf\.' src/viewport.cpp src/openttd.cpp src/landscape.cpp` must show **only** `GLES_PERF_COUNT`/`GLES_PERF_SCOPE`-wrapped sites (no bare writes), and `git grep GLES_PERF_SCOPE` finds only macro-mediated sites. **Do NOT** grep bare `steady_clock` as a proof — `openttd.cpp` already contains pre-existing upstream `steady_clock` uses (`_game_session_stats.start_time` ~L498/L1057, autosave `last_time`/`now` ~L1351) that are false positives; instead prove no chrono leaked from *this stage* via `git diff <stage5-base>..HEAD -- <files> | grep -c 'steady_clock'` == 0 (all timing lives inside the header macro).
+3. **PERF-OFF build compiles clean with zero perf sites:** a `-DWALLPAPER_PERF` -absent build is `BUILD SUCCESSFUL`. Grep proof (folded Q1.8): `git grep -n '_gles_perf\.' src/viewport.cpp src/openttd.cpp src/landscape.cpp` must show **only** `GLES_PERF_COUNT`/`GLES_PERF_SCOPE`-wrapped sites (no bare writes), and `git grep GLES_PERF_SCOPE` finds only macro-mediated sites. **Do NOT** grep bare `steady_clock` as a proof — `openttd.cpp` already contains pre-existing upstream `steady_clock` uses (verified 2026-07-08: `_game_session_stats.start_time` at **L528** and **L1113**; autosave `last_time`/`now` at **L1412-1413**) that are false positives; instead prove no chrono leaked from *this stage* via `git diff <stage5-base>..HEAD -- <files> | grep -c 'steady_clock'` == 0 (all timing lives inside the header macro).
 4. **simpleperf:** a profile over a steady run shows the expected hotspots (GL replay/paint on the GL thread; sim/tileloop/vehicletick on the game thread) and no surprise CPU sink; captured as the tuning baseline.
 5. **Extended stability:** multi-minute run with repeated `SWITCH_MAP` (atlas clear each time) → no crash, no growing GL memory, no persistent artifacts; `gpu_sprites_repacked`/occupancy settle after each reload (Q1.7 confirmation, records shipped clear path).
 6. **Idle:** screen-off → game thread parked (≈0% CPU via `top`/simpleperf), `idle_blits` climbing, `swap_us`/`full_renders` ≈0; screen-on resumes cleanly.
@@ -167,9 +188,15 @@ No CMake change (all touched `.cpp` already registered; `gles_perf.h` already li
 - *Recommend:* **keep them separate.** `GLES_PERF_COUNT(stmt)` is a statement-wrapper (increments/assignments/`max`/blocks); `GLES_PERF_SCOPE(field)` is an RAII timer with different lifetime semantics and a different argument shape (a field name, not a statement). Merging them would overload one name with two behaviours and muddy call-site intent. Trade-off: two macros is marginally more surface in the header, but each reads unambiguously at the call site and both share the single `WALLPAPER_PERF` gate.
   - **DECIDED (plan-confidence iter 1, self-assessed): keep `GLES_PERF_SCOPE` (RAII timer) separate from `GLES_PERF_COUNT` (statement-wrapper).**
 
+**(f) `gameloop_ticks` single producer (NEW — surfaced iter 3).** The Stage-1 driver already increments `gameloop_ticks` in `RecordSnapshot()` (`sdl2_gles_v.cpp:450`); the `gles` reference increments it in `StateGameLoop`. Adding the §2 openttd.cpp site as originally planned would double-count.
+- *Recommend:* **(B) single producer in `StateGameLoop`** (next to `tileloop_us`/`vehicletick_us`, matching `gles:openttd.cpp:1307`), and delete the driver's L450 increment — keeps numerator and divisor written in one scope so per-tick averages are coherent. Trade-off vs (A) keep-driver-increment-and-drop-openttd: (A) is fewer edits but counts *recorded snapshots* not *executed ticks* (can diverge when the draw thread lags). → Confidence Survey Q3.1.
+
+**(g) Desktop / non-`WALLPAPER_BUILD` build-break scope (NEW — surfaced iter 3).** Stage 1 left the non-Android build broken (ungated `LoadWallpaperGame()` at `openttd.cpp:1040`/`1213-1215`; `wallpaper.cpp` unconditional GLES refs). Does the fix land in Stage 5?
+- *Recommend:* **include in Stage 5 hardening** — cheap `#ifdef`-only, no logic change, and `engine-changes.md`'s mergeability rule wants a clean upstream build. Trade-off: it does not block Android (the shipping target), so it is legitimately deferrable to a dedicated desktop-restore task if Stage 5 must stay Android-only. → Confidence Survey Q3.2.
+
 ## Confidence Survey
 
-Edit checkboxes in-place to answer. Mark exactly one option per question with `[x]`. The option labeled `*(Recommended)*` is the skill's best guess given current plan + repo context — override freely. (Ran file-based / non-interactive: iter-1 questions were self-assessed and folded; the questions below are the ones that remain genuinely open — most are **readiness-blocked** on work not yet in-tree, so they are left unchecked pending a human call.)
+Edit checkboxes in-place to answer. Mark exactly one option per question with `[x]`. The option labeled `*(Recommended)*` is the skill's best guess given current plan + repo context — override freely. (Ran file-based / non-interactive. Iter-1 questions folded; iter-2 **Q2.2 dissolved at iter 3** — Stage 1 is now complete, so the "how to proceed while Stage 1 is missing" question is overtaken by events and the §2 sites are pinned to real code. The questions below are the genuinely-open residuals: config-load [external-blocked on Stage 3/4], counter fidelity, the two NEW iter-3 items [Q3.1 `gameloop_ticks` producer, Q3.2 build-break scope], and OFF-build gate hardness. Each carries a `*(Recommended)*` the body already proceeds on; left unchecked pending human ratification.)
 
 ### Iteration 2 — 2026-07-07
 
@@ -179,22 +206,16 @@ Edit checkboxes in-place to answer. Mark exactly one option per question with `[
 - [ ] Leave defaults-only (no persistence); revisit post-ship
 - [ ] Remove config-load from Stage 5 scope entirely; fold it into Stage 4 (settings surface)
 
-#### Q2.2. Stage 1 is verified incomplete on `lwp2` (no `sdl2_gles_v.*`, no `GM_WALLPAPER`, no PERF-log block, no `GLES_PERF_SCOPE`). The §2 sites attach to the guarded, post-Stage-1 forms of `viewport.cpp`/`openttd.cpp`, which don't exist yet. How should this spec proceed?
-- [ ] Gate Stage 5 start on Stages 1–4 green; treat every `gles:` line number as a template and re-derive each §2 site against the post-Stage-1 guarded files before writing the impl plan  *(Recommended)*
-- [ ] Write the Stage 5 impl plan now using the reference line numbers as-is; fix drift during execution
-- [ ] Split Stage 5: do the owned/low-risk parts (macro + tools port) now; defer the shared-file instrumentation until Stages 1–4 land
-- [ ] Move §2 instrumentation into Stage 1 Task 8 (co-locate with the driver PERF block); Stage 5 keeps only tooling + tuning + hardening
-
 #### Q2.3. The reference times phases with overlapping `_t*`/`gl_t*` spans; tidy per-call `GLES_PERF_SCOPE` changes what several counters measure (`tileloop_us` = `RunTileLoop` only, not `gl_t0..gl_t1`; `vp_signs_tiles_us` subsumed by `vp_tilesprites_us`). How to reconcile?
 - [ ] Accept per-call semantics; document the delta vs `gles` — exact parity isn't needed for a bounded tuning pass  *(Recommended)*
 - [ ] Reproduce the reference spans exactly (wrap the broader `gl_t0..gl_t1` / `_t2.._t3` regions) so `perf_stats.py` numbers match historical `gles` baselines
 - [ ] Emit both a narrow per-call scope and the broad span into distinct fields; compare once, then keep one
 - [ ] Drop the affected sub-counters (`tileloop_us`, `vp_signs_tiles_us`); rely on `gameloop_us` + `vehicletick_us` only
 
-#### Q2.4. `gameloop_us` extent + editor branch: the reference sets `gl_t0` *before* the `GM_EDITOR`/normal branch (spans the whole tick body) and instruments both branches; §2 currently says "at top of the active branch". Which shape?
-- [ ] `gameloop_us` spans the whole tick body (match reference); instrument the normal branch only (skip `GM_EDITOR` — never runs in wallpaper)  *(Recommended)*
-- [ ] Scope `gameloop_us` to the active branch only (as §2 text reads now), accepting a narrower number
-- [ ] Instrument both `GM_EDITOR` and normal branches symmetrically for full reference parity
+#### Q2.4. `gameloop_us` extent + editor branch: the reference sets `gl_t0` *before* the `GameMode::Editor`/normal branch (spans the whole tick body) and instruments both branches. §2 now recommends the whole-tick-body span placed at ~L1290 (normal branch only). Ratify the shape?
+- [ ] `gameloop_us` spans the whole tick body (match reference, scope at ~L1290); instrument the normal branch only (skip `GameMode::Editor` — never runs in wallpaper)  *(Recommended)*
+- [ ] Scope `gameloop_us` to the active branch only, accepting a narrower number
+- [ ] Instrument both `GameMode::Editor` and normal branches symmetrically for full reference parity
 - [ ] Defer `gameloop_us` until the tuning pass shows the tick body is a hotspot
 
 #### Q2.5. The build gate wants both `WALLPAPER_PERF=ON` and a spot-check `=OFF` build green, but no OFF build exists in CI and the wallpaper always ships PERF-ON for now. How hard is the OFF gate?
@@ -202,6 +223,20 @@ Edit checkboxes in-place to answer. Mark exactly one option per question with `[
 - [ ] Hard gate: every Stage 5 commit must build green under both ON and OFF
 - [ ] Drop the OFF build; rely on the grep proof (no bare perf sites) alone
 - [ ] Add an OFF build to CI as a Stage 5 deliverable
+
+### Iteration 3 — 2026-07-08
+
+#### Q3.1. `gameloop_ticks` has two possible producers now: the Stage-1 driver already increments it in `RecordSnapshot()` (`sdl2_gles_v.cpp:450`), while the `gles` reference increments it in `StateGameLoop` (`gles:openttd.cpp:1307`). Adding the §2 openttd.cpp site as first planned would double-count. Which single producer?
+- [ ] (B) Move the single increment into `StateGameLoop` next to `tileloop_us`/`vehicletick_us`; delete the driver's L450 increment — divisor and numerators written in one scope  *(Recommended)*
+- [ ] (A) Keep the driver's L450 increment; do NOT add it in openttd.cpp — fewest edits, but counts recorded-snapshots not executed-ticks
+- [ ] Keep both but rename one field (e.g. `snapshots_recorded`) so the two quantities are distinct and neither divisor is ambiguous
+- [ ] Defer: ship with the driver's increment as-is, revisit if per-tick averages look wrong during §4 tuning
+
+#### Q3.2. The desktop / non-`WALLPAPER_BUILD` build is currently broken (ungated `LoadWallpaperGame()` at `openttd.cpp:1040`/`1213-1215`; `wallpaper.cpp` unconditional GLES refs). This does not block Android but violates the upstream-mergeability rule. Where does the fix land?
+- [ ] Include it in Stage 5 hardening — cheap `#ifdef`-only gates, keeps the fork merge-clean  *(Recommended)*
+- [ ] Defer to a dedicated "desktop-build restore" task; keep Stage 5 strictly Android-scoped
+- [ ] Out of scope entirely until an actual upstream merge is attempted
+- [ ] Fold the gates back into Stage 1 as a follow-up fix (co-locate with the Task 7 guards)
 
 ## Reconciliation Log
 
@@ -227,3 +262,12 @@ Append-only. Newest entry at the bottom.
 - **Still uncertain / carried open:** Q1.2(b) config-load [readiness-blocked on Stage 3/4] → Q2.1; sequencing + site re-derivation → Q2.2; counter fidelity → Q2.3/Q2.4; OFF-build gate hardness → Q2.5.
 - **Honesty note on the cap:** folding (a)/(c)/(d)/(e) lifted the universal "decide-between" ≤70% token cap; the binding cap is now **Readiness**. Stage 5 cannot be executed, and its §2 site line/context cannot be finalized, until Stages 1-4 (esp. Stage 1's driver PERF-log block + `GM_WALLPAPER` guards) land. This is a genuine dependency gap, not a spec defect — the spec itself is high-quality and thorough. Confidence therefore **plateaus at 80%**; it cannot reach 90% by editing this document alone. No downstream skill invoked (HARD-GATE): survey still open, and the readiness cap is external.
 - **New questions:** Q2.1 … Q2.5.
+
+### Iteration 3 — 2026-07-08 (file-based, non-interactive; Stage-1-complete reality update)
+- **Confidence:** 88% (cap from **Readiness/Unknowns tie**, not the old Stage-1 readiness gate). Entry-readiness cap **LIFTED** — Stage 1 is complete + device-verified (`lwp2` tip `634dd21703`); the driver + PERF-log block + `GameMode::Wallpaper` guards exist, so §2 sites are now pinned to real file:line. Residual 12% is genuine and not editable away in this doc: (1) §4 tuning findings are empirical (device run); (2) config-load (b) is externally blocked on Stage 3/4 [Q2.1]; (3) a cluster of recommended-but-unratified decisions (Q2.3/Q2.4 fidelity, Q3.1 producer, Q3.2 build-break, Q2.5 OFF-gate).
+- **Verified against current tree (all confirmed 2026-07-08):** `sdl2_gles_v.cpp` present; PERF cadence L867; six `Debug(driver,3)` lines L873/885/893/931/938/944; whole block wrapped `GLES_PERF_COUNT({…})` L841-955 incl. `p={}` reset L951 (Q1.8 invariant now proven, not assumed). `gles_perf.h`: `GLES_PERF_COUNT` L173-177, **no `GLES_PERF_SCOPE`**, header has no `#include`. `viewport.cpp`/`openttd.cpp`/`landscape.cpp` still zero `_gles_perf` writes. §2 sites pinned: viewport ViewportDoDraw L1820 (land L1840, vehicles L1841, tilesprites L1854, sort L1860, draw L1861, tiles_iterated ~L1264); openttd StateGameLoop L1268 (gameloop ~L1290, tileloop L1324, vehtick L1325); landscape RunTileLoop L804 (count L822). Scoped enums: `GameMode::Wallpaper`/`GameMode::Editor`, `SwitchMode::Wallpaper`/`SwitchMode::None` (all `GM_*` stale). steady_clock false-positives moved to L528/L1113/L1412-1413.
+- **New findings folded:** (i) `gameloop_ticks` already produced by driver `RecordSnapshot()` L450 → §2 openttd.cpp must not double-add; recommend single producer in StateGameLoop [Q3.1]. (ii) Stage-1 `#ifdef WALLPAPER_BUILD` split duplicated the signs/text calls → recommend dropping those `*_us` sub-timers (≈0 in wallpaper, else 2 hunks each). (iii) Hardening scope expanded with three Stage-1 deferrals: atlas 4-layer pre-alloc (~80MB@2048, device-OK, evaluate lazy-alloc); random_access_file empty-file nullptr + basename-only sprite-cache key (robustness, in-scope); desktop non-WALLPAPER_BUILD build breaks (openttd.cpp 1040/1213-1215 ungated + wallpaper.cpp GLES refs) → mergeability, recommend in-scope [Q3.2].
+- **Resolved / dissolved:** Q2.2 (Stage-1-incomplete sequencing) → OBE: Stage 1 complete, sites pinned; removed from survey.
+- **Still uncertain / carried open:** Q2.1 (config-load, Stage 3/4-blocked), Q2.3 (counter fidelity), Q2.4 (gameloop_us extent — §2 now recommends whole-body/normal-only), Q2.5 (OFF-build gate).
+- **New questions:** Q3.1 (`gameloop_ticks` single producer), Q3.2 (desktop build-break scope).
+- **Honesty note:** Confidence rose 80→88 because the binding readiness gate (Stage 1 done) dissolved and every §2 site is now pinned to verified code. It stops at 88, not 90, because config-load cannot be finalized without Stage 3/4 and §4's tuning outcomes are empirical — both external to this document. No downstream skill invoked (HARD-GATE: survey open, <90%, no human approval).
