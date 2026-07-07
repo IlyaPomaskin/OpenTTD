@@ -48,8 +48,15 @@ void Blitter_Snapshot::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLe
 	DrawCommand cmd;
 	cmd.mode = mode;
 	cmd.sprite = bp->sprite_id;
-	cmd.x = static_cast<int16_t>(bp->sprite_x);
-	cmd.y = static_cast<int16_t>(bp->sprite_y);
+
+	/* Compute screen position from dst pointer offset into the recording buffer (Q2.1: pointer-math).
+	 * The DPI's dst_ptr is redirected to the recording buffer during RecordSnapshot, so this yields
+	 * absolute screen coords even for the zoomed viewport (whose dpi->left/top are virtual coords). */
+	const uint32_t *screen_start = static_cast<const uint32_t *>(this->recording_buffer);
+	const uint32_t *dst = static_cast<const uint32_t *>(bp->dst);
+	ptrdiff_t pixel_offset = dst - screen_start;
+	cmd.x = static_cast<int16_t>(static_cast<int>(pixel_offset % this->recording_pitch) + bp->left);
+	cmd.y = static_cast<int16_t>(static_cast<int>(pixel_offset / this->recording_pitch) + bp->top);
 	cmd.width = static_cast<int16_t>(bp->width);
 	cmd.height = static_cast<int16_t>(bp->height);
 	cmd.skip_left = static_cast<int16_t>(bp->skip_left);
@@ -60,4 +67,10 @@ void Blitter_Snapshot::Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLe
 	cmd.palette = (mode == BlitterMode::ColourRemap || mode == BlitterMode::TransparentRemap) ? bp->pal : PAL_NONE;
 
 	RecordCommand(cmd);
+}
+
+void *Blitter_Snapshot::MoveTo(void *video, int x, int y)
+{
+	int pitch = this->recording_pitch > 0 ? this->recording_pitch : _screen.pitch;
+	return static_cast<uint32_t *>(video) + x + y * pitch;
 }

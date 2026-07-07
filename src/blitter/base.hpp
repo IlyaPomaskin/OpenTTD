@@ -33,7 +33,6 @@ public:
 		const void *sprite; ///< Pointer to the sprite how ever the encoder stored it
 		const uint8_t *remap;  ///< XXX -- Temporary storage for remap array
 
-		int sprite_x, sprite_y;      ///< Absolute screen coords of the sprite top-left (Q1.3: explicit coords)
 		SpriteID sprite_id;          ///< Stable sprite identifier for GPU atlas keying
 		PaletteID pal;               ///< Palette that produced `remap` (GL thread re-resolves it); PAL_NONE default is set at the sole construction site (GfxBlitter), not here, since PAL_NONE lives in table/sprites.h which base.hpp must not pull in
 

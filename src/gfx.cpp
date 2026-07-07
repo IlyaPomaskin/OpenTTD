@@ -1175,10 +1175,6 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 	assert(bp.skip_left + bp.width <= UnScaleByZoom(sprite->width, zoom));
 	assert(bp.skip_top + bp.height <= UnScaleByZoom(sprite->height, zoom));
 
-	/* Absolute screen coords of the sprite top-left, now that bp.left/bp.top are final (Q2.1). */
-	bp.sprite_x = dpi->left + bp.left;
-	bp.sprite_y = dpi->top + bp.top;
-
 	/* We do not want to catch the mouse. However we also use that spritenumber for unknown (text) sprites. */
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW && sprite_id != SPR_CURSOR_MOUSE) {
 		Blitter *blitter = BlitterFactory::GetCurrentBlitter();

@@ -132,8 +132,10 @@ void InitializeGame(uint size_x, uint size_y, bool reset_date, bool reset_settin
 
 	ResetPersistentNewGRFData();
 
+#ifndef WALLPAPER_BUILD
 	InitializeSound();
 	InitializeMusic();
+#endif /* WALLPAPER_BUILD: wallpaper mode has no audio (null drivers, no sound set loaded). */
 
 	InitializeVehicles();
 

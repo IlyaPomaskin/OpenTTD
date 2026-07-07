@@ -23,7 +23,11 @@
  * Safe to use from the game thread without a GL context.
  */
 class Blitter_Snapshot : public Blitter {
+	void *recording_buffer = nullptr; ///< Stable pointer to the dummy buffer (avoids race with _screen.dst_ptr).
+	int recording_pitch = 0;          ///< Pitch at recording start.
 public:
+	/** Set the recording buffer pointer and pitch. Must be called before StartRecording. */
+	void SetRecordingBuffer(void *buf, int pitch) { this->recording_buffer = buf; this->recording_pitch = pitch; }
 	uint8_t GetScreenDepth() override { return 32; }
 	bool Is32BppSupported() override { return true; }
 	uint GetSpriteAlignment() override { return 1; }
@@ -32,7 +36,7 @@ public:
 	Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator) override;
 
 	void DrawColourMappingRect(void *, int, int, PaletteID) override {}
-	void *MoveTo(void *, int, int) override { return nullptr; }
+	void *MoveTo(void *video, int x, int y) override;
 	void SetPixel(void *, int, int, PixelColour) override {}
 	void DrawRect(void *, int, int, PixelColour) override {}
 	void DrawLine(void *, int, int, int, int, int, int, PixelColour, int, int) override {}

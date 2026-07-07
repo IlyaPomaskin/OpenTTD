@@ -14,6 +14,7 @@
 #include "../gfx_func.h"
 #include "../spritecache.h"
 #include "../blitter/factory.hpp"
+#include "../blitter/snapshot.hpp"
 #include "../debug.h"
 #include "../framerate_type.h"
 #include "../window_func.h"
@@ -395,14 +396,28 @@ void VideoDriver_SDL_GLES::RecordSnapshot()
 	int w = _screen.width;
 	int h = _screen.height;
 
-	/* Explicit coords come from bp->sprite_x/sprite_y set in gfx.cpp; the snapshot
-	 * blitter no-ops all pixel writes. Bypass the dirty-block system and redraw the
-	 * full screen area directly. */
+	/* Q2.1 pointer-math coords: redirect the screen backing pointer to a stable dummy buffer
+	 * and point the snapshot blitter at it, so recorded dst-pointer offsets yield absolute
+	 * screen coords (correct even for the zoomed viewport, whose dpi->left/top are virtual).
+	 * The snapshot blitter no-ops all pixel writes; RedrawScreenRect only exercises MoveTo/Draw.
+	 * Bypass the dirty-block system and redraw the full screen area directly. */
+	void *save_dst = _screen.dst_ptr;
+	static std::vector<uint8_t> dummy_buf;
+	size_t needed = static_cast<size_t>(_screen.pitch) * h * 4;
+	if (dummy_buf.size() < needed) dummy_buf.resize(needed);
+	_screen.dst_ptr = dummy_buf.data();
+
+	auto *snap_blitter = dynamic_cast<Blitter_Snapshot *>(BlitterFactory::GetActiveBlitter().get());
+	if (snap_blitter != nullptr) snap_blitter->SetRecordingBuffer(dummy_buf.data(), _screen.pitch);
+
 	StartRecording(snap);
 	[[maybe_unused]] auto t_rec0 = std::chrono::steady_clock::now();
 	RedrawScreenRect(0, 0, w, h);
 	[[maybe_unused]] auto t_rec1 = std::chrono::steady_clock::now();
 	StopRecording();
+
+	/* Restore the real backing pointer (guard against a concurrent AllocateBackingStore). */
+	if (_screen.dst_ptr == dummy_buf.data()) _screen.dst_ptr = save_dst;
 
 	/* Validate coordinates before publishing to GPU thread. */
 	[[maybe_unused]] auto t_val0 = std::chrono::steady_clock::now();
@@ -440,6 +455,16 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 {
 	this->DrainCommandQueue();
 	while (this->PollEvent()) {}
+
+	/* Fast path: nothing pending, no lock. Overlay actions arrive rarely (JNI broadcasts). */
+	bool any = _gles_jump_waypoint.load() || _gles_navigate_poi.load() != 0 ||
+		_gles_rotate_map.load() != 0 || _gles_scroll_dx.load() != 0 || _gles_scroll_dy.load() != 0;
+	if (!any) return;
+
+	/* Overlay actions mutate window/viewport state; serialize against the game thread's
+	 * window rebuild (SwitchToMode -> LoadWallpaperGame -> ResetWindowSystem runs under
+	 * game_state_mutex) by taking the same mutex here on the draw thread. */
+	std::lock_guard<std::mutex> lock(this->game_state_mutex);
 
 	if (_gles_jump_waypoint.exchange(false)) {
 		Debug(driver, 1, "Tick: jump_waypoint triggered");
