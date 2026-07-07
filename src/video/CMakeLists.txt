@@ -28,6 +28,12 @@ if(NOT OPTION_DEDICATED)
     )
 
     add_files(
+        gles_sprite.cpp
+        gles_sprite.h
+        CONDITION SDL2_FOUND AND OPENGLES_FOUND
+    )
+
+    add_files(
         win32_v.cpp
         win32_v.h
         CONDITION WIN32
