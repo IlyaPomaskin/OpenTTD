@@ -32,6 +32,8 @@ if(NOT OPTION_DEDICATED)
         gles_backend.h
         gles_sprite.cpp
         gles_sprite.h
+        sdl2_gles_v.cpp
+        sdl2_gles_v.h
         CONDITION SDL2_FOUND AND OPENGLES_FOUND
     )
 

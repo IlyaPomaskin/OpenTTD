@@ -27,8 +27,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
     /** Jump camera to next POI and start rendering the new area. */
     private static native void nativePrepareBackground();
-    /** Cycle zoom level In2x → Normal → Out2x → In2x. */
-    private static native void nativeCycleZoom();
     /** Trigger map regeneration. */
     private static native void nativeSwitchMap();
     /** Navigate POI by delta (+1/-1) without auto map rotation. */

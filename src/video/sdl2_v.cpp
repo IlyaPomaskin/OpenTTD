@@ -20,6 +20,7 @@
 #include "../framerate_type.h"
 #include "../window_func.h"
 #include "sdl2_v.h"
+#include "gles_perf.h"
 #include <SDL.h>
 #ifdef __EMSCRIPTEN__
 #	include <emscripten.h>
@@ -541,10 +542,34 @@ bool VideoDriver_SDL_Base::PollEvent()
 			}
 			break;
 		}
+		case SDL_APP_DIDENTERBACKGROUND:
+			Debug(driver, 1, "SDL: APP_DIDENTERBACKGROUND — pausing game thread");
+			this->SetGameThreadPaused(true);
+			break;
+
+		case SDL_APP_WILLENTERFOREGROUND:
+			Debug(driver, 1, "SDL: APP_WILLENTERFOREGROUND — resuming game thread");
+			this->SetGameThreadPaused(false);
+			break;
+
+		case SDL_APP_DIDENTERFOREGROUND:
+			Debug(driver, 1, "SDL: APP_DIDENTERFOREGROUND");
+			break;
+
+		case SDL_RENDER_DEVICE_RESET:
+			Debug(driver, 0, "SDL: SDL_RENDER_DEVICE_RESET (GL context lost!)");
+			_gles_context_lost = true;
+			break;
+
 		case SDL_WINDOWEVENT: {
 			if (ev.window.event == SDL_WINDOWEVENT_EXPOSED) {
 				/* Force a redraw of the entire screen. */
 				this->MakeDirty(0, 0, _screen.width, _screen.height);
+				/* In snapshot mode, reset triple buffer so next Acquire succeeds
+				 * and forces FBO→screen blit on the new surface. */
+				if (this->snapshot_buffer != nullptr) {
+					this->snapshot_buffer->gpu_frame_id = 0;
+				}
 			} else if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
 				int w = std::max(ev.window.data1, 64);
 				int h = std::max(ev.window.data2, 64);
