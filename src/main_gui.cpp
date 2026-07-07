@@ -35,6 +35,9 @@
 #include "misc_cmd.h"
 #include "timer/timer.h"
 #include "timer/timer_window.h"
+#ifdef WALLPAPER_BUILD
+#include "video/gles_poi.h"
+#endif
 
 #include "saveload/saveload.h"
 
@@ -157,7 +160,11 @@ void ZoomInOrOutToCursorWindow(bool in, Window *w)
 
 void FixTitleGameZoom(int zoom_adjust)
 {
+#ifdef WALLPAPER_BUILD
+	if (_game_mode != GameMode::Menu && _game_mode != GameMode::Wallpaper) return;
+#else
 	if (_game_mode != GameMode::Menu) return;
+#endif
 
 	Viewport &vp = *GetMainWindow()->viewport;
 
@@ -219,7 +226,11 @@ struct MainWindow : Window
 		ResizeWindow(this, _screen.width, _screen.height);
 
 		NWidgetViewport *nvp = this->GetWidget<NWidgetViewport>(WID_M_VIEWPORT);
+#ifdef WALLPAPER_BUILD
+		nvp->InitializeViewport(this, TileXY(32, 32), ZoomLevel::In4x);
+#else
 		nvp->InitializeViewport(this, TileXY(32, 32), ScaleZoomGUI(ZoomLevel::Viewport));
+#endif
 
 		this->viewport->overlay = std::make_shared<LinkGraphOverlay>(this, WID_M_VIEWPORT, CargoTypes{}, CompanyMask{}, 2);
 		this->refresh_timeout.Reset();
@@ -256,6 +267,7 @@ struct MainWindow : Window
 	void OnPaint() override
 	{
 		this->DrawWidgets();
+#ifndef WALLPAPER_BUILD
 		if (_game_mode == GameMode::Menu) {
 			static const std::initializer_list<SpriteID> title_sprites = {SPR_OTTD_O, SPR_OTTD_P, SPR_OTTD_E, SPR_OTTD_N, SPR_OTTD_T, SPR_OTTD_T, SPR_OTTD_D};
 			uint letter_spacing = ScaleGUITrad(10);
@@ -274,7 +286,14 @@ struct MainWindow : Window
 			int text_y = this->height - GetCharacterHeight(FontSize::Normal) * 2;
 			DrawString(0, this->width - 1, text_y, STR_INTRO_VERSION, TextColour::White, {AlignmentH::Centre, AlignmentV::Middle});
 		}
+#endif
 	}
+
+#ifdef WALLPAPER_BUILD
+	void OnClick([[maybe_unused]] Point pt, [[maybe_unused]] WidgetID widget, [[maybe_unused]] int click_count) override
+	{
+	}
+#endif
 
 	EventState OnHotkey(int hotkey) override
 	{
@@ -567,8 +586,13 @@ void SetupColoursAndInitialWindow()
 	switch (_game_mode) {
 		default: NOT_REACHED();
 		case GameMode::Menu:
+#ifdef WALLPAPER_BUILD
+		case GameMode::Wallpaper:
+			break;
+#else
 			ShowSelectGameWindow();
 			break;
+#endif
 
 		case GameMode::Normal:
 		case GameMode::Editor:
@@ -596,9 +620,29 @@ void ShowVitalWindows()
  */
 void GameSizeChanged()
 {
+#ifdef WALLPAPER_BUILD
+	int old_w = _cur_resolution.width;
+	int old_h = _cur_resolution.height;
+#endif
 	_cur_resolution.width  = _screen.width;
 	_cur_resolution.height = _screen.height;
 	ScreenSizeChanged();
 	RelocateAllWindows(_screen.width, _screen.height);
+#ifdef WALLPAPER_BUILD
+	if ((_game_mode == GameMode::Menu || _game_mode == GameMode::Wallpaper) &&
+	    FindWindowById(WindowClass::MainWindow, 0) != nullptr) {
+		FixTitleGameZoom(-1);
+		RecenterOnCurrentPOI();
+	}
+
+	/* In wallpaper mode, a size change mid-render (e.g. orientation change,
+	 * or wrong initial size from SDL) leaves stale snapshots at the old
+	 * dimensions. Reload the title game so the viewport is fully reinitialized
+	 * at the correct size. */
+	if (_game_mode == GameMode::Wallpaper && old_w > 0 && old_h > 0 &&
+	    (old_w != _screen.width || old_h != _screen.height)) {
+		_switch_mode = SwitchMode::Wallpaper;
+	}
+#endif
 	MarkWholeScreenDirty();
 }

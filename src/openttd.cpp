@@ -13,6 +13,11 @@
 #include "sound/sound_driver.hpp"
 #include "music/music_driver.hpp"
 #include "video/video_driver.hpp"
+#ifdef WALLPAPER_BUILD
+#include "video/gles_poi.h"
+#include "video/gles_backend.h"
+#include "wallpaper.h"
+#endif
 #include "mixer.h"
 
 #include "fontcache.h"
@@ -321,6 +326,14 @@ static void ShutdownGame()
 static void LoadIntroGame(bool load_newgrfs = true)
 {
 	_game_mode = GameMode::Menu;
+#ifdef WALLPAPER_BUILD
+	InvalidatePOIs();
+
+	/* Request GLES sprite atlas clear (deferred to GL thread). */
+	if (GLESBackend::Get() != nullptr) {
+		GLESBackend::Get()->GetSpriteAtlas().RequestClear();
+	}
+#endif
 
 	if (load_newgrfs) ResetGRFConfig(false);
 
@@ -328,6 +341,16 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	ResetWindowSystem();
 	SetupColoursAndInitialWindow();
 
+#ifdef WALLPAPER_BUILD
+	if (!LoadNextTitleMap()) {
+		GenerateWorld(GWM_EMPTY, 64, 64);
+		SetLocalCompany(COMPANY_SPECTATOR);
+		FixTitleGameZoom(-1);
+	} else {
+		SetLocalCompany(CompanyID::Begin());
+		PrepareBackground();
+	}
+#else
 	/* Load the default opening screen savegame */
 	if (SaveOrLoad("opntitle.dat", SaveLoadOperation::Load, DetailedFileType::GameFile, Subdirectory::Baseset) != SaveLoadResult::Ok) {
 		GenerateWorld(GWM_EMPTY, 64, 64); // if failed loading, make empty world.
@@ -337,6 +360,7 @@ static void LoadIntroGame(bool load_newgrfs = true)
 	}
 
 	FixTitleGameZoom();
+#endif
 	_pause_mode = {};
 	_cursor.fix_at = false;
 
@@ -397,7 +421,10 @@ struct AfterNewGRFScan : NewGRFScanCallback {
 
 		/* We want the new (correct) NewGRF count to survive the loading. */
 		uint last_newgrf_count = _settings_client.gui.last_newgrf_count;
+#ifndef WALLPAPER_BUILD
+		// Stage 1: config load disabled by design (defaults only); Stage 2 revisits — see Out of scope
 		LoadFromConfig();
+#endif
 		_settings_client.gui.last_newgrf_count = last_newgrf_count;
 		/* Since the default for the palette might have changed due to
 		 * reading the configuration file, recalculate that now. */
@@ -405,9 +432,12 @@ struct AfterNewGRFScan : NewGRFScanCallback {
 
 		Game::Uninitialize(true);
 		AI::Uninitialize(true);
+#ifndef WALLPAPER_BUILD
+		// Stage 1: config load disabled by design (defaults only); Stage 2 revisits — see Out of scope
 		LoadFromHighScore();
 		LoadHotkeysFromConfig();
 		WindowDesc::LoadFromConfig();
+#endif
 
 		/* We have loaded the config, so we may possibly save it. */
 		_save_config = save_config;
@@ -513,8 +543,13 @@ int openttd_main(std::span<std::string_view> arguments)
 	extern bool _dedicated_forks;
 	_dedicated_forks = false;
 
+#ifdef WALLPAPER_BUILD
+	_game_mode = GameMode::Wallpaper;
+	_switch_mode = SwitchMode::Wallpaper;
+#else
 	_game_mode = GameMode::Menu;
 	_switch_mode = SwitchMode::Menu;
+#endif
 
 	auto options = CreateOptions();
 	GetOptData mgo(arguments.subspan(1), options);
@@ -674,7 +709,10 @@ int openttd_main(std::span<std::string_view> arguments)
 	if (_dedicated_forks) DedicatedFork();
 #endif
 
+#ifndef WALLPAPER_BUILD
+	// Stage 1: config load disabled by design (defaults only); Stage 2 revisits — see Out of scope
 	LoadFromConfig(true);
+#endif
 
 	if (resolution.width != 0) _cur_resolution = resolution;
 
@@ -750,6 +788,9 @@ int openttd_main(std::span<std::string_view> arguments)
 	}
 
 	if (videodriver.empty() && !_ini_videodriver.empty()) videodriver = _ini_videodriver;
+#ifdef __ANDROID__
+	if (videodriver.empty()) videodriver = "sdl-gles";
+#endif
 	DriverFactoryBase::SelectDriver(videodriver, Driver::Type::Video);
 
 	InitializeSpriteSorter();
@@ -770,6 +811,7 @@ int openttd_main(std::span<std::string_view> arguments)
 
 	VideoDriver::GetInstance()->ClaimMousePointer();
 
+#ifndef WALLPAPER_BUILD
 	BaseSounds::FindSets();
 	if (sounds_set.empty() && !BaseSounds::ini_set.empty()) sounds_set = BaseSounds::ini_set;
 	if (!BaseSounds::SetSetByName(sounds_set)) {
@@ -793,13 +835,23 @@ int openttd_main(std::span<std::string_view> arguments)
 	}
 
 	if (sounddriver.empty() && !_ini_sounddriver.empty()) sounddriver = _ini_sounddriver;
+#else
+	/* Sound & music disabled — skip scanning, use null drivers. */
+	sounddriver = "null";
+	musicdriver = "null";
+#endif
 	DriverFactoryBase::SelectDriver(sounddriver, Driver::Type::Sound);
 
 	if (musicdriver.empty() && !_ini_musicdriver.empty()) musicdriver = _ini_musicdriver;
 	DriverFactoryBase::SelectDriver(musicdriver, Driver::Type::Music);
 
 	GenerateWorld(GWM_EMPTY, 64, 64); // Make the viewport initialization happy
+#ifdef WALLPAPER_BUILD
+	LoadWallpaperGame();
+	_switch_mode = SwitchMode::None; // Prevent game thread from re-running via SwitchToMode
+#else
 	LoadIntroGame(false);
+#endif
 
 	/* ScanNewGRFFiles now has control over the scanner. */
 	RequestNewGRFScan(scanner.release());
@@ -985,6 +1037,7 @@ bool SafeLoad(const std::string &filename, SaveLoadOperation fop, DetailedFileTy
 	switch (ogm) {
 		default:
 		case GameMode::Menu: LoadIntroGame(); break;
+		case GameMode::Wallpaper: LoadWallpaperGame(); break;
 		case GameMode::Editor: MakeNewEditorWorld(); break;
 	}
 	return false;
@@ -1008,6 +1061,9 @@ static void UpdateSocialIntegration(GameMode game_mode)
 
 		case GameMode::Editor:
 			SocialIntegration::EventEnterScenarioEditor(Map::SizeX(), Map::SizeY());
+			break;
+
+		case GameMode::Wallpaper:
 			break;
 	}
 }
@@ -1152,6 +1208,11 @@ void SwitchToMode(SwitchMode new_mode)
 			NetworkClientJoinGame();
 
 			SocialIntegration::EventJoiningMultiplayer();
+			break;
+
+		case SwitchMode::Wallpaper: // Switch to wallpaper mode
+			Debug(misc, 0, "SwitchToMode(SwitchMode::Wallpaper): screen={}x{}", _screen.width, _screen.height);
+			LoadWallpaperGame();
 			break;
 
 		case SwitchMode::Menu: // Switch to game intro menu
@@ -1386,7 +1447,9 @@ void GameLoop()
 
 	if (_pause_mode.None() && _display_opt.Test(DisplayOption::FullAnimation)) DoPaletteAnimations();
 
+#ifndef WALLPAPER_BUILD
 	SoundDriver::GetInstance()->MainLoop();
 	MusicLoop();
+#endif
 	SocialIntegration::RunCallbacks();
 }

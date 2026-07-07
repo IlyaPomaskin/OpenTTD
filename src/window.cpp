@@ -953,6 +953,27 @@ void DrawOverlappedWindowForAll(int left, int top, int right, int bottom)
 	DrawPixelInfo bk;
 	AutoRestoreBackup dpi_backup(_cur_dpi, &bk);
 
+#ifdef WALLPAPER_BUILD
+	if (_game_mode == GameMode::Wallpaper) {
+		/* Wallpaper mode: only the viewport (WindowClass::MainWindow) renders.
+		 * No other windows exist visually, so skip overlap logic entirely. */
+		for (Window *w : Window::IterateFromBack()) {
+			if (w->window_class != WindowClass::MainWindow || !MayBeShown(w)) continue;
+			DrawPixelInfo *dp = _cur_dpi;
+			dp->width = right - left;
+			dp->height = bottom - top;
+			dp->left = left - w->left;
+			dp->top = top - w->top;
+			dp->pitch = _screen.pitch;
+			dp->dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_screen.dst_ptr, left, top);
+			dp->zoom = ZoomLevel::Min;
+			w->OnPaint();
+			break;
+		}
+		return;
+	}
+#endif
+
 	for (Window *w : Window::IterateFromBack()) {
 		if (MayBeShown(w) &&
 				right > w->left &&
@@ -2978,6 +2999,11 @@ static void MouseLoop(MouseClick click, int mousewheel)
  */
 void HandleMouseEvents()
 {
+#ifdef WALLPAPER_BUILD
+	/* Wallpaper mode is spectator — ignore all touch/mouse input. */
+	if (_game_mode == GameMode::Wallpaper) return;
+#endif
+
 	/* World generation is multithreaded and messes with companies.
 	 * But there is no company related window open anyway, so _current_company is not used. */
 	assert(HasModalProgress() || IsLocalCompany());
@@ -3173,9 +3199,14 @@ void UpdateWindows()
 		/* Update viewport only if window is not shaded. */
 		if (w->viewport != nullptr && !w->IsShaded()) UpdateViewportPosition(w, delta_ms.count());
 	}
+#ifdef WALLPAPER_BUILD
+	if (_game_mode != GameMode::Wallpaper) NetworkDrawChatMessage();
+	if (_game_mode != GameMode::Wallpaper) DrawMouseCursor();
+#else
 	NetworkDrawChatMessage();
 	/* Redraw mouse cursor in case it was hidden */
 	DrawMouseCursor();
+#endif
 
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW) {
 		/* We are done with the last draw-frame, so we know what sprites we

@@ -576,6 +576,8 @@ add_files(
     viewport_type.h
     void_cmd.cpp
     void_map.h
+    wallpaper.cpp
+    wallpaper.h
     water.h
     water_cmd.cpp
     water_cmd.h

@@ -20,6 +20,7 @@ enum class GameMode : uint8_t {
 	Normal, ///< Playing a game.
 	Editor, ///< In the scenario editor.
 	Bootstrap, ///< In the content bootstrap process.
+	Wallpaper, ///< Live wallpaper spectator mode (Android).
 };
 
 /** Mode which defines what mode we're switching to. */
@@ -39,6 +40,7 @@ enum class SwitchMode : uint8_t {
 	LoadHeightmap, ///< Load heightmap from scenario editor.
 	RestartHeightmap, ///< Load a heightmap and start a new game from it with current settings.
 	JoinGame, ///< Join a network game.
+	Wallpaper, ///< Switch to live wallpaper spectator mode (Android).
 };
 
 /** Display Options */

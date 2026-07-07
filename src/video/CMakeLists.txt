@@ -45,6 +45,8 @@ if(NOT OPTION_DEDICATED)
         draw_snapshot.cpp
         draw_snapshot.h
         gles_perf.h
+        gles_poi.cpp
+        gles_poi.h
     )
 endif()
 

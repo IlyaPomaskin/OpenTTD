@@ -188,6 +188,12 @@ if(ANDROID)
     set(OPENGLES_FOUND TRUE)
     add_definitions(-DWITH_OPENGLES)
     message(STATUS "OpenGL ES found -- -DWITH_OPENGLES -- (Android built-in)")
+
+    option(WALLPAPER_PERF "Collect GLES perf counters (_gles_perf)" ON)
+    add_definitions(-DWALLPAPER_BUILD)
+    if(WALLPAPER_PERF)
+        add_definitions(-DWALLPAPER_PERF)
+    endif()
 endif()
 
 if(MSVC)

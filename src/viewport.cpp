@@ -90,6 +90,9 @@
 #include "network/network_func.h"
 #include "framerate_type.h"
 #include "viewport_cmd.h"
+#ifdef WALLPAPER_BUILD
+#include "video/gles_poi.h"
+#endif
 
 #include <forward_list>
 #include <stack>
@@ -389,11 +392,13 @@ static void SetViewportPosition(Window *w, int x, int y)
 		i = top + height - _screen.height;
 		if (i >= 0) height -= i;
 
+#ifndef WALLPAPER_BUILD
 		if (height > 0) {
 			Window::IteratorToFront it(w);
 			++it;
 			DoSetViewportPosition(it, left, top, width, height);
 		}
+#endif
 	}
 }
 
@@ -1835,9 +1840,16 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	ViewportAddLandscape();
 	ViewportAddVehicles(&_vd.dpi);
 
+#ifdef WALLPAPER_BUILD
+	if (_game_mode != GameMode::Wallpaper) {
+		ViewportAddKdtreeSigns(&_vd.dpi);
+		DrawTextEffects(&_vd.dpi);
+	}
+#else
 	ViewportAddKdtreeSigns(&_vd.dpi);
 
 	DrawTextEffects(&_vd.dpi);
+#endif
 
 	if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw);
 
@@ -1865,7 +1877,19 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		vp.overlay->Draw(&dp);
 	}
 
-	if (!_vd.string_sprites_to_draw.empty()) {
+#ifdef WALLPAPER_BUILD
+	if (_game_mode == GameMode::Menu || _game_mode == GameMode::Wallpaper) {
+		dp.left = x;
+		dp.top = y;
+		DrawPOIMarkers(vp);
+	}
+#endif
+
+	bool draw_strings = !_vd.string_sprites_to_draw.empty();
+#ifdef WALLPAPER_BUILD
+	draw_strings = draw_strings && _game_mode != GameMode::Wallpaper;
+#endif
+	if (draw_strings) {
 		/* translate to world coordinates */
 		dp.left = UnScaleByZoom(_vd.dpi.left, zoom);
 		dp.top = UnScaleByZoom(_vd.dpi.top, zoom);
