@@ -22,6 +22,9 @@
 #include "base_media_graphics.h"
 #include "base_media_sounds.h"
 #include "spritecache.h"
+#ifdef WITH_OPENGLES
+#include "video/gles_backend.h"
+#endif
 
 #include "table/sprites.h"
 
@@ -343,7 +346,9 @@ void GfxLoadSprites()
 	GfxInitSpriteMem();
 	LoadSpriteTables();
 	BufferSpriteFilesToMemory();
-	/* Stage1 Task5 adds BuildGLSpriteFiles() here */
+#ifdef WITH_OPENGLES
+	if (GLESBackend::Get() != nullptr) GLESBackend::Get()->GetSpriteAtlas().BuildGLSpriteFiles();
+#endif
 	GfxInitPalettes();
 
 	UpdateCursorSize();

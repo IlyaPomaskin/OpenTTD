@@ -39,6 +39,12 @@ add_files(
 )
 
 add_files(
+    snapshot.cpp
+    snapshot.hpp
+    CONDITION NOT OPTION_DEDICATED AND OPENGLES_FOUND
+)
+
+add_files(
     base.hpp
     common.hpp
     factory.hpp
