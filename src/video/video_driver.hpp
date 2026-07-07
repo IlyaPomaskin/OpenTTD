@@ -21,8 +21,11 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
+
+#include "draw_snapshot.h"
 
 extern std::string _ini_videodriver;
 extern std::vector<Dimension> _resolutions;
@@ -96,6 +99,12 @@ public:
 	{
 		return false;
 	}
+
+	/**
+	 * Check and recover from GL context loss. Called at start of draw thread iteration.
+	 * @return True if context was lost and recovered (skip GL work this frame).
+	 */
+	virtual bool RecoverContextIfLost() { return false; }
 
 	/**
 	 * Populate all sprites in cache.
@@ -191,6 +200,17 @@ public:
 	void GameLoopPause();
 
 	/**
+	 * Pause or resume the game thread. While paused, the game thread runs a
+	 * few warm-up ticks then blocks on a condition variable.
+	 * @param paused True to pause, false to resume.
+	 */
+	void SetGameThreadPaused(bool paused)
+	{
+		this->game_thread_paused.store(paused);
+		if (!paused) this->game_pause_cv.notify_one();
+	}
+
+	/**
 	 * Prevents the system from going to sleep.
 	 *
 	 * @param inhibited If true, sleep will be disabled. If false, sleep will be enabled.
@@ -273,9 +293,28 @@ protected:
 	virtual void UnlockVideoBuffer() {}
 
 	/**
+	 * Called after ::GameLoop() completes, with game_state_mutex still held.
+	 * GLES driver overrides this to record a draw snapshot.
+	 */
+	virtual void OnGameLoopDone() {}
+
+	/**
+	 * Called at the top of the draw section of Tick(). If this returns true,
+	 * the legacy draw path (LockVideoBuffer/.../Paint) is skipped entirely.
+	 * @return True if the tick was handled by snapshot rendering.
+	 */
+	virtual bool SnapshotTick() { return false; }
+
+	/**
 	 * Paint the window.
 	 */
 	virtual void Paint() {}
+
+	/**
+	 * Paint from the snapshot triple buffer.
+	 * @return True if a frame was rendered.
+	 */
+	virtual bool PaintFromSnapshot() { return false; }
 
 	/**
 	 * Process any pending palette animation.
@@ -332,6 +371,11 @@ protected:
 	{
 		TicToc::Tick("DrawTick");
 
+		/* Snapshot mode: match draw rate to game tick rate. */
+		if (this->snapshot_buffer != nullptr) {
+			return std::chrono::milliseconds(MILLISECONDS_PER_TICK);
+		}
+
 		/* If vsync, draw interval is decided by the display driver */
 		if (_video_vsync && this->uses_hardware_acceleration) return std::chrono::microseconds(0);
 		return std::chrono::microseconds(1000000 / _settings_client.gui.refresh_rate);
@@ -365,6 +409,12 @@ protected:
 	std::thread game_thread;
 	std::mutex game_state_mutex;
 	std::mutex game_thread_wait_mutex;
+
+	std::atomic<bool> game_thread_paused{false};
+	std::mutex game_pause_mutex;
+	std::condition_variable game_pause_cv;
+
+	std::unique_ptr<SnapshotTripleBuffer> snapshot_buffer; ///< Triple buffer for snapshot rendering. nullptr = legacy mode.
 
 	bool uses_hardware_acceleration;
 

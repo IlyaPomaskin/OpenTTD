@@ -39,12 +39,29 @@ void VideoDriver::GameLoop()
 		std::lock_guard<std::mutex> lock(this->game_state_mutex);
 
 		::GameLoop();
+		this->OnGameLoopDone();
 	}
 }
 
 void VideoDriver::GameThread()
 {
 	while (!_exit_game) {
+		if (this->game_thread_paused.load()) {
+			Debug(driver, 0, "[CTX] GameThread: paused — running 5 warm-up ticks");
+			for (int i = 0; i < 5 && !_exit_game; i++) {
+				this->GameLoop();
+				std::this_thread::sleep_for(std::chrono::milliseconds(20));
+			}
+			Debug(driver, 0, "[LOAD] game_thread_sleep: entering pause wait");
+			std::unique_lock<std::mutex> lock(this->game_pause_mutex);
+			this->game_pause_cv.wait(lock, [this] {
+				return !this->game_thread_paused.load() || _exit_game;
+			});
+			this->next_game_tick = std::chrono::steady_clock::now();
+			Debug(driver, 0, "[LOAD] game_thread_sleep: resumed");
+			continue;
+		}
+
 		this->GameLoop();
 
 		auto now = std::chrono::steady_clock::now();
@@ -119,6 +136,10 @@ void VideoDriver::Tick()
 		this->next_draw_tick += this->GetDrawInterval();
 		/* Avoid next_draw_tick getting behind more and more if it cannot keep up. */
 		if (this->next_draw_tick < now - ALLOWED_DRIFT * this->GetDrawInterval()) this->next_draw_tick = now;
+
+		/* Snapshot mode: if handled here, skip the legacy draw path entirely.
+		 * Scheduling above (next_draw_tick advance + drift correction) already ran. */
+		if (this->SnapshotTick()) return;
 
 		/* Locking video buffer can block (especially with vsync enabled), do it before taking game state lock. */
 		this->LockVideoBuffer();
