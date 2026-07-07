@@ -1,5 +1,7 @@
 # Stage 5 — Perf Instrumentation, Tooling & Hardening (Design Spec)
 
+**Plan-confidence status:** Draft (iteration 2, confidence 80%). Cap: Readiness — Stage 5 hard-depends on Stages 1–4 green, and Stage 1 is verified **incomplete** on `lwp2` (no `sdl2_gles_v.*` driver, no `GM_WALLPAPER`, no PERF-log block, no `GLES_PERF_SCOPE`). The §2 instrumentation sites attach to code that does not yet exist in-tree; their exact placement/line-context can only be finalized against the post-Stage-1 guarded files. See Confidence Survey Q2.2.
+
 **Goal:** Close the instrumentation gap Stage 1 deferred and make the wallpaper shipping-quality. Add the `GLES_PERF_SCOPE(field)` RAII chrono macro; wire the viewport/gameloop timing **sites** through it and `GLES_PERF_COUNT` as 1-line hunks (mergeability rule 4); port the offline/live perf parsers from `gles` so the C++ PERF log lines are consumable; run a bounded perf-tuning pass against `tools/run_android.py perf/fps` + simpleperf baselines; and land the hardening items Stage 1 punted (atlas-clear verification, config-load decision, battery/idle behaviour).
 
 **Nature:** A mixed stage. Two parts are owned/low-risk (the macro in `src/video/gles_perf.h`; four python tools under `tools/`). One part is the highest-merge-risk work in the fork — timing edits inside shared upstream files (`viewport.cpp`, `openttd.cpp`, `landscape.cpp`) — which is precisely why it is gated to **1-line-per-site** hunks. The tuning and hardening parts are measurement + decision passes, not large code.
@@ -61,6 +63,8 @@ The reference instruments both the `GM_EDITOR` and normal branches; the wallpape
 **`src/landscape.cpp`** — single `GLES_PERF_COUNT(_gles_perf.tileloop_count += 1 << (Map::LogX() + Map::LogY() - TILE_UPDATE_FREQUENCY_LOG))` at reference line 844 (inside `RunTileLoop`).
 
 **Map-load / saveload timing (optional, secondary):** engine-changes.md "Misc" lists saveload timing, but `gles` has **no `_gles_perf` field** for it — the reference logs map-load duration as a plain `Debug(...)` line in `LoadIntroGame` (gles openttd.cpp ~333-362). Recommendation: port that as a single `Debug(driver, 1, ...ms)` line (not a counter) if map-switch latency needs a number; otherwise drop it. Flagged in Open decision (a) as tuning-scope.
+
+**Counter-semantics caveat (verified against `gles`, still-open Q2.3/Q2.4).** The reference does NOT time these phases with tidy per-call scopes; it uses overlapping `_t*`/`gl_t*` spans: `tileloop_us` = `gl_t0..gl_t1` (spans `AnimateAnimatedTiles` + `TimerManager::Elapsed` + `RunTileLoop`, **not** `RunTileLoop` alone); `gameloop_us` `gl_t0` is set *before* the `GM_EDITOR`/normal branch (spans the whole tick body); `vp_signs_tiles_us` = `_t2.._t3` (overlaps `vp_tilesprites_us` = `_t2b.._t3`). A literal "scope around `RunTileLoop()`" per §2 therefore yields a **narrower** number than the reference. Whether the bounded tuning pass needs reference-comparable values (→ wrap the broader spans) or the tidier per-call semantics are fine (→ document the delta) is Confidence Survey Q2.3; the `gameloop_us` extent + whether to instrument the `GM_EDITOR` branch is Q2.4.
 
 **Invariant to preserve:** the driver's PERF-log block already reads all of the above fields (Stage 1 Task 8). This stage only makes them non-zero. No change to the log block itself except confirming every field it prints now has a producer, and confirming the whole block + every `_gles_perf.*` read in it remains wrapped in `GLES_PERF_COUNT` (Q1.8) so an OFF build drops it entirely.
 
@@ -127,7 +131,7 @@ No CMake change (all touched `.cpp` already registered; `gles_perf.h` already li
 
 1. **PERF-ON build** (default): install, launch wallpaper. logcat shows PERF/VP/TICK/CPU/EXTRA/GPU_SNAP lines at 500 ms cadence with the §2 fields **non-zero** (`vp_land_us`, `vp_draw_us`, `tileloop_us`, `vehicletick_us`, `gameloop_us`, `vehicle_*` all > 0 during a steady run).
 2. **Parsers consume it:** `python3 tools/perf_stats.py 20` prints TICK/VP/game-thread breakdowns with sane numbers (no "no data" / all-zero sections); `python3 tools/perf_monitor.py` draws live graphs and its adb-broadcast remote (screen 0) drives map/POI; `tools/perf_collect.sh 20` prints its three breakdown tables.
-3. **PERF-OFF build compiles clean with zero perf sites:** a `-DWALLPAPER_PERF` -absent build is `BUILD SUCCESSFUL`, and `git grep -nE '_gles_perf\.|steady_clock' src/viewport.cpp src/openttd.cpp src/landscape.cpp` shows **no bare** perf writes or chrono outside `GLES_PERF_COUNT`/`GLES_PERF_SCOPE` (the grep proof). `git grep GLES_PERF_SCOPE` finds only macro-mediated sites.
+3. **PERF-OFF build compiles clean with zero perf sites:** a `-DWALLPAPER_PERF` -absent build is `BUILD SUCCESSFUL`. Grep proof (folded Q1.8): `git grep -n '_gles_perf\.' src/viewport.cpp src/openttd.cpp src/landscape.cpp` must show **only** `GLES_PERF_COUNT`/`GLES_PERF_SCOPE`-wrapped sites (no bare writes), and `git grep GLES_PERF_SCOPE` finds only macro-mediated sites. **Do NOT** grep bare `steady_clock` as a proof — `openttd.cpp` already contains pre-existing upstream `steady_clock` uses (`_game_session_stats.start_time` ~L498/L1057, autosave `last_time`/`now` ~L1351) that are false positives; instead prove no chrono leaked from *this stage* via `git diff <stage5-base>..HEAD -- <files> | grep -c 'steady_clock'` == 0 (all timing lives inside the header macro).
 4. **simpleperf:** a profile over a steady run shows the expected hotspots (GL replay/paint on the GL thread; sim/tileloop/vehicletick on the game thread) and no surprise CPU sink; captured as the tuning baseline.
 5. **Extended stability:** multi-minute run with repeated `SWITCH_MAP` (atlas clear each time) → no crash, no growing GL memory, no persistent artifacts; `gpu_sprites_repacked`/occupancy settle after each reload (Q1.7 confirmation, records shipped clear path).
 6. **Idle:** screen-off → game thread parked (≈0% CPU via `top`/simpleperf), `idle_blits` climbing, `swap_us`/`full_renders` ≈0; screen-on resumes cleanly.
@@ -139,19 +143,87 @@ No CMake change (all touched `.cpp` already registered; `gles_perf.h` already li
 - Non-Android / desktop perf paths.
 - Settings persistence UX itself (Stage 4) — this stage only decides whether config *load* is re-enabled, not the settings surface.
 
-## Open decisions (recommend + tradeoffs; not decided here)
+## Open decisions (recommend + tradeoffs)
+
+> plan-confidence iter 1 self-assessed & **folded**: (a) fixed stop-condition, (c) port perf-triad only, (d) observation-first, (e) keep macros separate. **Still open** (carried to Confidence Survey): (b) config-load — blocked on Stage 3/4 settings-storage → Q2.1.
 
 **(a) Perf-tuning scope / stop condition.** This stage is instrumentation + tooling + a *bounded* tuning pass, but optimization is open-ended. Where is the line, and is there a target metric?
 - *Recommend:* fixed stop condition — sustained ≥ device tick rate with headroom, idle CPU ≈0, jank_count≈0/p99≤~2×p50 over a multi-minute run; apply only localized, clearly-attributable findings; anything structural becomes a follow-up. Trade-off: a soft target risks scope creep if treated as an SLA; a hard SLA risks over-investing before real-world battery data exists. Also folds in the optional map-load `Debug(...ms)` timing line — include it only if map-switch latency is a tuning target.
+  - **DECIDED (plan-confidence iter 1, self-assessed): adopt the fixed stop-condition; treat as a stop signal, not an SLA. Map-load `Debug(...ms)` line deferred unless map-switch latency surfaces as a tuning target.**
 
 **(b) Config-load re-enable.** Full `LoadFromConfig` vs a minimal wallpaper-specific config vs leave defaults-only?
 - *Recommend:* **minimal wallpaper-specific config** — persist only the handful of wallpaper settings (brightness, POI cadence, map rotation) that Stage 3/4 expose, still behind the `#ifndef WALLPAPER_BUILD` gate pattern. Trade-off: full `LoadFromConfig` drags in hotkeys/window-desc/highscore machinery the wallpaper never uses (battery + surface area, and re-opens upstream-merge exposure); defaults-only means user settings don't survive a device reboot. Depends on how Stage 3/4 chose to store settings (Android prefs vs openttd.cfg) — reconcile with those specs before deciding.
+  - **STILL OPEN (readiness-blocked): the deciding input — Stage 3/4's settings-storage mechanism — does not yet exist in-tree. Cannot fold without it. → Confidence Survey Q2.1.**
 
 **(c) Which python tools to port.** All four parsers vs only what `run_android.py` needs?
 - *Recommend:* port `perf_monitor.py`, `perf_stats.py`, `perf_collect.sh` (the perf triad — small, matched to the log format, high dev value). `extract_vehicles.py` is a sprite-decode debug aid unrelated to perf; port it only if atlas/decode debugging is still active — otherwise defer to keep the tree lean (no dead scaffolding). Trade-off: skipping it now means re-porting later if a sprite bug appears; it is self-contained and cheap to bring back.
+  - **DECIDED (plan-confidence iter 1, self-assessed): port `perf_monitor.py`/`perf_stats.py`/`perf_collect.sh`; defer `extract_vehicles.py` (no active sprite-decode debugging).**
 
 **(d) Atlas-clear stress test.** Dedicated memory-pressure stress test, or observation during normal `SWITCH_MAP` runs?
 - *Recommend:* **observation during normal runs first** (repeated `SWITCH_MAP` + extended runtime is already a real clear+reload workout); add a dedicated stress harness only if occupancy/repack counters don't settle or artifacts appear. Trade-off: a real stress test (rapid forced clears, low-memory simulation) gives stronger evidence for the delete+realloc-vs-in-place decision but is extra tooling the primary path may not need.
+  - **DECIDED (plan-confidence iter 1, self-assessed): observation during normal `SWITCH_MAP` runs first; add a dedicated stress harness only if occupancy/repack counters fail to settle or artifacts appear.**
 
 **(e) One macro vs split counter/timer macros.** Keep `GLES_PERF_SCOPE` separate from `GLES_PERF_COUNT`, or unify?
 - *Recommend:* **keep them separate.** `GLES_PERF_COUNT(stmt)` is a statement-wrapper (increments/assignments/`max`/blocks); `GLES_PERF_SCOPE(field)` is an RAII timer with different lifetime semantics and a different argument shape (a field name, not a statement). Merging them would overload one name with two behaviours and muddy call-site intent. Trade-off: two macros is marginally more surface in the header, but each reads unambiguously at the call site and both share the single `WALLPAPER_PERF` gate.
+  - **DECIDED (plan-confidence iter 1, self-assessed): keep `GLES_PERF_SCOPE` (RAII timer) separate from `GLES_PERF_COUNT` (statement-wrapper).**
+
+## Confidence Survey
+
+Edit checkboxes in-place to answer. Mark exactly one option per question with `[x]`. The option labeled `*(Recommended)*` is the skill's best guess given current plan + repo context — override freely. (Ran file-based / non-interactive: iter-1 questions were self-assessed and folded; the questions below are the ones that remain genuinely open — most are **readiness-blocked** on work not yet in-tree, so they are left unchecked pending a human call.)
+
+### Iteration 2 — 2026-07-07
+
+#### Q2.1. Config-load re-enable (Open decision (b)) is blocked: the deciding input — Stage 3/4's settings-storage mechanism (Android prefs vs `openttd.cfg`) — does not exist in-tree yet. What is the Stage-5 position on config *load*?
+- [ ] Persist a minimal wallpaper-specific set (brightness, POI cadence, map rotation) behind `#ifndef WALLPAPER_BUILD`, finalized once Stage 3/4 lands  *(Recommended)*
+- [ ] Re-enable full `LoadFromConfig`/`LoadHotkeysFromConfig`/`WindowDesc::LoadFromConfig`
+- [ ] Leave defaults-only (no persistence); revisit post-ship
+- [ ] Remove config-load from Stage 5 scope entirely; fold it into Stage 4 (settings surface)
+
+#### Q2.2. Stage 1 is verified incomplete on `lwp2` (no `sdl2_gles_v.*`, no `GM_WALLPAPER`, no PERF-log block, no `GLES_PERF_SCOPE`). The §2 sites attach to the guarded, post-Stage-1 forms of `viewport.cpp`/`openttd.cpp`, which don't exist yet. How should this spec proceed?
+- [ ] Gate Stage 5 start on Stages 1–4 green; treat every `gles:` line number as a template and re-derive each §2 site against the post-Stage-1 guarded files before writing the impl plan  *(Recommended)*
+- [ ] Write the Stage 5 impl plan now using the reference line numbers as-is; fix drift during execution
+- [ ] Split Stage 5: do the owned/low-risk parts (macro + tools port) now; defer the shared-file instrumentation until Stages 1–4 land
+- [ ] Move §2 instrumentation into Stage 1 Task 8 (co-locate with the driver PERF block); Stage 5 keeps only tooling + tuning + hardening
+
+#### Q2.3. The reference times phases with overlapping `_t*`/`gl_t*` spans; tidy per-call `GLES_PERF_SCOPE` changes what several counters measure (`tileloop_us` = `RunTileLoop` only, not `gl_t0..gl_t1`; `vp_signs_tiles_us` subsumed by `vp_tilesprites_us`). How to reconcile?
+- [ ] Accept per-call semantics; document the delta vs `gles` — exact parity isn't needed for a bounded tuning pass  *(Recommended)*
+- [ ] Reproduce the reference spans exactly (wrap the broader `gl_t0..gl_t1` / `_t2.._t3` regions) so `perf_stats.py` numbers match historical `gles` baselines
+- [ ] Emit both a narrow per-call scope and the broad span into distinct fields; compare once, then keep one
+- [ ] Drop the affected sub-counters (`tileloop_us`, `vp_signs_tiles_us`); rely on `gameloop_us` + `vehicletick_us` only
+
+#### Q2.4. `gameloop_us` extent + editor branch: the reference sets `gl_t0` *before* the `GM_EDITOR`/normal branch (spans the whole tick body) and instruments both branches; §2 currently says "at top of the active branch". Which shape?
+- [ ] `gameloop_us` spans the whole tick body (match reference); instrument the normal branch only (skip `GM_EDITOR` — never runs in wallpaper)  *(Recommended)*
+- [ ] Scope `gameloop_us` to the active branch only (as §2 text reads now), accepting a narrower number
+- [ ] Instrument both `GM_EDITOR` and normal branches symmetrically for full reference parity
+- [ ] Defer `gameloop_us` until the tuning pass shows the tick body is a hotspot
+
+#### Q2.5. The build gate wants both `WALLPAPER_PERF=ON` and a spot-check `=OFF` build green, but no OFF build exists in CI and the wallpaper always ships PERF-ON for now. How hard is the OFF gate?
+- [ ] Best-effort spot-check: build OFF once during Stage 5 to confirm the macros vanish; not per-commit  *(Recommended)*
+- [ ] Hard gate: every Stage 5 commit must build green under both ON and OFF
+- [ ] Drop the OFF build; rely on the grep proof (no bare perf sites) alone
+- [ ] Add an OFF build to CI as a Stage 5 deliverable
+
+## Reconciliation Log
+
+Append-only. Newest entry at the bottom.
+
+### Iteration 1 — 2026-07-07 (file-based, non-interactive)
+- **Confidence:** 68% (cap from Readiness + universal "decide-between/vs" token cap on the Open-decisions section).
+- **Resolved:** none (first pass).
+- **Verified against current tree (`lwp2`):** `GLES_PERF_COUNT(stmt)` present in `gles_perf.h` (L174-177); **`GLES_PERF_SCOPE` absent** across `src/`; all §2 target fields exist in `GLESPerfCounters` but are written by nothing (driver prints 0). **Stage 1 NOT done**: no `src/video/sdl2_gles_v.*`, no `GM_WALLPAPER` in `src/`, no `Debug(driver,3)` PERF-log block. `perf_monitor.py`/`perf_stats.py`/`perf_collect.sh`/`extract_vehicles.py` exist **only** in `gles`; `run_android.py`+`test_wallpaper.sh` on `lwp2`. Reference sites confirmed (`viewport.cpp` 1846-1889, `openttd.cpp` StateGameLoop 1242-1324, `landscape.cpp:844`) — and their counters use **overlapping spans**, not per-call scopes. Verification-gate #3 grep proof false-positives on pre-existing `steady_clock` in `openttd.cpp`.
+- **Findings driving the gap:** (1) five Open decisions (a-e) "not decided here" → Readiness ≤75% + universal ≤70% "vs/decide" tokens; (2) hard dependency on Stages 1-4 **unmet** — §2 sites attach to a non-existent driver/guards [Q2.2]; (3) counter-semantics discrepancy (tidy scopes ≠ reference overlapping spans) [Q2.3/Q2.4]; (4) grep-proof false positives [folded Q1.8].
+- **Still uncertain:** Readiness (unmet deps + open decisions) dominates; minor Unknowns (counter fidelity).
+- **New questions:** Q1.1(=a) … Q1.5(=e), Q1.6(fidelity), Q1.7(sequencing), Q1.8(grep proof).
+
+### Iteration 2 — 2026-07-07 (file-based, non-interactive)
+- **Confidence:** 80% (cap from **Readiness** — Stages 1-4 not green; §2 sites cannot be finalized against a post-Stage-1 tree that does not exist).
+- **Resolved (self-assessed → folded → dissolved):**
+  - Q1.1(a) → fixed stop-condition (stop signal, not SLA); map-load `Debug(...ms)` deferred → Open decision (a) marked DECIDED.
+  - Q1.3(c) → port perf-triad, defer `extract_vehicles.py` → (c) DECIDED.
+  - Q1.4(d) → observation-first, dedicated harness only on failure → (d) DECIDED.
+  - Q1.5(e) → keep `GLES_PERF_SCOPE`/`GLES_PERF_COUNT` separate → (e) DECIDED.
+  - Q1.8 → drop bare `steady_clock` from the grep proof (pre-existing upstream uses); prove via `git diff …| grep -c steady_clock == 0` → Verification gate #3 rewritten.
+  - Q1.6 → documented the per-call-vs-reference-span delta as a §2 caveat; residual decision carried → Q2.3/Q2.4.
+- **Still uncertain / carried open:** Q1.2(b) config-load [readiness-blocked on Stage 3/4] → Q2.1; sequencing + site re-derivation → Q2.2; counter fidelity → Q2.3/Q2.4; OFF-build gate hardness → Q2.5.
+- **Honesty note on the cap:** folding (a)/(c)/(d)/(e) lifted the universal "decide-between" ≤70% token cap; the binding cap is now **Readiness**. Stage 5 cannot be executed, and its §2 site line/context cannot be finalized, until Stages 1-4 (esp. Stage 1's driver PERF-log block + `GM_WALLPAPER` guards) land. This is a genuine dependency gap, not a spec defect — the spec itself is high-quality and thorough. Confidence therefore **plateaus at 80%**; it cannot reach 90% by editing this document alone. No downstream skill invoked (HARD-GATE): survey still open, and the readiness cap is external.
+- **New questions:** Q2.1 … Q2.5.
