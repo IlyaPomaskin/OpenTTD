@@ -529,7 +529,7 @@ static void *ReadSprite(const SpriteCache *sc, SpriteID id, SpriteType sprite_ty
 		sprite[ZoomLevel::Min] = sprite[_font_zoom];
 	}
 
-	return encoder->Encode(sprite_type, sprite, allocator);
+	return encoder->Encode(sprite_type, sprite, allocator, id);
 }
 
 struct GrfSpriteOffset {

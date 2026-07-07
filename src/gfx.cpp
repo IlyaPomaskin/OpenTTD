@@ -73,6 +73,7 @@ int _gui_scale_cfg;                         ///< GUI scale in config.
  */
 static Rect _invalid_rect;
 static const uint8_t *_colour_remap_ptr;
+static PaletteID _colour_remap_pal = PAL_NONE;
 static uint8_t _string_colourremap[3]; ///< Recoloursprite for stringdrawing. The grf loader ensures that #SpriteType::Font sprites only use colours 0 to 2.
 
 static const uint DIRTY_BLOCK_HEIGHT   = 8;
@@ -485,6 +486,7 @@ static void SetColourRemap(ExtendedTextColour colour)
 	_string_colourremap[1] = raw_colour ? to_underlying(colour.colour) : _string_colourmap[to_underlying(colour.colour)].p;
 	_string_colourremap[2] = no_shade ? 0 : 1;
 	_colour_remap_ptr = _string_colourremap;
+	_colour_remap_pal = PAL_NONE;
 }
 
 /**
@@ -1008,16 +1010,19 @@ static BlitterMode GetBlitterMode(PaletteID pal)
  */
 void DrawSpriteViewport(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub)
 {
+	_colour_remap_pal = PAL_NONE;
 	SpriteID real_sprite = GB(img, 0, SPRITE_WIDTH);
 	if (HasBit(img, PALETTE_MODIFIER_TRANSPARENT)) {
 		pal = GB(pal, 0, PALETTE_WIDTH);
 		_colour_remap_ptr = GetNonSprite(pal, SpriteType::Recolour) + 1;
+		_colour_remap_pal = pal;
 		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, pal == PALETTE_TO_TRANSPARENT ? BlitterMode::Transparent : BlitterMode::TransparentRemap, sub, real_sprite);
 	} else if (pal != PAL_NONE) {
 		if (HasBit(pal, PALETTE_TEXT_RECOLOUR)) {
 			SetColourRemap((TextColour)GB(pal, 0, PALETTE_WIDTH));
 		} else {
 			_colour_remap_ptr = GetNonSprite(GB(pal, 0, PALETTE_WIDTH), SpriteType::Recolour) + 1;
+			_colour_remap_pal = GB(pal, 0, PALETTE_WIDTH);
 		}
 		GfxMainBlitterViewport(GetSprite(real_sprite, SpriteType::Normal), x, y, GetBlitterMode(pal), sub, real_sprite);
 	} else {
@@ -1036,16 +1041,19 @@ void DrawSpriteViewport(SpriteID img, PaletteID pal, int x, int y, const SubSpri
  */
 void DrawSprite(SpriteID img, PaletteID pal, int x, int y, const SubSprite *sub, ZoomLevel zoom)
 {
+	_colour_remap_pal = PAL_NONE;
 	SpriteID real_sprite = GB(img, 0, SPRITE_WIDTH);
 	if (HasBit(img, PALETTE_MODIFIER_TRANSPARENT)) {
 		pal = GB(pal, 0, PALETTE_WIDTH);
 		_colour_remap_ptr = GetNonSprite(pal, SpriteType::Recolour) + 1;
+		_colour_remap_pal = pal;
 		GfxMainBlitter(GetSprite(real_sprite, SpriteType::Normal), x, y, pal == PALETTE_TO_TRANSPARENT ? BlitterMode::Transparent : BlitterMode::TransparentRemap, sub, real_sprite, zoom);
 	} else if (pal != PAL_NONE) {
 		if (HasBit(pal, PALETTE_TEXT_RECOLOUR)) {
 			SetColourRemap((TextColour)GB(pal, 0, PALETTE_WIDTH));
 		} else {
 			_colour_remap_ptr = GetNonSprite(GB(pal, 0, PALETTE_WIDTH), SpriteType::Recolour) + 1;
+			_colour_remap_pal = GB(pal, 0, PALETTE_WIDTH);
 		}
 		GfxMainBlitter(GetSprite(real_sprite, SpriteType::Normal), x, y, GetBlitterMode(pal), sub, real_sprite, zoom);
 	} else {
@@ -1117,6 +1125,8 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 	bp.dst = dpi->dst_ptr;
 	bp.pitch = dpi->pitch;
 	bp.remap = _colour_remap_ptr;
+	bp.sprite_id = sprite_id;
+	bp.pal = _colour_remap_pal;
 
 	assert(sprite->width > 0);
 	assert(sprite->height > 0);
@@ -1164,6 +1174,10 @@ static void GfxBlitter(const Sprite * const sprite, int x, int y, BlitterMode mo
 
 	assert(bp.skip_left + bp.width <= UnScaleByZoom(sprite->width, zoom));
 	assert(bp.skip_top + bp.height <= UnScaleByZoom(sprite->height, zoom));
+
+	/* Absolute screen coords of the sprite top-left, now that bp.left/bp.top are final (Q2.1). */
+	bp.sprite_x = dpi->left + bp.left;
+	bp.sprite_y = dpi->top + bp.top;
 
 	/* We do not want to catch the mouse. However we also use that spritenumber for unknown (text) sprites. */
 	if (_newgrf_debug_sprite_picker.mode == SPM_REDRAW && sprite_id != SPR_CURSOR_MOUSE) {

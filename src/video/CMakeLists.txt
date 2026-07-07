@@ -32,6 +32,12 @@ if(NOT OPTION_DEDICATED)
         win32_v.h
         CONDITION WIN32
     )
+
+    add_files(
+        draw_snapshot.cpp
+        draw_snapshot.h
+        gles_perf.h
+    )
 endif()
 
 add_files(
