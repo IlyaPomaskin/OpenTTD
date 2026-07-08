@@ -259,6 +259,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             }
             mEngineSurface = holder.getSurface();
             SDLActivity.sOverrideSurface = mEngineSurface;
+            Log.i(TAG, "onSurfaceCreated: took surface ownership sOverrideSurface=" + SDLActivity.sOverrideSurface);
             Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
             nativeSurfaceChanged();
@@ -275,6 +276,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             mSurfaceHeight = Math.max(height, 1);
             mEngineSurface = holder.getSurface();
             SDLActivity.sOverrideSurface = mEngineSurface;
+            Log.i(TAG, "onSurfaceChanged: re-took surface ownership sOverrideSurface=" + SDLActivity.sOverrideSurface);
             SDLActivity.nativeSetScreenResolution(width, height, width, height, 60.0f);
             SDLActivity.onNativeResize();
             SDLActivity.onNativeSurfaceChanged();
