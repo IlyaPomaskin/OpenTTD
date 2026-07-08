@@ -1342,6 +1342,8 @@ void StateGameLoop()
 		NewsLoop();
 	}
 
+	GLES_PERF_COUNT(_gles_perf.gameloop_ticks++);
+
 	GLES_PERF_COUNT({
 		int v_train = 0;
 		int v_road = 0;

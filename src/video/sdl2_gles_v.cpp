@@ -465,7 +465,6 @@ void VideoDriver_SDL_GLES::RecordSnapshot()
 		_gles_perf.snap_validate_us += us(t_val0, t_val1);
 		_gles_perf.snap_total_us += us(t_snap0, t_snap1);
 		_gles_perf.snap_commands += static_cast<int>(snap.commands.size());
-		_gles_perf.gameloop_ticks++;
 	});
 }
 
