@@ -14,6 +14,7 @@ void BuildTitleFileList();
 bool CanRotateTitleMap();
 void RequestNextTitleMap();
 void RotateTitleMap(int delta);
+void RefreshTitleMaps();
 void LoadWallpaperGame();
 
 /** Try loading a title map starting from the current index. Returns true on success. */

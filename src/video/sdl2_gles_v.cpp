@@ -61,6 +61,11 @@ std::atomic<int> _gles_scroll_dx{0};
 std::atomic<int> _gles_scroll_dy{0};
 /** Set from Java when the wallpaper surface changes; GL thread re-binds EGL. */
 std::atomic<bool> _gles_surface_changed{false};
+/** Level gate: true while an interval index 1-4 owns title-map cadence, suppressing
+ *  the POI-wrap RequestNextTitleMap(). Written directly by JNI, read on the game thread. */
+std::atomic<bool> _gles_interval_active{false};
+/** Set from Java on title-map import/delete; drained on the GL thread to rebuild the list. */
+std::atomic<bool> _gles_refresh_title_maps{false};
 
 #ifdef __ANDROID__
 
@@ -190,6 +195,19 @@ Java_org_openttd_android_OpenTTDWallpaperService_nativeSurfaceChanged(JNIEnv *, 
 {
 	Debug(driver, 0, "[CTX] nativeSurfaceChanged: signalling GL thread");
 	_gles_surface_changed = true;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeSetIntervalActive(JNIEnv *, jclass, jboolean active)
+{
+	_gles_interval_active = (active == JNI_TRUE);
+	Debug(driver, 0, "[LOAD] interval_active={}", (active == JNI_TRUE) ? "true" : "false");
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeRefreshTitleMaps(JNIEnv *, jclass)
+{
+	_gles_refresh_title_maps = true;
 }
 
 #endif /* __ANDROID__ */
@@ -458,7 +476,8 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 
 	/* Fast path: nothing pending, no lock. Overlay actions arrive rarely (JNI broadcasts). */
 	bool any = _gles_jump_waypoint.load() || _gles_navigate_poi.load() != 0 ||
-		_gles_rotate_map.load() != 0 || _gles_scroll_dx.load() != 0 || _gles_scroll_dy.load() != 0;
+		_gles_rotate_map.load() != 0 || _gles_scroll_dx.load() != 0 || _gles_scroll_dy.load() != 0 ||
+		_gles_refresh_title_maps.load();
 	if (!any) return;
 
 	/* Overlay actions mutate window/viewport state; serialize against the game thread's
@@ -474,6 +493,10 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 	if (poi_delta != 0) { Debug(driver, 1, "Tick: navigate_poi={}", poi_delta); NavigatePOI(poi_delta); }
 	int map_delta = _gles_rotate_map.exchange(0);
 	if (map_delta != 0) { Debug(driver, 1, "Tick: rotate_map={}", map_delta); RotateTitleMap(map_delta); }
+	if (_gles_refresh_title_maps.exchange(false)) {
+		Debug(driver, 1, "Tick: refresh_title_maps triggered");
+		RefreshTitleMaps();
+	}
 	{
 		int scroll_dx = _gles_scroll_dx.exchange(0);
 		int scroll_dy = _gles_scroll_dy.exchange(0);

@@ -41,6 +41,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeSurfaceChanged();
     /** Set screen brightness (0.0=black, 1.0=full). */
     private static native void nativeSetBrightness(float brightness);
+    /** Enable/disable interval-driven rotation (suppresses POI-wrap auto-rotate). */
+    private static native void nativeSetIntervalActive(boolean active);
+    /** Rebuild the native title-file list after import/delete. */
+    private static native void nativeRefreshTitleMaps();
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
