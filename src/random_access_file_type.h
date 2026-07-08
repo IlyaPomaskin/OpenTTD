@@ -35,7 +35,8 @@ class RandomAccessFile {
 	uint8_t *buffer_end;                ///< Last valid byte of buffer.
 	uint8_t buffer_start[BUFFER_SIZE];  ///< Local buffer when read from file.
 
-	const uint8_t *mem_data = nullptr;  ///< In-memory data (null if file-backed).
+	bool is_mem = false;                ///< True if backed by an in-memory buffer (even when empty), false if file-backed.
+	const uint8_t *mem_data = nullptr;  ///< In-memory data (may be null when the buffer is legitimately empty).
 	size_t mem_size = 0;                ///< Size of memory buffer.
 	size_t mem_pos = 0;                 ///< Current read position in memory buffer.
 

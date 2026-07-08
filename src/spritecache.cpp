@@ -85,8 +85,16 @@ std::span<const std::unique_ptr<SpriteFile>> GetCachedSpriteFiles()
  * After this, GL thread can create memory-backed SpriteFile copies.
  */
 /** Persistent memory buffers surviving GfxInitSpriteMem() clear.
- *  Keyed by simplified filename → raw file data. */
+ *  Keyed by simplified filename + on-disk size → raw file data, so a
+ *  same-named file of a different size is a cache miss and gets re-read. */
 static std::unordered_map<std::string, std::vector<uint8_t>> _sprite_file_cache;
+
+/** Build the persistent cache key from name and on-disk data size. The size is
+ *  taken from the file bounds (available before load), so store and lookup match. */
+static std::string MakeSpriteFileCacheKey(const SpriteFile &f)
+{
+	return fmt::format("{}:{}", f.GetSimplifiedFilename(), f.GetEndPos() - f.GetStartPos());
+}
 
 void BufferSpriteFilesToMemory()
 {
@@ -94,7 +102,7 @@ void BufferSpriteFilesToMemory()
 	size_t total_bytes = 0;
 	int cached = 0, loaded = 0;
 	for (auto &f : _sprite_files) {
-		const std::string &key = f->GetSimplifiedFilename();
+		const std::string key = MakeSpriteFileCacheKey(*f);
 		auto it = _sprite_file_cache.find(key);
 		if (it != _sprite_file_cache.end() && !it->second.empty()) {
 			/* Restore from persistent cache without disk I/O. */
@@ -118,7 +126,7 @@ void SaveSpriteFileBuffers()
 {
 	for (auto &f : _sprite_files) {
 		if (f->GetMemoryData() != nullptr) {
-			_sprite_file_cache[f->GetSimplifiedFilename()] = f->TakeMemoryBuffer();
+			_sprite_file_cache[MakeSpriteFileCacheKey(*f)] = f->TakeMemoryBuffer();
 		}
 	}
 }

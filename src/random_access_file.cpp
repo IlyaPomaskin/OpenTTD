@@ -26,7 +26,7 @@
 RandomAccessFile::RandomAccessFile(const uint8_t *data, size_t size, std::string_view filename, size_t base_offset)
 	: filename(filename), pos(0), start_pos(base_offset), end_pos(base_offset + size),
 	  buffer(buffer_start), buffer_end(buffer_start),
-	  mem_data(data), mem_size(size), mem_pos(0)
+	  is_mem(true), mem_data(data), mem_size(size), mem_pos(0)
 {
 	auto t = filename.rfind(PATHSEPCHAR);
 	std::string name_without_path{filename.substr(t != std::string::npos ? t + 1 : 0)};
@@ -87,7 +87,7 @@ const std::string &RandomAccessFile::GetSimplifiedFilename() const
  */
 size_t RandomAccessFile::GetPos() const
 {
-	if (this->mem_data != nullptr) return this->start_pos + this->mem_pos;
+	if (this->is_mem) return this->start_pos + this->mem_pos;
 	return this->pos + (this->buffer - this->buffer_end);
 }
 
@@ -109,7 +109,7 @@ void RandomAccessFile::SeekTo(size_t pos, int mode)
 {
 	if (mode == SEEK_CUR) pos += this->GetPos();
 
-	if (this->mem_data != nullptr) {
+	if (this->is_mem) {
 		/* pos is absolute (includes start_pos offset), convert to buffer-relative. */
 		size_t rel = (pos >= this->start_pos) ? pos - this->start_pos : 0;
 		this->mem_pos = std::min(rel, this->mem_size);
@@ -131,7 +131,7 @@ void RandomAccessFile::SeekTo(size_t pos, int mode)
  */
 uint8_t RandomAccessFile::ReadByte()
 {
-	if (this->mem_data != nullptr) {
+	if (this->is_mem) {
 		if (this->mem_pos >= this->mem_size) return 0;
 		return this->mem_data[this->mem_pos++];
 	}
@@ -174,7 +174,7 @@ uint32_t RandomAccessFile::ReadDword()
  */
 void RandomAccessFile::ReadBlock(void *ptr, size_t size)
 {
-	if (this->mem_data != nullptr) {
+	if (this->is_mem) {
 		size_t avail = (this->mem_pos < this->mem_size) ? this->mem_size - this->mem_pos : 0;
 		size_t to_copy = std::min(size, avail);
 		std::copy_n(this->mem_data + this->mem_pos, to_copy, static_cast<uint8_t *>(ptr));
@@ -200,7 +200,7 @@ void RandomAccessFile::ReadBlock(void *ptr, size_t size)
  */
 void RandomAccessFile::SkipBytes(size_t n)
 {
-	if (this->mem_data != nullptr) {
+	if (this->is_mem) {
 		this->mem_pos = std::min(this->mem_pos + n, this->mem_size);
 		return;
 	}
