@@ -137,12 +137,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
             public void onReceive(Context context, Intent intent) {
                 int interval = intent.getIntExtra(SettingsHelper.KEY_MAP_INTERVAL,
                     SettingsHelper.DEFAULT_MAP_INTERVAL);
-                int zoom = intent.getIntExtra(SettingsHelper.KEY_MAP_ZOOM,
-                    SettingsHelper.DEFAULT_MAP_ZOOM);
                 int brightness = intent.getIntExtra(SettingsHelper.KEY_BRIGHTNESS,
                     SettingsHelper.DEFAULT_BRIGHTNESS);
                 Log.i(TAG, "SETTINGS_CHANGED: interval=" + interval
-                    + " zoom=" + zoom + " brightness=" + brightness);
+                    + " brightness=" + brightness);
                 mLastBrightness = brightness;
                 pushBrightness(brightness);
             }
