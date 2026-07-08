@@ -41,6 +41,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeSurfaceChanged();
     /** Set screen brightness (0.0=black, 1.0=full). */
     private static native void nativeSetBrightness(float brightness);
+    /** Enable/disable interval-driven rotation (suppresses POI-wrap auto-rotate). */
+    private static native void nativeSetIntervalActive(boolean active);
+    /** Rebuild the native title-file list after import/delete. */
+    private static native void nativeRefreshTitleMaps();
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -50,6 +54,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
     private BroadcastReceiver mSettingsChangedReceiver;
+    private BroadcastReceiver mTitleMapsChangedReceiver;
 
 
     // Same library list as GameActivity.getLibraries()
@@ -64,9 +69,24 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final int BRIGHTNESS_RETRY_MS = 250;
     private static final int BRIGHTNESS_RETRY_MAX = 8; // ~2s window
 
+    private static final long[] INTERVAL_MS = {
+        0L,                    // index 0: no timer (POI-wrap cadence)
+        10L * 60 * 1000,       // 1: 10 min
+        30L * 60 * 1000,       // 2: 30 min
+        2L * 60 * 60 * 1000,   // 3: 2 h
+        24L * 60 * 60 * 1000,  // 4: 24 h
+    };
+
+    private android.os.Handler mMainHandler;
+    private Runnable mIntervalRunnable;
+    private int mCurrentInterval = SettingsHelper.DEFAULT_MAP_INTERVAL;
+    private boolean mEngineVisible = false;
+    private boolean mColdStartApplied = false;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        mMainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
         mJumpReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -143,10 +163,21 @@ public class OpenTTDWallpaperService extends WallpaperService {
                     + " brightness=" + brightness);
                 mLastBrightness = brightness;
                 pushBrightness(brightness);
+                applyInterval(interval);
             }
         };
         registerReceiver(mSettingsChangedReceiver,
             new IntentFilter(SettingsHelper.ACTION_SETTINGS_CHANGED),
+            Context.RECEIVER_EXPORTED);
+        mTitleMapsChangedReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "TITLE_MAPS_CHANGED broadcast received");
+                if (sLibrariesLoaded && sSDLInitialized) nativeRefreshTitleMaps();
+            }
+        };
+        registerReceiver(mTitleMapsChangedReceiver,
+            new IntentFilter(SettingsHelper.ACTION_TITLE_MAPS_CHANGED),
             Context.RECEIVER_EXPORTED);
     }
 
@@ -158,6 +189,52 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (!sLibrariesLoaded || !sSDLInitialized) return;
         float b = value / 100.0f;
         nativeSetBrightness(b);
+    }
+
+    private void applyInterval(int index) {
+        mCurrentInterval = index;
+        boolean timed = index >= 1 && index < INTERVAL_MS.length;
+        if (sLibrariesLoaded && sSDLInitialized) nativeSetIntervalActive(timed);
+        cancelIntervalTimer();
+        if (timed && mEngineVisible) armIntervalTimer(index);
+    }
+
+    private void armIntervalTimer(int index) {
+        if (index < 1 || index >= INTERVAL_MS.length) return;
+        final long period = INTERVAL_MS[index];
+        cancelIntervalTimer();
+        mIntervalRunnable = new Runnable() {
+            @Override
+            public void run() {
+                Log.i(TAG, "interval tick: rotating title map");
+                if (sLibrariesLoaded && sSDLInitialized) nativeRotateMap(1);
+                mMainHandler.postDelayed(this, period);
+            }
+        };
+        mMainHandler.postDelayed(mIntervalRunnable, period);
+    }
+
+    private void cancelIntervalTimer() {
+        if (mIntervalRunnable != null) {
+            mMainHandler.removeCallbacks(mIntervalRunnable);
+            mIntervalRunnable = null;
+        }
+    }
+
+    private void onEngineVisible() {
+        mEngineVisible = true;
+        if (!mColdStartApplied) {
+            mColdStartApplied = true;
+            mLastBrightness = SettingsHelper.getBrightness(getApplicationContext());
+            applyInterval(SettingsHelper.getMapUpdateInterval(getApplicationContext()));
+        } else if (mCurrentInterval >= 1 && mCurrentInterval < INTERVAL_MS.length) {
+            armIntervalTimer(mCurrentInterval);
+        }
+    }
+
+    private void onEngineHidden() {
+        mEngineVisible = false;
+        cancelIntervalTimer();
     }
 
     private void pushBrightnessRetry(int attempt) {
@@ -201,6 +278,11 @@ public class OpenTTDWallpaperService extends WallpaperService {
             unregisterReceiver(mSettingsChangedReceiver);
             mSettingsChangedReceiver = null;
         }
+        if (mTitleMapsChangedReceiver != null) {
+            unregisterReceiver(mTitleMapsChangedReceiver);
+            mTitleMapsChangedReceiver = null;
+        }
+        cancelIntervalTimer();
         super.onDestroy();
     }
 
@@ -316,6 +398,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             if (!sSDLInitialized) return;
             mVisible = visible;
             if (visible) {
+                OpenTTDWallpaperService.this.onEngineVisible();
                 // Re-inject surface if lost during engine transition
                 Surface currentSurface = getSurfaceHolder().getSurface();
                 Log.i(TAG, "onVisibilityChanged visible: currentSurface=" + currentSurface
@@ -344,6 +427,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
                  * gets rendered and the sprite cache warms up.  Delay the
                  * game thread pause to allow a few frames at the new POI. */
                 Log.i(TAG, "onVisibilityChanged: jumping POI, delaying pause for warm-up");
+                OpenTTDWallpaperService.this.onEngineHidden();
                 nativePrepareBackground();
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     if (!mVisible) {

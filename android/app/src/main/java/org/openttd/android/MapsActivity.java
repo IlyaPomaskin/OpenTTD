@@ -1,6 +1,7 @@
 package org.openttd.android;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -83,6 +84,7 @@ public class MapsActivity extends AppCompatActivity {
                     if (idx >= 0) fileName = cursor.getString(idx);
                 }
             }
+            if (!fileName.toLowerCase().endsWith(".sav")) fileName = fileName + ".sav";
             File titleDir = getTitleDir();
             titleDir.mkdirs();
             File dest = new File(titleDir, fileName);
@@ -94,6 +96,7 @@ public class MapsActivity extends AppCompatActivity {
                 while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
             }
             refreshList();
+            sendTitleMapsChanged();
         } catch (Exception e) {
             // silently ignore
         }
@@ -103,8 +106,10 @@ public class MapsActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
             .setMessage(getString(R.string.maps_delete_confirm, file.getName()))
             .setPositiveButton(R.string.maps_delete, (dialog, which) -> {
-                file.delete();
-                refreshList();
+                if (file.delete()) {
+                    refreshList();
+                    sendTitleMapsChanged();
+                }
             })
             .setNegativeButton(R.string.cancel, null)
             .show();
@@ -129,6 +134,10 @@ public class MapsActivity extends AppCompatActivity {
 
     private File getTitleDir() {
         return new File(getFilesDir(), "title");
+    }
+
+    private void sendTitleMapsChanged() {
+        sendBroadcast(new Intent(SettingsHelper.ACTION_TITLE_MAPS_CHANGED));
     }
 
     private class MapAdapter extends BaseAdapter {

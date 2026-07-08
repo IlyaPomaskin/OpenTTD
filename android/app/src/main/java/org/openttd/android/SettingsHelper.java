@@ -9,11 +9,13 @@ public class SettingsHelper {
 
     public static final String KEY_MAP_INTERVAL = "map_update_interval";
     public static final String KEY_BRIGHTNESS = "brightness";
+    public static final String KEY_TITLE_ASSETS_PROVISIONED = "title_assets_provisioned";
 
     public static final int DEFAULT_MAP_INTERVAL = 2;
     public static final int DEFAULT_BRIGHTNESS = 100;
 
     public static final String ACTION_SETTINGS_CHANGED = "org.openttd.android.SETTINGS_CHANGED";
+    public static final String ACTION_TITLE_MAPS_CHANGED = "org.openttd.android.TITLE_MAPS_CHANGED";
 
     public static SharedPreferences getPrefs(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -35,6 +37,14 @@ public class SettingsHelper {
     public static void setBrightness(Context context, int value) {
         getPrefs(context).edit().putInt(KEY_BRIGHTNESS, value).apply();
         notifySettingsChanged(context);
+    }
+
+    public static boolean isTitleAssetsProvisioned(Context context) {
+        return getPrefs(context).getBoolean(KEY_TITLE_ASSETS_PROVISIONED, false);
+    }
+
+    public static void setTitleAssetsProvisioned(Context context) {
+        getPrefs(context).edit().putBoolean(KEY_TITLE_ASSETS_PROVISIONED, true).apply();
     }
 
     public static void notifySettingsChanged(Context context) {

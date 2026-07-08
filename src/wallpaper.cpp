@@ -22,6 +22,7 @@
 #include "string_func.h"
 #include "video/gles_poi.h"
 #include "viewport_func.h"
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <set>
@@ -32,6 +33,10 @@
 /** All available title files for rotation: {filename, subdir}. */
 static std::vector<std::pair<std::string, Subdirectory>> _title_files;
 static size_t _title_file_idx = 0;
+
+#ifdef __ANDROID__
+extern std::atomic<bool> _gles_interval_active;
+#endif
 
 /**
  * Build the list of all available title map files (called once).
@@ -83,6 +88,10 @@ bool CanRotateTitleMap()
 
 void RequestNextTitleMap()
 {
+#ifdef __ANDROID__
+	/* An interval index 1-4 owns cadence; suppress the POI-wrap auto-rotate. */
+	if (_gles_interval_active.load()) return;
+#endif
 	RotateTitleMap(1);
 }
 
@@ -92,6 +101,19 @@ void RotateTitleMap(int delta)
 	int n = (int)_title_files.size();
 	_title_file_idx = ((_title_file_idx + delta) % n + n) % n;
 	_switch_mode = (_game_mode == GameMode::Wallpaper) ? SwitchMode::Wallpaper : SwitchMode::Menu;
+}
+
+/**
+ * Rebuild the title file list after an import/delete and clamp the index.
+ * Called from the GL-thread overlay-action drain under game_state_mutex.
+ */
+void RefreshTitleMaps()
+{
+	BuildTitleFileList();
+	if (_title_file_idx >= _title_files.size()) {
+		_title_file_idx = _title_files.empty() ? 0 : _title_files.size() - 1;
+	}
+	Debug(misc, 0, "RefreshTitleMaps: {} files, idx={}", _title_files.size(), _title_file_idx);
 }
 
 /**

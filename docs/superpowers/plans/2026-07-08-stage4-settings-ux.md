@@ -1,5 +1,7 @@
 # Stage 4 — Settings & Content UX Implementation Plan
 
+**Plan-confidence status:** Ready for execution (iteration 9, confidence 90%). All spec decisions (a)–(k) folded; the 6 plan-layer survey items (iter 8) resolved interactively and folded (iter 9). The two concrete defects are now FIXED: Task 5 Step 6 `onEngineVisible()` lands as the first statement inside the `if (visible) {` block, not after `:311` (Q8.1); Task 2 Step 4 replace range corrected to `:136-145` (the `:146` `onReceive` brace excluded). Edge cases documented: manual broadcasts are an intentional out-of-band rotation override (Q8.2), import name-collision overwrite-and-refresh is acceptable (Q8.3); brightness device-verify gains a greppable Java `SETTINGS_CHANGED…brightness=` log assertion (Q8.4). Q8.5/Q8.6 dismissed by decision (rescan is cheap; the code snippet already specifies reset-on-resume cadence). Anchors re-verified against the tree (HEAD `cbb87ebf5a`; only an unrelated `viewport.cpp` commit past `bd4a687386`, no plan file affected). Held at 90% by the inherent ceiling shared with the accepted Stage 3 plan — no Java/JNI unit-test harness (pre-impl grep/build substitutes for a failing test) + normal un-executed-plan risk, neither closable by document edits.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish wiring the half-built user-facing configuration in the ported Android app — brightness end-to-end hardening, a map-rotation *interval* selector + cadence consumer, dropping the dead *zoom* preference, and making `MapsActivity` import/delete propagate into a running wallpaper — via Java completion plus a small additive native surface.
@@ -17,7 +19,9 @@
 - **Threading rule (load-bearing):** new native title-map work MUST route through the GL-thread atomic-drain in `ProcessOverlayActions()` (`src/video/sdl2_gles_v.cpp:454-489`) under `game_state_mutex` (`:467`) — exactly like `nativeRotateMap` (`:120-124` → drain `:475-476`). Do NOT call `BuildTitleFileList()`/`RotateTitleMap()` directly on the JNI binder thread the way `nativeSwitchMap` does (`:108-112`, a known latent race).
 - **1:1 JNI invariant:** every `private static native` in a Java class has exactly one matching `Java_org_openttd_android_<Class>_native…` export in `sdl2_gles_v.cpp`. Baseline is 13 (service 8/8, `GameActivity` 5/5); this stage adds 2 service natives → **15/15** (service 10/10, `GameActivity` 5/5). Any mismatch is fixed in `sdl2_gles_v.cpp`, never by stubbing Java.
 - **Process boundaries (`AndroidManifest.xml`):** `GameActivity` → `:game`; `OpenTTDWallpaperService` → `:wallpaper`; `MainActivity`/`WallpaperSettingsActivity`/`MapsActivity` → default process. Native loads only in `:wallpaper`/`:game`; settings/maps UIs reach native only via prefs + broadcasts. `filesDir/title/` is shared across all processes.
-- **Stage-3-blocked tagging (decision k):** tasks whose acceptance needs the *live* `OpenTTDWallpaperService` runtime cannot be device-verified until Stage 3 lands. Each such task carries an **interim check** (static inspection / build / `GameActivity` path) runnable now, plus a **live re-verify** step deferred to post-Stage-3. Java-only fixes are fully checkable now.
+- **Stage 3 is DONE + device-verified** (`lwp2` tip `bd4a687386`; all 9 gates PASS on Pixel 10 Pro): the live `OpenTTDWallpaperService` runtime is now exercisable, so every task in this plan is fully device-verifiable now — the "Stage-3-blocked" deferral in decision (k) is resolved. Each task keeps a cheap **static/build interim check** (fast pre-device gate) plus a **live device-verify** step that is runnable today against the set live wallpaper.
+- **Logcat tags:** native `Debug(...)` → tag `OpenTTD`; Java `Log.i(TAG,...)` → tag `OpenTTDWallpaper`. Device steps that need Java lifecycle logs use `adb logcat -s OpenTTD:V OpenTTDWallpaper:V`. Brightness has no native log line (the `SETTINGS_CHANGED` path is Java-only) — verify it visually.
+- **Device caveat (from the Stage 3 gate):** reinstalling the APK de-selects the live wallpaper (Android invalidates the component). After every `deploy`/install, re-set it via `WallpaperSettingsActivity` → "Set Wallpaper" before running live checks.
 - **Interval index semantics (fixed by existing strings, `strings.xml:12-16`):** `0 = every home-screen switch`, `1 = 10 min`, `2 = 30 min` (current default), `3 = 2 h`, `4 = 24 h`.
 
 ---
@@ -42,7 +46,7 @@
 
 ## Task 1: Brightness — seekbar range fix + bounded retry (§1)
 
-**Tag:** Partially Stage-3-blocked. Interim-checkable now: `max=100` (static/GameActivity) and the `GameActivity` bounded retry (via the `:game` path). Live re-verify after Stage 3: the `:wallpaper` `onSurfaceCreated` retry against the running service.
+**Tag:** Device-verifiable now (Stage 3 landed). Interim: `max=100` (static/`GameActivity`) + the `GameActivity` bounded retry via the `:game` path. Live: the `:wallpaper` `onSurfaceCreated` retry against the running wallpaper.
 
 **Files:**
 - Modify: `android/app/src/main/res/layout/activity_wallpaper_settings.xml:78`
@@ -135,9 +139,20 @@ adb logcat -d -s OpenTTD:V | grep -iE 'brightness|SetBrightness'
 ```
 Expected: `max="100"` present; the `:game` path renders and brightness applies (no crash). Slider default renders 100% (visual on `WallpaperSettingsActivity`).
 
-- [ ] **Step 7: Live re-verify (Stage-3-blocked)**
+- [ ] **Step 7: Live device-verify (running wallpaper)**
 
-After Stage 3: set the live wallpaper, kill+relaunch it, and confirm brightness is restored from prefs on a fresh surface without touching the slider (the `onSurfaceCreated` bounded retry lands once the backend is ready). Full brightness reaches 1.0 (not capped at 0.99).
+```bash
+/usr/bin/python3 tools/run_android.py deploy
+# re-set the live wallpaper (install de-selects it): WallpaperSettingsActivity -> Set Wallpaper -> confirm -> home
+adb shell am start -n org.openttd.android/.WallpaperSettingsActivity
+# drag the brightness slider 100 -> 0 -> 100
+```
+Acceptance (visual + one greppable Java signal — decided Q8.4): the wallpaper dims live; 0 ≈ black, 100 = full (not capped at 0.99 — the `max=100` fix). Brightness has no native log line, so assert the Java receiver's signal instead: `adb logcat -d -s OpenTTDWallpaper:V | grep 'SETTINGS_CHANGED.*brightness='` shows the new value on each slider change. Then force-stop and re-set the wallpaper:
+```bash
+adb shell am force-stop org.openttd.android
+# re-set the live wallpaper, then observe WITHOUT touching the slider
+```
+Acceptance: brightness is restored from prefs on the fresh surface (the `onSurfaceCreated` bounded retry lands once the backend is ready).
 
 - [ ] **Step 8: Commit**
 
@@ -157,7 +172,7 @@ git commit -m "android: fix brightness seekbar range (max=100) + bounded idempot
 **Files:**
 - Modify: `android/app/src/main/java/org/openttd/android/SettingsHelper.java` (remove `:11`, `:15`, `:20`, `:35-42`, `:56`)
 - Modify: `android/app/src/main/res/values/strings.xml` (remove `:7`, `:17-19`)
-- Modify: `android/app/src/main/java/org/openttd/android/OpenTTDWallpaperService.java:136-146` (remove zoom read)
+- Modify: `android/app/src/main/java/org/openttd/android/OpenTTDWallpaperService.java:136-145` (remove zoom read — NOT `:146`, which is the `onReceive` closing brace)
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -203,7 +218,7 @@ Delete `<string name="map_zoom_title">Map zoom</string>` (`:7`) and the three zo
 
 - [ ] **Step 4: Remove the zoom read from the service `SETTINGS_CHANGED` receiver**
 
-Replace `OpenTTDWallpaperService.java:136-146` with:
+Replace `OpenTTDWallpaperService.java:136-145` (the statement body only — do NOT include the `onReceive` closing brace at `:146`) with:
 ```java
                 int interval = intent.getIntExtra(SettingsHelper.KEY_MAP_INTERVAL,
                     SettingsHelper.DEFAULT_MAP_INTERVAL);
@@ -383,7 +398,7 @@ git commit -m "android: add map-rotation interval selector (indices 0-4) to wall
 
 ## Task 4: Native interval-active gate + refresh-title-maps drain + JNI (§2 gate, §4 native)
 
-**Tag:** Build-checkable now (`BUILD SUCCESSFUL` + 15/15 grep). Runtime behavior Stage-3-blocked (consumed by Tasks 5 & 7 on the live service).
+**Tag:** Build-checkable now (`BUILD SUCCESSFUL` + 15/15 grep). This task's deliverable is the native surface (no caller yet); its runtime behavior is device-verified through Tasks 5 & 7 on the now-live service.
 
 **Files:**
 - Modify: `src/video/sdl2_gles_v.cpp` (atomics after `:63`; JNI exports after `:193`; drain in `ProcessOverlayActions` `:460-489`)
@@ -530,9 +545,9 @@ test "$(grep -c 'Java_org_openttd_android_GameActivity_native' src/video/sdl2_gl
 ```
 Expected: all four `OK-*` printed (10 + 10 service, 5 + 5 game = 15/15).
 
-- [ ] **Step 10: Live re-verify (Stage-3-blocked)**
+- [ ] **Step 10: Runtime behavior deferred to Tasks 5 & 7**
 
-After Stage 3 (once Tasks 5 & 7 are wired): with an interval index 1–4 active, confirm the POI-wrap `RequestNextTitleMap()` no-ops (logcat shows the `map_rotate` wrap message but no title-map load), and a `TITLE_MAPS_CHANGED` broadcast produces a fresh `BuildTitleFileList` dump via the drain.
+This task adds no caller, so it has no observable runtime behavior on its own. The gate and drain are device-verified in Task 5 Step 10 (interval-active suppresses the POI-wrap rotate) and Task 7 Step 7 (`TITLE_MAPS_CHANGED` → `RefreshTitleMaps` dump), both runnable now that Stage 3 has landed.
 
 - [ ] **Step 11: Commit**
 
@@ -546,7 +561,7 @@ git commit -m "gles: add nativeSetIntervalActive gate + nativeRefreshTitleMaps d
 
 ## Task 5: Service interval consumer — Handler + cold-start prefs seed (§2 consumer, §5 persistence)
 
-**Tag:** Stage-3-blocked (needs the live service lifecycle). Interim: static inspection + build.
+**Tag:** Device-verifiable now (Stage 3 landed; live-service lifecycle available). Interim: static inspection + build.
 
 **Files:**
 - Modify: `android/app/src/main/java/org/openttd/android/OpenTTDWallpaperService.java` (fields; `onCreate`; `SETTINGS_CHANGED` receiver; `onDestroy`; `OpenTTDEngine.onVisibilityChanged`)
@@ -651,7 +666,7 @@ In the receiver body (after `pushBrightness(brightness);`, the last line of the 
 
 - [ ] **Step 6: Wire visibility from the `Engine`**
 
-In `OpenTTDEngine.onVisibilityChanged`, at the START of the `if (visible)` block — immediately after `mVisible = visible;` (`:311`) and before the surface re-injection — add the cold-start/re-arm hook (runs after the `if (!sSDLInitialized) return;` guard at `:310`, so native is ready):
+In `OpenTTDEngine.onVisibilityChanged`, as the **first statement inside the `if (visible) {` block** (`~:313`, right after `if (visible) {` at `:312`), before the surface re-injection — add the cold-start/re-arm hook. **Do NOT place it after `mVisible = visible;` at `:311`:** that line precedes `if (visible) {`, so inserting there would fire `onEngineVisible()` on the hidden branch too (setting `mEngineVisible=true` + running cold-start on a hide). Native is already ready here — the `if (!sSDLInitialized) return;` guard at `:310` runs first (decided Q8.1):
 ```java
                 OpenTTDWallpaperService.this.onEngineVisible();
 ```
@@ -684,9 +699,22 @@ grep -n 'applyInterval\|armIntervalTimer\|cancelIntervalTimer\|onEngineVisible\|
 ```
 Expected: `applyInterval` called from both the receiver and `onEngineVisible`; `onEngineVisible`/`onEngineHidden` called from `onVisibilityChanged`; `cancelIntervalTimer` in `onEngineHidden`, `applyInterval`, `armIntervalTimer`, and `onDestroy`; `nativeSetIntervalActive` called only from `applyInterval`.
 
-- [ ] **Step 10: Live re-verify (Stage-3-blocked)**
+- [ ] **Step 10: Live device-verify (running wallpaper)**
 
-After Stage 3: set index 0 → each home→app→home advances the POI camera (logcat `poi_change`), title map rotates on POI-wrap (~20 switches), `_gles_interval_active` stays false. Set a short index 1–4 → the title map auto-rotates on that cadence while visible, not while hidden; changing the interval re-arms; exactly one rotation per tick and none from the POI wrap (double-fire suppressed). Cold start (fresh `:wallpaper` process): saved interval honored on first show without a broadcast.
+```bash
+/usr/bin/python3 tools/run_android.py deploy
+# re-set the live wallpaper, then:
+adb logcat -c
+# set interval to index 0 in WallpaperSettingsActivity, then cycle home->app->home a few times
+adb logcat -d -s OpenTTD:V OpenTTDWallpaper:V | grep -nE 'jumping POI|interval_active|map_rotate|interval tick'
+```
+Acceptance (index 0): each home-screen switch advances the POI camera (`jumping POI`), the title map rotates only on POI-wrap (`map_rotate` ~every 20 switches), `interval_active=false`, and NO `interval tick` lines. Then set a short interval (index 1 = 10 min, or a temporary shortened `INTERVAL_MS[1]` for the test):
+```bash
+adb logcat -c
+# set interval to index 1; leave the wallpaper visible
+adb logcat -d -s OpenTTD:V OpenTTDWallpaper:V | grep -nE 'interval_active|interval tick|rotate_map|map_rotate'
+```
+Acceptance (indices 1–4): `interval_active=true`; the title map auto-rotates on the timer (`interval tick` → `Tick: rotate_map=1`) while visible, not while hidden (hide → no ticks, re-arm on resume); exactly one rotation per tick and none from the POI wrap (no `map_rotate` wrap-load). Cold start: `adb shell am force-stop org.openttd.android`, re-set the wallpaper, and confirm the saved interval is honored on first show without sending a `SETTINGS_CHANGED` broadcast.
 
 - [ ] **Step 11: Commit**
 
@@ -710,7 +738,7 @@ git commit -m "wallpaper: interval Handler consumer (0=POI-wrap, 1-4=timer) + co
 - Consumes: existing `MapsActivity` file ops (`onFilePicked` `:75-100`, `confirmDelete` `:102-111`); `copyAssetDir` (`MainActivity.java:108-135`).
 - Produces: `SettingsHelper.ACTION_TITLE_MAPS_CHANGED` (String constant Task 7's service receiver filters on); a `sendBroadcast(TITLE_MAPS_CHANGED)` after every successful import/delete.
 
-**Context:** `copyAssetDir` currently re-copies bundled `title/*.sav` every launch with no dest check, so deleting a bundled map does not persist. Copy-once is scoped to the `title` subtree only (via a `skipExisting` param) so `baseset`/`lang` still refresh on updates (decision d). `.sav` enforcement stops a mis-picked file from silently vanishing from the `.sav`-filtered list.
+**Context:** `copyAssetDir` currently re-copies bundled `title/*.sav` every launch with no dest check, so deleting a bundled map does not persist. Copy-once is scoped to the `title` subtree only (via a `skipExisting` param) so `baseset`/`lang` still refresh on updates (decision d). `.sav` enforcement stops a mis-picked file from silently vanishing from the `.sav`-filtered list. **Name-collision behavior (decided Q8.3): overwrite-and-refresh is acceptable** — a SAF import whose display name matches an existing/bundled map copies to the same dest and overwrites it (per §4 / decision c); no rename, no dedupe. Intentional and testable: re-importing a same-named file replaces it and the list refreshes without duplicating.
 
 - [ ] **Step 1: Confirm no propagation + unconditional copy today (pre-impl check)**
 
@@ -842,7 +870,7 @@ git commit -m "android: propagate title-map import/delete (TITLE_MAPS_CHANGED) +
 
 ## Task 7: Service TITLE_MAPS_CHANGED receiver → nativeRefreshTitleMaps (§4 wiring)
 
-**Tag:** Stage-3-blocked (needs the live service). Interim: static inspection + build. Depends on Task 4 (`nativeRefreshTitleMaps`) and Task 6 (`ACTION_TITLE_MAPS_CHANGED` + the sender).
+**Tag:** Device-verifiable now (Stage 3 landed). Interim: static inspection + build. Depends on Task 4 (`nativeRefreshTitleMaps`) and Task 6 (`ACTION_TITLE_MAPS_CHANGED` + the sender).
 
 **Files:**
 - Modify: `android/app/src/main/java/org/openttd/android/OpenTTDWallpaperService.java` (field; register in `onCreate`; unregister in `onDestroy`)
@@ -910,9 +938,16 @@ grep -n 'mTitleMapsChangedReceiver\|nativeRefreshTitleMaps\|ACTION_TITLE_MAPS_CH
 ```
 Expected: field declared; registered with `RECEIVER_EXPORTED` on `ACTION_TITLE_MAPS_CHANGED`; `nativeRefreshTitleMaps()` guarded by `sLibrariesLoaded && sSDLInitialized`; unregistered in `onDestroy`.
 
-- [ ] **Step 7: Live re-verify (Stage-3-blocked)**
+- [ ] **Step 7: Live device-verify (running wallpaper)**
 
-After Stage 3, with the live wallpaper running: `MapsActivity` → Add a `.sav` → logcat shows `TITLE_MAPS_CHANGED broadcast received` → `RefreshTitleMaps: N files` dump listing the new file → the new map enters rotation. Delete an imported map → it leaves rotation after refresh; deleting the currently-loaded map is safe (open inode; next rotation skips the absent path).
+```bash
+/usr/bin/python3 tools/run_android.py deploy
+# re-set the live wallpaper, then import a .sav via MapsActivity (Add), OR fire the broadcast directly:
+adb logcat -c
+adb shell am broadcast -a org.openttd.android.TITLE_MAPS_CHANGED
+adb logcat -d -s OpenTTD:V OpenTTDWallpaper:V | grep -nE 'TITLE_MAPS_CHANGED|RefreshTitleMaps'
+```
+Acceptance: `TITLE_MAPS_CHANGED broadcast received` → `RefreshTitleMaps: N files, idx=…` dump reflecting the new file count. Import a `.sav` in `MapsActivity` → it enters rotation (`SWITCH_MAP` reaches it). Delete an imported map → it leaves rotation after refresh; deleting the currently-loaded map is safe (open inode; next rotation skips the absent path).
 
 - [ ] **Step 8: Commit**
 
@@ -932,22 +967,64 @@ git commit -m "wallpaper: refresh native title-map cache on TITLE_MAPS_CHANGED (
 - WallpaperService on-device lifecycle itself (Stage 3).
 - Any `gles_poi.cpp` edit — the suppression gate lives in `RequestNextTitleMap()` (decision i).
 
+**Known behavior (decided Q8.2) — manual broadcasts are an intentional out-of-band override.** While an interval index 1–4 is active (`_gles_interval_active=true`), a manual `SWITCH_MAP`/`NEXT_MAP`/`PREV_MAP` broadcast still rotates: it calls the un-gated `nativeSwitchMap`/`nativeRotateMap`, and the gate deliberately covers only the automatic POI-wrap `RequestNextTitleMap()` (decision i), not user-initiated rotation. This is intended (a manual rotate should always work). The pre-existing `nativeSwitchMap` direct-JNI-thread race is left unchanged (Global Constraints threading rule) — not introduced by this stage, not in scope to fix here.
+
 ## Self-Review
 
 - **Spec coverage:** §1 Brightness → Task 1 (`max=100`, GameActivity + service bounded retry). §2 Interval UI → Task 3; consumer → Task 5; double-fire gate/native → Task 4 (index 0 no flag, 1–4 Handler + `nativeSetIntervalActive`, gate in `RequestNextTitleMap`). §3 Zoom drop → Task 2. §4 MapsActivity propagation → Task 6 (broadcast/`.sav`/copy-once) + Task 7 (service receiver → `nativeRefreshTitleMaps` → `RefreshTitleMaps` drain). §5 Persistence → Task 5 cold-start on first `onVisibilityChanged(true)`. Native invariant 15/15 → Task 4 Step 9. Every scope item maps to a task. ✓
-- **Decisions folded:** (a) zoom dropped — Task 2; (b/b′) Handler + cadence authority — Task 5; (f) index-0 reuses on-hide `nativePrepareBackground`, no timer/flag — Task 5 Step 4/6; (g) `RECEIVER_EXPORTED` — Task 7 Step 3; (h) cold-start first resume — Task 5 Step 6; (i) gate `RequestNextTitleMap` — Task 4 Step 6; (j) `nativeSetIntervalActive` atomic — Task 4; (k) Stage-3-blocked tags — Tasks 1,4,5,7; (c) minimal import UX — Task 6; (d) copy-once — Task 6 Step 5; (e) reuse ported wiring — additive edits throughout. ✓
+- **Decisions folded:** (a) zoom dropped — Task 2; (b/b′) Handler + cadence authority — Task 5; (f) index-0 reuses on-hide `nativePrepareBackground`, no timer/flag — Task 5 Step 4/6; (g) `RECEIVER_EXPORTED` — Task 7 Step 3; (h) cold-start first resume — Task 5 Step 6; (i) gate `RequestNextTitleMap` — Task 4 Step 6; (j) `nativeSetIntervalActive` atomic — Task 4; (k) full plan with layered interim+live verification — Tasks 1,4,5,7 (the Stage-3-blocking is now resolved: Stage 3 landed + device-verified at `bd4a687386`, so the live steps are runnable today); (c) minimal import UX — Task 6; (d) copy-once — Task 6 Step 5; (e) reuse ported wiring — additive edits throughout. ✓
 - **Placeholder scan:** every code step carries verbatim snippets + exact line anchors; every command has expected output. No TBD/TODO. ✓
 - **Type/name consistency:** Java `nativeSetIntervalActive(boolean)`/`nativeRefreshTitleMaps()` (Task 4) match the JNI exports `Java_org_openttd_android_OpenTTDWallpaperService_nativeSetIntervalActive`/`…nativeRefreshTitleMaps` (Task 4) and their callers in Tasks 5/7; `_gles_interval_active`/`_gles_refresh_title_maps` atomics (Task 4) match the `wallpaper.cpp` extern + gate (Task 4 Step 6); `RefreshTitleMaps` declared in `wallpaper.h` (Step 5), defined in `wallpaper.cpp` (Step 6), called in the drain (Step 4); `ACTION_TITLE_MAPS_CHANGED` defined in `SettingsHelper` (Task 6) matches the sender (Task 6) and the receiver filter (Task 7); `INTERVAL_MS`/`applyInterval`/`armIntervalTimer`/`cancelIntervalTimer`/`onEngineVisible`/`onEngineHidden` consistent within Task 5. ✓
-- **Format note (TDD deviation):** OpenTTD's Android Java UI + JNI layer has no unit-test harness, so — like the accepted Stage 3 plan — each task substitutes a **pre-impl verification** (grep/build/GameActivity check showing the current wrong/absent state) for the failing unit test, followed by a **post-impl verification** and commit. Runtime behavior that needs the live `:wallpaper` service is split into an interim check (now) + a Stage-3-blocked live re-verify, per decision (k).
+- **Format note (TDD deviation):** OpenTTD's Android Java UI + JNI layer has no unit-test harness, so — like the accepted Stage 3 plan — each task substitutes a **pre-impl verification** (grep/build/GameActivity check showing the current wrong/absent state) for the failing unit test, followed by a **post-impl verification** and commit. Runtime behavior that needs the live `:wallpaper` service is split into a cheap **interim gate** (static/build) plus a **live device-verify** step; both are runnable now that Stage 3 has landed + device-verified (`bd4a687386`).
 
 ## Task tagging summary
 
-| Task | Scope | Tag | Interim check (now) |
+Stage 3 is done + device-verified (`bd4a687386`), so every task is device-verifiable now; each keeps a cheap interim gate before the live check.
+
+| Task | Scope | Interim gate (fast) | Live device-verify |
 |---|---|---|---|
-| 1 Brightness range + retry | §1 | Partially Stage-3-blocked | `max=100` + GameActivity `:game` brightness; service retry re-verified after Stage 3 |
-| 2 Drop zoom | §3 | Checkable now | build + grep (no zoom symbols) |
-| 3 Interval selector UI | §2 UI | Checkable now | selector persists + `SETTINGS_CHANGED` broadcast |
-| 4 Native gate + refresh + JNI | §2 gate, §4 native | Build-checkable now | `BUILD SUCCESSFUL` + 15/15 grep; behavior after Stage 3 |
-| 5 Service interval consumer + cold-start | §2 consumer, §5 | Stage-3-blocked | static wiring + build |
-| 6 MapsActivity broadcast/.sav/copy-once | §4 Java | Checkable now | broadcast log + copy-once delete persists |
-| 7 Service TITLE_MAPS_CHANGED receiver | §4 wiring | Stage-3-blocked | static wiring + build |
+| 1 Brightness range + retry | §1 | `max=100` + `GameActivity` `:game` brightness | slider dims live wallpaper; brightness restored on fresh surface |
+| 2 Drop zoom | §3 | build + grep (no zoom symbols) | n/a (removal; no runtime surface) |
+| 3 Interval selector UI | §2 UI | selector persists + `SETTINGS_CHANGED` broadcast | n/a until consumer (Task 5) |
+| 4 Native gate + refresh + JNI | §2 gate, §4 native | `BUILD SUCCESSFUL` + 15/15 grep | via Tasks 5 & 7 (no caller of its own) |
+| 5 Service interval consumer + cold-start | §2 consumer, §5 | static wiring + build | index-0 POI cadence vs index-1–4 timer, double-fire suppressed, cold-start honored |
+| 6 MapsActivity broadcast/.sav/copy-once | §4 Java | broadcast log + copy-once delete persists | import/delete propagates via Task 7 |
+| 7 Service TITLE_MAPS_CHANGED receiver | §4 wiring | static wiring + build | `TITLE_MAPS_CHANGED` → `RefreshTitleMaps` dump; new map enters/leaves rotation |
+
+## Confidence Survey
+
+_No open questions._ Iteration 8's Q8.1–Q8.6 were answered interactively and folded (iteration 9); confidence 90%, Status **Ready for execution**. Re-open only if a new fork surfaces during execution.
+
+## Reconciliation Log
+
+Append-only. Newest entry at the bottom.
+
+### Iteration 8 — 2026-07-08
+- **Lineage:** iterations 1–7 live in the sibling design spec (`docs/superpowers/specs/2026-07-07-stage4-settings-ux-design.md`, which reached 90% / "Ready for execution" at iter 7). This plan was authored by `writing-plans` from that spec with decisions (a)–(k) pre-folded (see Self-Review + Task tagging). This is the FIRST plan-confidence pass on the PLAN file — no prior `[x]` in this file to dissolve.
+- **Confidence:** 87% (plateau) — cap from **Risk** (a few under-enumerated low-stakes edge cases: interval-tick vs. manual-broadcast rotation authority incl. the unchanged `nativeSwitchMap` JNI-thread race; import name-collision/overwrite; brightness device-verify visual-only with no native log). Secondary **Readiness** (no unit-test harness → pre-impl grep/build substitutes for a failing test — the documented, Stage-3-parity deviation — plus two mildly imprecise anchors). None of these is closable by a survey answer alone; the plateau is honest, not a hidden defect.
+- **Verified against the tree (HEAD `cbb87ebf5a`, one unrelated `viewport.cpp` +17 commit past the plan's stated `bd4a687386`; `git merge-base --is-ancestor bd4a687386 HEAD` → yes; no plan-touched file changed since `bd4a687386`):**
+  - JNI 1:1 baseline confirmed 8/8 service + 5/5 game (plan's 13→15/15 target math holds).
+  - `sdl2_gles_v.cpp`: `_gles_surface_changed` decl `:63` ✓; fast-path `any` `:460-461` ✓; `game_state_mutex` lock `:467` ✓; `_gles_rotate_map` drain `:475-476` ✓; `nativeSurfaceChanged` block ends before `#endif /* __ANDROID__ */` `:195` ✓; `GLESBackend::Get() != nullptr` null-checks `:158`/`:183` ✓; `_gles_jump_waypoint = true` direct-set precedent `:105` ✓.
+  - `wallpaper.cpp`: `_title_files` `:33`, `_title_file_idx` `:34`, `BuildTitleFileList` `:40`, `CanRotateTitleMap` `:79`, `RequestNextTitleMap` body `:84-87`, `RotateTitleMap` closes `:95`, `<...>` includes `:25-27` ✓. `wallpaper.h`: `RotateTitleMap(int)` decl `:16` ✓.
+  - `gles_poi.cpp`: POI-wrap guard `:549-550` → `RequestNextTitleMap()` `:552`, `NavigatePOI` `:509`/`_poi_manual_browse=true` `:518` ✓ (NO CHANGE holds).
+  - Java/XML/resources: `SettingsHelper` zoom symbols `:11/:15/:20/:35-42/:56` + `ACTION_SETTINGS_CHANGED :18` + interval getters `:26-33` ✓; `strings.xml` `map_zoom_title :7`, `interval_* :12-16`, `zoom_* :17-19` ✓; layout `max="99" :78` + brightness `</LinearLayout> :79` + `row_title_maps :81` ✓; `GameActivity.pushBrightnessDelayed :58-66` ✓; `WallpaperSettingsActivity` `TextView import :8` / `txtBrightnessValue :19` / `seekbar findViewById :44` / `refreshAll :88-92` ✓ (`AlertDialog` genuinely un-imported); `OpenTTDWallpaperService` `nativeSetBrightness :43`, `mSettingsChangedReceiver :52`, `mLastBrightness :63`, `super.onCreate :67`, SETTINGS receiver body `:136-145`, `pushBrightness` overloads close `:161`, register `:148-150`, unregister `:193-196`, `super.onDestroy :197`, `onTouchEvent :225`, `if (!sSDLInitialized) return; :310`, `mVisible = visible; :311`, `pushBrightness() :332`, `nativePrepareBackground() :341` ✓; `MapsActivity` `onFilePicked :75` / `refreshList :96` / `confirmDelete positive :105` / `getTitleDir :130` (`Intent` un-imported) ✓; `MainActivity` `copyAssetDir :108` + callers baseset `:80` / lang `:86` / title `:92` ✓.
+- **Anchor imprecisions found (folded as survey items / notes, not blockers):**
+  - Task 5 Step 6 — "immediately after `mVisible = visible;` (`:311`)" is one line outside the `if (visible)` scope; the co-stated "START of the `if (visible)` block" is the correct intent. A literal `:311` insert would run `onEngineVisible()` (cold-start) on the hidden branch. → Q8.1.
+  - Task 2 Step 4 — replace range `:136-146` includes the `onReceive` closing brace at `:146` (the actual statements to replace are `:136-145`); an exact-range replace would drop the brace. Executor-navigable, but the range is one line too greedy. → noted here for the executor.
+- **Still uncertain (why not ≥90%):** Risk — the low-stakes edge cases in Q8.2/Q8.3/Q8.5/Q8.6 (concurrency of rotation authorities, import collision, on-thread FS scan, timer reset-on-resume) are decisions the executor would otherwise make ad hoc; Readiness — no true failing-test step (documented deviation) + the two anchor imprecisions above. These do not close via document edits alone.
+- **Reconciliation of the Stage-3-landed re-tag (per task):** confirmed intact — Tasks 1/5/7 carry concrete `adb`/`am broadcast`/`logcat -s OpenTTD:V OpenTTDWallpaper:V` live-verify steps + a cheap interim gate; Task 4 defers runtime to Tasks 5/7; no residual "Stage-3-blocked" language remains. Stage-3 blocking is NOT re-flagged as a risk (Stage 3 landed + 9/9 device-verified).
+- **New questions:** Q8.1 … Q8.6 (all task-layer: hook placement/scope, interval-vs-manual authority, import collision, brightness observability, on-thread rescan cost, timer resume semantics).
+- **No downstream skill invoked (HARD-GATE):** confidence < 90% and this run is non-interactive; survey recorded for review. Edits left uncommitted.
+
+### Iteration 9 — 2026-07-08 (interactive fold)
+- **Trigger:** Q8.1–Q8.6 answered via interactive form and folded; two concrete defects fixed, edge cases documented.
+- **Confidence:** 90% (up from the 87% plateau). The subagent's iter-8 plateau assumed no survey answer could lift it, but two items WERE closable and are now closed: Q8.1 was a real correctness defect (fixed) and Q8.4 an observability gap (closed). Remaining ceiling is the inherent one shared with the accepted Stage 3 plan (no Java/JNI unit-test harness → pre-impl grep/build substitutes; normal un-executed-plan risk) — not inflated past that.
+- **Resolved (Q8.1–Q8.6 folded, survey emptied):**
+  - Q8.1 → **inside the `if (visible) {` block, first statement** (`~:313`) → Task 5 Step 6 rewritten with an explicit "do NOT place after `:311`" warning (removes the hidden-branch cold-start bug).
+  - Q8.2 → **manual broadcasts = intentional out-of-band override** → new "Known behavior" note after Out-of-scope; no code change; the `nativeSwitchMap` JNI-thread race stays out of scope.
+  - Q8.3 → **overwrite-and-refresh acceptable** → Task 6 Context gains an explicit collision note (no rename/dedupe, intentional + testable).
+  - Q8.4 → **assert the existing Java `SETTINGS_CHANGED…brightness=` log** → Task 1 live device step now greps `OpenTTDWallpaper:V` for it (one greppable signal alongside the visual check).
+  - Q8.5 → **drop the point** (rescan is cheap; no timing/worker change, no added note).
+  - Q8.6 → **leave unspecified** (the `armIntervalTimer` snippet already implements reset-on-resume; executor is deterministic — no prose pinning added).
+  - Bonus fix (same defect class as Q8.1): Task 2 Step 4 replace range corrected `:136-146` → `:136-145` at both instruction sites (the `:146` `onReceive` brace was one line too greedy).
+- **Status → Ready for execution.** HARD-GATE: no downstream skill (`executing-plans`/`subagent-driven-development`) invoked — awaiting user direction. Plan + spec doc edits remain uncommitted per repo convention.

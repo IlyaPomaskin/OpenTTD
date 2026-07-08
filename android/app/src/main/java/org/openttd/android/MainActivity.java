@@ -88,10 +88,16 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, "Error extracting lang assets", e);
         }
 
-        try {
-            copyAssetDir(assets, "title", new File(dataDir, "title"));
-        } catch (IOException e) {
-            Log.e(TAG, "Error extracting title assets", e);
+        // Bundled title maps are provisioned exactly once (tracked by a persistent pref),
+        // not re-copied on every restart, so a user-deleted bundled map stays deleted.
+        // Tradeoff: a title map added by a future app update won't auto-copy once provisioned.
+        if (!SettingsHelper.isTitleAssetsProvisioned(context)) {
+            try {
+                copyAssetDir(assets, "title", new File(dataDir, "title"));
+                SettingsHelper.setTitleAssetsProvisioned(context);
+            } catch (IOException e) {
+                Log.e(TAG, "Error extracting title assets", e);
+            }
         }
 
         // Log what ended up on disk
