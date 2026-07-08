@@ -106,9 +106,10 @@ public class MapsActivity extends AppCompatActivity {
         new AlertDialog.Builder(this)
             .setMessage(getString(R.string.maps_delete_confirm, file.getName()))
             .setPositiveButton(R.string.maps_delete, (dialog, which) -> {
-                file.delete();
-                refreshList();
-                sendTitleMapsChanged();
+                if (file.delete()) {
+                    refreshList();
+                    sendTitleMapsChanged();
+                }
             })
             .setNegativeButton(R.string.cancel, null)
             .show();

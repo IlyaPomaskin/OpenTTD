@@ -77,21 +77,27 @@ public class MainActivity extends AppCompatActivity {
             if (assetList != null) {
                 for (String f : assetList) Log.i(TAG, "  asset: " + f);
             }
-            copyAssetDir(assets, "baseset", new File(dataDir, "baseset"), false);
+            copyAssetDir(assets, "baseset", new File(dataDir, "baseset"));
         } catch (IOException e) {
             Log.e(TAG, "Error extracting baseset assets", e);
         }
 
         try {
-            copyAssetDir(assets, "lang", new File(dataDir, "lang"), false);
+            copyAssetDir(assets, "lang", new File(dataDir, "lang"));
         } catch (IOException e) {
             Log.e(TAG, "Error extracting lang assets", e);
         }
 
-        try {
-            copyAssetDir(assets, "title", new File(dataDir, "title"), true);
-        } catch (IOException e) {
-            Log.e(TAG, "Error extracting title assets", e);
+        // Bundled title maps are provisioned exactly once (tracked by a persistent pref),
+        // not re-copied on every restart, so a user-deleted bundled map stays deleted.
+        // Tradeoff: a title map added by a future app update won't auto-copy once provisioned.
+        if (!SettingsHelper.isTitleAssetsProvisioned(context)) {
+            try {
+                copyAssetDir(assets, "title", new File(dataDir, "title"));
+                SettingsHelper.setTitleAssetsProvisioned(context);
+            } catch (IOException e) {
+                Log.e(TAG, "Error extracting title assets", e);
+            }
         }
 
         // Log what ended up on disk
@@ -105,13 +111,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private static void copyAssetDir(AssetManager assets, String srcPath, File destDir, boolean skipExisting) throws IOException {
+    private static void copyAssetDir(AssetManager assets, String srcPath, File destDir) throws IOException {
         String[] list = assets.list(srcPath);
         if (list == null) return;
 
         if (list.length == 0) {
-            // It's a file — copy it (skip when it already exists, for copy-once assets).
-            if (skipExisting && destDir.exists()) return;
+            // It's a file — copy it.
             if (!destDir.getParentFile().exists()) {
                 destDir.getParentFile().mkdirs();
             }
@@ -131,7 +136,7 @@ public class MainActivity extends AppCompatActivity {
             destDir.mkdirs();
         }
         for (String fileName : list) {
-            copyAssetDir(assets, srcPath + "/" + fileName, new File(destDir, fileName), skipExisting);
+            copyAssetDir(assets, srcPath + "/" + fileName, new File(destDir, fileName));
         }
     }
 }
