@@ -30,7 +30,7 @@ One shared vertex shader (pixel coords → NDC). Fragment programs:
 **DECISION: GL-thread on-demand decode is the ONLY path in reimpl.** Reference stages 1–2 below are ~~DROP~~ (game-thread pipeline + PBO); kept for understanding the reference.
 
 1. ~~DROP — **Enqueue** (game thread): `Blitter_Snapshot::Encode` picks best zoom variant ≤ In4x, pushes CommonPixel copy into mutex-protected `upload_queue`. Dedupe via `known_sprites` set + atomic clear handshake. Early-staging static buffer before backend exists.~~ Reimpl: `Encode()` = metadata only.
-2. ~~DROP — **PBO batch upload** (GL thread, each frame): 2×4MB PBOs, 15ms time budget, fences, two-pass pack-before-bind, CPU staging.~~ Keep only the **priority idea**: landscape/foundations → water/shore → trees → town buildings → roads → rails → rest, as a post-clear pre-warm loop.
+2. ~~DROP — **PBO batch upload** (GL thread, each frame): 2×4MB PBOs, 15ms time budget, fences, two-pass pack-before-bind, CPU staging.~~ DECISION (reimpl): drop the priority pre-warm idea too — natural Z-order draw already visits ground/foundation sprites first; atlas clears are rare (map switch/overflow) and a few frames of incidental pop-in order aren't perceptible in spectator mode. No pre-warm loop, no priority ordering state.
 3. **GL-thread on-demand decode** (the path): `LookupOrUpload` miss → decode sprite directly from **memory-backed GRF copy** (`SpriteLoaderGrf` over `SpriteFile(mem)`), upload synchronously via `glTexSubImage3D`. Budget 500 loads/frame; placeholder for 1 frame on miss. GL thread fully self-sufficient — after atlas clear it reloads everything without game thread.
    - Enabled by: `BufferSpriteFilesToMemory()` (whole GRFs into RAM at GfxLoadSprites, cached across reloads via `SaveSpriteFileBuffers`), `BuildGLSpriteFiles()` (GL-thread-owned SpriteFile instances over same buffers), `GetSpriteCacheInfo()` (thread-safe id → file/pos/type).
    - `meta_cache` (SpriteID → root w/h/offs) never cleared, used for fast-path dimension queries.
@@ -59,7 +59,7 @@ One shared vertex shader (pixel coords → NDC). Fragment programs:
 - `DrawOverlappedWindowForAll`: wallpaper fast path — only WC_MAIN_WINDOW painted, no overlap clipping logic.
 - ~~DROP (no smooth scroll): `RecordSnapshot` 192px margin + viewport dimension mutation.~~ Record at real screen size; normal sprite clipping covers edges.
 - Viewport scroll blit (`DoSetViewportPosition`) disabled — snapshot re-records whole frame anyway.
-- Perf counters: `GLESPerfCounters _gles_perf` (gfx_func.h) — huge struct covering viewport phases, blitter, PBO, snapshot stages, jank/percentiles; logged every 500ms at debug level 3 from driver `Paint()`.
+- Perf counters: `GLESPerfCounters _gles_perf` (gfx_func.h) — huge struct covering viewport phases, blitter, PBO, snapshot stages, jank/percentiles; logged every 500ms at debug level 3 from driver `Paint()`. DECISION (reimpl): gate *collection*, not just logging, behind a compile-time flag (`WALLPAPER_PERF`) — per-draw chrono/atomic bookkeeping is wasted battery in shipping builds; lives in its own header (`gles_perf.h`) so the gate costs zero merge risk.
 
 ## Context loss / surface recovery (Android essential)
 

@@ -40,7 +40,7 @@ Diff base: upstream/master (e24f92ce8). Android dir excluded.
 - `GameMode GM_WALLPAPER`, `SwitchMode SM_WALLPAPER`.
 - Boot: `_game_mode/_switch_mode` start as WALLPAPER; `LoadWallpaperGame()` instead of `LoadIntroGame`; Android default videodriver `sdl-gles`.
 - Sound/music: null drivers forced, InitializeSound/Music and MusicLoop removed, baseset scanning skipped.
-- `LoadFromConfig` / highscores / hotkeys / window desc loading **commented out** (Android threading hack — revisit).
+- DECISION (reimpl): `LoadFromConfig` / highscores / hotkeys / window desc loading gated with `#ifdef WALLPAPER_BUILD`, not commented out — reference violates its own mergeability rule 6 here; upstream edits to these blocks must still merge cleanly.
 - `LoadIntroGame` uses `LoadNextTitleMap()` (rotation) + `PrepareBackground()`.
 - `SafeLoad` failure in wallpaper → `LoadWallpaperGame()`.
 - StateGameLoop instrumented (tileloop/vehicletick timing, vehicle counts).
