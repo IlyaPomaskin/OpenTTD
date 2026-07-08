@@ -148,6 +148,15 @@ public:
 	virtual bool Is32BppSupported() = 0;
 
 	/**
+	 * Does this encoder need the decoded pixel data, or only the sprite dimensions?
+	 * When false, the loader may skip pixel decompression (e.g. the wallpaper
+	 * snapshot recorder, which only records geometry and lets the GL thread decode
+	 * pixels for the atlas).
+	 * @return \c true iff decoded pixels are required.
+	 */
+	virtual bool NeedsPixels() const { return true; }
+
+	/**
 	 * Convert a sprite from the loader to our own format.
 	 * @param sprite_type The type of sprite to load.
 	 * @param sprite The sprites to load.

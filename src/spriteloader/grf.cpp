@@ -364,3 +364,96 @@ ZoomLevels SpriteLoaderGrf::LoadSprite(SpriteLoader::SpriteCollection &sprite, S
 		return LoadSpriteV1(sprite, file, file_pos, sprite_type, load_32bpp, avail_8bpp);
 	}
 }
+
+/**
+ * Read sprite headers (dimensions) for container v2 without decoding pixels.
+ * Mirrors LoadSpriteV2's parsing exactly, but for each wanted zoom it allocates
+ * zeroed pixel storage (so ResizeSprites/PadSprites downstream produce identical
+ * dimensions) and skips the compressed pixel data instead of decoding it.
+ * Keep in sync with LoadSpriteV2.
+ */
+static ZoomLevels LoadSpriteDimensionsV2(SpriteLoader::SpriteCollection &sprite, SpriteFile &file, size_t file_pos, SpriteType sprite_type, bool load_32bpp, SpriteCacheCtrlFlags control_flags, ZoomLevels &avail_8bpp, ZoomLevels &avail_32bpp)
+{
+	static const ZoomLevel zoom_lvl_map[6] = {ZoomLevel::Normal, ZoomLevel::In4x, ZoomLevel::In2x, ZoomLevel::Out2x, ZoomLevel::Out4x, ZoomLevel::Out8x};
+
+	if (file_pos == SIZE_MAX) return {};
+	file.SeekTo(file_pos, SEEK_SET);
+	uint32_t id = file.ReadDword();
+
+	ZoomLevels loaded_sprites;
+	do {
+		int64_t num = file.ReadDword();
+		size_t start_pos = file.GetPos();
+		uint8_t type = file.ReadByte();
+		if (type == 0xFF) return {};
+
+		SpriteComponents colour{type};
+		type &= ~SpriteComponents::MASK;
+		uint8_t zoom = file.ReadByte();
+
+		bool is_wanted_colour_depth = (colour.Any() && (load_32bpp ? colour != SpriteComponent::Palette : colour == SpriteComponent::Palette));
+		bool is_wanted_zoom_lvl;
+		if (sprite_type != SpriteType::MapGen) {
+			if (zoom < lengthof(zoom_lvl_map)) {
+				ZoomLevel zoom_lvl = zoom_lvl_map[zoom];
+				if (colour == SpriteComponent::Palette) avail_8bpp.Set(zoom_lvl);
+				if (colour != SpriteComponent::Palette) avail_32bpp.Set(zoom_lvl);
+
+				is_wanted_zoom_lvl = true;
+				ZoomLevel zoom_min = sprite_type == SpriteType::Font ? ZoomLevel::Min : _settings_client.gui.sprite_zoom_min;
+				if (zoom_min >= ZoomLevel::In2x &&
+						control_flags.Test(load_32bpp ? SpriteCacheCtrlFlag::AllowZoomMin2x32bpp : SpriteCacheCtrlFlag::AllowZoomMin2xPal) && zoom_lvl < ZoomLevel::In2x) {
+					is_wanted_zoom_lvl = false;
+				}
+				if (zoom_min >= ZoomLevel::Normal &&
+						control_flags.Test(load_32bpp ? SpriteCacheCtrlFlag::AllowZoomMin1x32bpp : SpriteCacheCtrlFlag::AllowZoomMin1xPal) && zoom_lvl < ZoomLevel::Normal) {
+					is_wanted_zoom_lvl = false;
+				}
+			} else {
+				is_wanted_zoom_lvl = false;
+			}
+		} else {
+			is_wanted_zoom_lvl = (zoom == 0);
+		}
+
+		if (is_wanted_colour_depth && is_wanted_zoom_lvl) {
+			ZoomLevel zoom_lvl = (sprite_type != SpriteType::MapGen) ? zoom_lvl_map[zoom] : ZoomLevel::Min;
+
+			if (loaded_sprites.Test(zoom_lvl)) {
+				file.SkipBytes(num - 2);
+				continue;
+			}
+
+			auto &dest_sprite = sprite[zoom_lvl];
+			dest_sprite.height = file.ReadWord();
+			dest_sprite.width = file.ReadWord();
+			dest_sprite.x_offs = file.ReadWord();
+			dest_sprite.y_offs = file.ReadWord();
+
+			if (dest_sprite.width > INT16_MAX || dest_sprite.height > INT16_MAX) {
+				WarnCorruptSprite(file, file_pos, __LINE__);
+				return {};
+			}
+
+			dest_sprite.colours = colour;
+
+			/* Dimensions only: zeroed pixels for downstream resize, skip the pixel data. */
+			dest_sprite.AllocateData(zoom_lvl, static_cast<size_t>(dest_sprite.width) * dest_sprite.height);
+			file.SkipBytes(start_pos + num - file.GetPos());
+			loaded_sprites.Set(zoom_lvl);
+		} else {
+			file.SkipBytes(num - 2);
+		}
+	} while (file.ReadDword() == id);
+
+	return loaded_sprites;
+}
+
+ZoomLevels SpriteLoaderGrf::LoadSpriteDimensions(SpriteLoader::SpriteCollection &sprite, SpriteFile &file, size_t file_pos, SpriteType sprite_type, bool load_32bpp, SpriteCacheCtrlFlags control_flags, ZoomLevels &avail_8bpp, ZoomLevels &avail_32bpp)
+{
+	if (this->container_ver >= 2) {
+		return LoadSpriteDimensionsV2(sprite, file, file_pos, sprite_type, load_32bpp, control_flags, avail_8bpp, avail_32bpp);
+	}
+	/* Container v1 is legacy and rare; fall back to a full load (correct, just decodes pixels). */
+	return LoadSpriteV1(sprite, file, file_pos, sprite_type, load_32bpp, avail_8bpp);
+}

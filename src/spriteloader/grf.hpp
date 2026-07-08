@@ -18,6 +18,11 @@ class SpriteLoaderGrf : public SpriteLoader {
 public:
 	SpriteLoaderGrf(uint8_t container_ver) : container_ver(container_ver) {}
 	ZoomLevels LoadSprite(SpriteLoader::SpriteCollection &sprite, SpriteFile &file, size_t file_pos, SpriteType sprite_type, bool load_32bpp, SpriteCacheCtrlFlags control_flags, ZoomLevels &avail_8bpp, ZoomLevels &avail_32bpp) override;
+
+	/** Load sprite dimensions only (headers), skipping pixel decode. For callers that
+	 *  need geometry but not pixels (wallpaper snapshot recorder). Produces the same
+	 *  per-zoom dimensions as LoadSprite so downstream resize/pad match exactly. */
+	ZoomLevels LoadSpriteDimensions(SpriteLoader::SpriteCollection &sprite, SpriteFile &file, size_t file_pos, SpriteType sprite_type, bool load_32bpp, SpriteCacheCtrlFlags control_flags, ZoomLevels &avail_8bpp, ZoomLevels &avail_32bpp);
 };
 
 #endif /* SPRITELOADER_GRF_HPP */

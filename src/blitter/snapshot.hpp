@@ -31,6 +31,7 @@ public:
 	void SetRecordingBuffer(void *buf, int pitch) { this->recording_buffer = buf; this->recording_pitch = pitch; }
 	uint8_t GetScreenDepth() override { return 32; }
 	bool Is32BppSupported() override { return true; }
+	bool NeedsPixels() const override { return false; } ///< Records geometry only; pixels decoded on the GL thread.
 	uint GetSpriteAlignment() override { return 1; }
 
 	void Draw(Blitter::BlitterParams *bp, BlitterMode mode, ZoomLevel zoom) override;

@@ -531,10 +531,46 @@ static void *ReadRecolourSprite(SpriteFile &file, size_t file_pos, uint num, Spr
  * @param encoder     Sprite encoder to use.
  * @return Read sprite data.
  */
+/**
+ * Load only a sprite's dimensions (no pixel decode) and encode it. Used when the
+ * encoder reports NeedsPixels() == false (wallpaper snapshot recorder): the game
+ * thread needs geometry to build the display list, while the GL thread decodes
+ * pixels for the atlas separately. Produces the same encoded dimensions as ReadSprite.
+ */
+static void *ReadSpriteDimensions(const SpriteCache *sc, SpriteType sprite_type, SpriteAllocator &allocator, SpriteEncoder *encoder)
+{
+	SpriteFile &file = *sc->file;
+	size_t file_pos = sc->file_pos;
+
+	SpriteLoader::SpriteCollection sprite;
+	ZoomLevels sprite_avail;
+	ZoomLevels avail_8bpp;
+	ZoomLevels avail_32bpp;
+
+	SpriteLoaderGrf sprite_loader(file.GetContainerVersion());
+	if (encoder->Is32BppSupported()) {
+		sprite_avail = sprite_loader.LoadSpriteDimensions(sprite, file, file_pos, sprite_type, true, sc->control_flags, avail_8bpp, avail_32bpp);
+	}
+	if (sprite_avail.None()) {
+		sprite_avail = sprite_loader.LoadSpriteDimensions(sprite, file, file_pos, sprite_type, false, sc->control_flags, avail_8bpp, avail_32bpp);
+	}
+
+	if (sprite_avail.None() || !ResizeSprites(sprite, sprite_avail, encoder)) {
+		return (void *)GetRawSprite(SPR_IMG_QUERY, SpriteType::Normal, &allocator, encoder);
+	}
+	return encoder->Encode(sprite_type, sprite, allocator);
+}
+
 static void *ReadSprite(const SpriteCache *sc, SpriteID id, SpriteType sprite_type, SpriteAllocator &allocator, SpriteEncoder *encoder)
 {
 	/* Use current blitter if no other sprite encoder is given. */
 	if (encoder == nullptr) encoder = BlitterFactory::GetCurrentBlitter();
+
+	/* When the encoder only wants geometry (wallpaper snapshot recorder), read sprite
+	 * dimensions without decoding pixels; the GL thread decodes pixels for the atlas. */
+	if (sprite_type == SpriteType::Normal && !encoder->NeedsPixels()) {
+		return ReadSpriteDimensions(sc, sprite_type, allocator, encoder);
+	}
 
 	SpriteFile &file = *sc->file;
 	size_t file_pos = sc->file_pos;
