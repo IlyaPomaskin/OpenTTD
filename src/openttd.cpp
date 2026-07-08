@@ -16,6 +16,7 @@
 #ifdef WALLPAPER_BUILD
 #include "video/gles_poi.h"
 #include "video/gles_backend.h"
+#include "video/gles_perf.h"
 #include "wallpaper.h"
 #endif
 #include "mixer.h"
@@ -1291,6 +1292,8 @@ void StateGameLoop()
 	PerformanceMeasurer framerate(PerformanceElement::GameLoop);
 	PerformanceAccumulator::Reset(PerformanceElement::GameLoopLandscape);
 
+	GLES_PERF_SCOPE(gameloop_us);
+
 	if (_game_mode == GameMode::Editor) {
 		BasePersistentStorageArray::SwitchMode(PSM_ENTER_GAMELOOP);
 		RunTileLoop();
@@ -1321,8 +1324,8 @@ void StateGameLoop()
 		}
 		TimerManager<TimerGameEconomy>::Elapsed({});
 		TimerManager<TimerGameTick>::Elapsed(1);
-		RunTileLoop();
-		CallVehicleTicks();
+		{ GLES_PERF_SCOPE(tileloop_us); RunTileLoop(); }
+		{ GLES_PERF_SCOPE(vehicletick_us); CallVehicleTicks(); }
 		CallLandscapeTick();
 		BasePersistentStorageArray::SwitchMode(PSM_LEAVE_GAMELOOP);
 
@@ -1338,6 +1341,27 @@ void StateGameLoop()
 		CallWindowGameTickEvent();
 		NewsLoop();
 	}
+
+	GLES_PERF_COUNT({
+		int v_train = 0;
+		int v_road = 0;
+		int v_ship = 0;
+		int v_aircraft = 0;
+		for (const Vehicle *v : Vehicle::Iterate()) {
+			if (!v->IsPrimaryVehicle()) continue;
+			switch (v->type) {
+				case VehicleType::Train:    v_train++; break;
+				case VehicleType::Road:     v_road++; break;
+				case VehicleType::Ship:     v_ship++; break;
+				case VehicleType::Aircraft: v_aircraft++; break;
+				default: break;
+			}
+		}
+		_gles_perf.vehicle_trains = v_train;
+		_gles_perf.vehicle_road = v_road;
+		_gles_perf.vehicle_ships = v_ship;
+		_gles_perf.vehicle_aircraft = v_aircraft;
+	});
 
 	assert(IsLocalCompany());
 }

@@ -93,6 +93,7 @@
 #ifdef WALLPAPER_BUILD
 #include "video/gles_poi.h"
 #endif
+#include "video/gles_perf.h"
 
 #include <forward_list>
 #include <stack>
@@ -1256,6 +1257,8 @@ static void ViewportAddLandscape()
 			/* Valid row/column? */
 			if ((row + column) % 2 != 0) continue;
 
+			GLES_PERF_COUNT(_gles_perf.vp_tiles_iterated++);
+
 			Point tilecoord;
 			tilecoord.x = (row - column) / 2;
 			tilecoord.y = (row + column) / 2;
@@ -1854,8 +1857,8 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	_vd.dpi.dst_ptr = BlitterFactory::GetCurrentBlitter()->MoveTo(_cur_dpi->dst_ptr, x - _cur_dpi->left, y - _cur_dpi->top);
 	AutoRestoreBackup dpi_backup(_cur_dpi, &_vd.dpi);
 
-	ViewportAddLandscape();
-	ViewportAddVehicles(&_vd.dpi);
+	{ GLES_PERF_SCOPE(vp_land_us); ViewportAddLandscape(); }
+	{ GLES_PERF_SCOPE(vp_vehicles_us); ViewportAddVehicles(&_vd.dpi); }
 
 #ifdef WALLPAPER_BUILD
 	if (_game_mode != GameMode::Wallpaper) {
@@ -1868,14 +1871,14 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 	DrawTextEffects(&_vd.dpi);
 #endif
 
-	if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw);
+	{ GLES_PERF_SCOPE(vp_tilesprites_us); if (!_vd.tile_sprites_to_draw.empty()) ViewportDrawTileSprites(&_vd.tile_sprites_to_draw); }
 
 	for (auto &psd : _vd.parent_sprites_to_draw) {
 		_vd.parent_sprites_to_sort.push_back(&psd);
 	}
 
-	_vp_sprite_sorter(&_vd.parent_sprites_to_sort);
-	ViewportDrawParentSprites(&_vd.parent_sprites_to_sort, &_vd.child_screen_sprites_to_draw);
+	{ GLES_PERF_SCOPE(vp_sort_us); _vp_sprite_sorter(&_vd.parent_sprites_to_sort); }
+	{ GLES_PERF_SCOPE(vp_draw_us); ViewportDrawParentSprites(&_vd.parent_sprites_to_sort, &_vd.child_screen_sprites_to_draw); }
 
 	if (_draw_bounding_boxes) ViewportDrawBoundingBoxes(&_vd.parent_sprites_to_sort);
 	if (_draw_dirty_blocks) ViewportDrawDirtyBlocks();
@@ -1912,6 +1915,14 @@ void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom
 		dp.top = UnScaleByZoom(_vd.dpi.top, zoom);
 		ViewportDrawStrings(zoom, &_vd.string_sprites_to_draw);
 	}
+
+	GLES_PERF_COUNT(_gles_perf.vp_tile_sprites += static_cast<int>(_vd.tile_sprites_to_draw.size()));
+	GLES_PERF_COUNT(_gles_perf.vp_sprites_generated += static_cast<int>(_vd.parent_sprites_to_draw.size()));
+	GLES_PERF_COUNT(_gles_perf.vp_parent_sprites += static_cast<int>(_vd.parent_sprites_to_sort.size()));
+	GLES_PERF_COUNT(_gles_perf.vp_child_sprites += static_cast<int>(_vd.child_screen_sprites_to_draw.size()));
+	GLES_PERF_COUNT(_gles_perf.vp_area_w = std::max(_gles_perf.vp_area_w, static_cast<int>(_vd.dpi.width)));
+	GLES_PERF_COUNT(_gles_perf.vp_area_h = std::max(_gles_perf.vp_area_h, static_cast<int>(_vd.dpi.height)));
+	GLES_PERF_COUNT(_gles_perf.vp_calls++);
 
 	_vd.string_sprites_to_draw.clear();
 	_vd.tile_sprites_to_draw.clear();

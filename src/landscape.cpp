@@ -35,6 +35,7 @@
 #include "company_gui.h"
 #include "saveload/saveload.h"
 #include "framerate_type.h"
+#include "video/gles_perf.h"
 #include "landscape_cmd.h"
 #include "terraform_cmd.h"
 #include "station_func.h"
@@ -820,6 +821,7 @@ void RunTileLoop()
 	/* We update every tile every TILE_UPDATE_FREQUENCY ticks, so divide the map size by 2^TILE_UPDATE_FREQUENCY_LOG = TILE_UPDATE_FREQUENCY */
 	static_assert(2 * MIN_MAP_SIZE_BITS >= TILE_UPDATE_FREQUENCY_LOG);
 	uint count = 1 << (Map::LogX() + Map::LogY() - TILE_UPDATE_FREQUENCY_LOG);
+	GLES_PERF_COUNT(_gles_perf.tileloop_count += count);
 
 	TileIndex tile = _cur_tileloop_tile;
 	/* The LFSR cannot have a zeroed state. */
