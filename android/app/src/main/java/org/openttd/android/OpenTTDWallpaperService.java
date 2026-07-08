@@ -54,6 +54,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
     private BroadcastReceiver mSettingsChangedReceiver;
+    private BroadcastReceiver mTitleMapsChangedReceiver;
 
 
     // Same library list as GameActivity.getLibraries()
@@ -168,6 +169,16 @@ public class OpenTTDWallpaperService extends WallpaperService {
         registerReceiver(mSettingsChangedReceiver,
             new IntentFilter(SettingsHelper.ACTION_SETTINGS_CHANGED),
             Context.RECEIVER_EXPORTED);
+        mTitleMapsChangedReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                Log.i(TAG, "TITLE_MAPS_CHANGED broadcast received");
+                if (sLibrariesLoaded && sSDLInitialized) nativeRefreshTitleMaps();
+            }
+        };
+        registerReceiver(mTitleMapsChangedReceiver,
+            new IntentFilter(SettingsHelper.ACTION_TITLE_MAPS_CHANGED),
+            Context.RECEIVER_EXPORTED);
     }
 
     private void pushBrightness() {
@@ -266,6 +277,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mSettingsChangedReceiver != null) {
             unregisterReceiver(mSettingsChangedReceiver);
             mSettingsChangedReceiver = null;
+        }
+        if (mTitleMapsChangedReceiver != null) {
+            unregisterReceiver(mTitleMapsChangedReceiver);
+            mTitleMapsChangedReceiver = null;
         }
         cancelIntervalTimer();
         super.onDestroy();
