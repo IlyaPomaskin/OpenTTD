@@ -176,4 +176,25 @@ extern bool _gles_context_lost;
 #define GLES_PERF_COUNT(stmt) do { } while (0)
 #endif
 
+/* Timing counterpart to GLES_PERF_COUNT: `GLES_PERF_SCOPE(field)` drops a stack
+ * RAII timer that samples steady_clock at construction and, at scope exit, adds
+ * the elapsed microseconds to `_gles_perf.<field>` with `+=` (accumulate-per-period
+ * — the driver zeroes the struct each period). `field` names an `int64_t *_us`
+ * member. Two-level token-paste on __LINE__ gives each instance a unique name so
+ * several scopes can coexist in one block. WALLPAPER_PERF off = zero cost. */
+#ifdef WALLPAPER_PERF
+#include <chrono>
+struct GLESPerfScopeTimer {
+	int64_t &acc;
+	std::chrono::steady_clock::time_point start;
+	GLESPerfScopeTimer(int64_t &acc) : acc(acc), start(std::chrono::steady_clock::now()) {}
+	~GLESPerfScopeTimer() { this->acc += std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - this->start).count(); }
+};
+#define GLES_PERF_SCOPE_JOIN2(a, b) a ## b
+#define GLES_PERF_SCOPE_JOIN(a, b) GLES_PERF_SCOPE_JOIN2(a, b)
+#define GLES_PERF_SCOPE(field) GLESPerfScopeTimer GLES_PERF_SCOPE_JOIN(_gles_perf_scope_, __LINE__)(_gles_perf.field)
+#else
+#define GLES_PERF_SCOPE(field) do {} while (0)
+#endif
+
 #endif /* GLES_PERF_H */
