@@ -672,9 +672,10 @@ bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 	 * SDL doesn't update its internal EGL surface when the wallpaper engine
 	 * provides a new ANativeWindow — onNativeSurfaceChanged sets flags but
 	 * SDL never calls eglCreateWindowSurface with the new window.
-	 * Fix: directly destroy the old EGL surface, get the new ANativeWindow
-	 * from Java via SDL's getNativeSurface(), create a new EGL surface, and
-	 * make it current.  This bypasses SDL's surface management. */
+	 * Fix: get the new ANativeWindow from Java via SDL's getNativeSurface()
+	 * and recreate SDL's GL context so SDL creates and tracks a fresh surface
+	 * for it (we cannot bind our own — presentation goes through
+	 * SDL_GL_SwapWindow, which swaps SDL's tracked surface). See below. */
 	if (_gles_surface_changed.exchange(false)) {
 		EGLDisplay display = eglGetCurrentDisplay();
 		EGLContext ctx      = eglGetCurrentContext();
@@ -709,61 +710,32 @@ bool VideoDriver_SDL_GLES::RecoverContextIfLost()
 			}
 
 			if (nw != nullptr) {
-				/* Get EGL config from the current context. */
-				EGLint config_id;
-				EGLConfig config = nullptr;
-				eglQueryContext(display, ctx, EGL_CONFIG_ID, &config_id);
-				EGLint num_configs;
-				EGLint config_attribs[] = { EGL_CONFIG_ID, config_id, EGL_NONE };
-				eglChooseConfig(display, config_attribs, &config, 1, &num_configs);
-
-				/* Try to create a new EGL surface for the new ANativeWindow.
-				 * Don't destroy the old surface first — it may belong to SDL,
-				 * and an ANativeWindow can only have one EGL surface at a time.
-				 * If creation fails (EGL_BAD_ALLOC), the window already has
-				 * an EGL surface — use SDL_GL_CreateContext to force SDL to
-				 * rebind its context to the current window. */
-				EGLSurface new_surf = eglCreateWindowSurface(display, config, nw, nullptr);
-				EGLint create_err = eglGetError();
-				Debug(driver, 0, "[CTX] surface_changed: ANativeWindow={} new_surf={} err={:#x}",
-					(void *)nw, (void *)new_surf, create_err);
-
-				if (new_surf != EGL_NO_SURFACE && new_surf != old_surf) {
-					/* New surface created — unbind old, destroy, bind new. */
-					eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-					if (old_surf != EGL_NO_SURFACE) eglDestroySurface(display, old_surf);
-					eglMakeCurrent(display, new_surf, new_surf, ctx);
-					Debug(driver, 0, "[CTX] surface_changed: swapped surf {} → {}", (void *)old_surf, (void *)new_surf);
+				/* The new ANativeWindow already owns an EGL surface, and this
+				 * driver presents via SDL_GL_SwapWindow, which swaps SDL's own
+				 * internally-tracked surface.  We therefore cannot create and
+				 * bind our own EGL surface for the window: EGL forbids a second
+				 * surface per window (eglCreateWindowSurface → EGL_BAD_ALLOC),
+				 * and even if it succeeded SDL would keep swapping its now-stale
+				 * surface (black screen).  Instead recreate SDL's GL context so
+				 * SDL creates and tracks a fresh surface for the new window;
+				 * ctx_actually_changed below then drives full GPU-state recovery.
+				 * Stage-5 optimization: reattach only the surface to keep the GL
+				 * context + atlas across surface changes and skip the recover. */
+				Debug(driver, 0, "[CTX] surface_changed: recreating SDL context for new ANativeWindow={} (old_surf={})",
+					(void *)nw, (void *)old_surf);
+				if (this->gl_context != nullptr) {
+					SDL_GL_DeleteContext(this->gl_context);
+				}
+				this->gl_context = SDL_GL_CreateContext(this->sdl_window);
+				if (this->gl_context != nullptr) {
+					EGLSurface new_surf = eglGetCurrentSurface(EGL_DRAW);
+					Debug(driver, 0, "[CTX] surface_changed: SDL context recreated, surf={}", (void *)new_surf);
+					/* Full GPU state recovery needed after context recreation. */
+					_gles_context_lost = true;
 				} else {
-					if (new_surf == old_surf) {
-						/* Same surface returned — window unchanged. */
-						Debug(driver, 0, "[CTX] surface_changed: same surface, just rebinding");
-					} else {
-						/* eglCreateWindowSurface failed (EGL_BAD_ALLOC) —
-						 * SDL owns a surface on this window.  Force SDL to
-						 * recreate its GL context which rebinds to the new window. */
-						Debug(driver, 0, "[CTX] surface_changed: create failed, recreating SDL context");
-						if (this->gl_context != nullptr) {
-							SDL_GL_DeleteContext(this->gl_context);
-						}
-						this->gl_context = SDL_GL_CreateContext(this->sdl_window);
-						if (this->gl_context != nullptr) {
-							new_surf = eglGetCurrentSurface(EGL_DRAW);
-							Debug(driver, 0, "[CTX] surface_changed: SDL context recreated, surf={}",
-								(void *)new_surf);
-							/* Full GPU state recovery needed after context recreation. */
-							_gles_context_lost = true;
-						} else {
-							Debug(driver, 0, "[CTX] surface_changed: SDL_GL_CreateContext FAILED: {}", SDL_GetError());
-						}
-					}
+					Debug(driver, 0, "[CTX] surface_changed: SDL_GL_CreateContext FAILED: {}", SDL_GetError());
 				}
 
-				/* Force FBO rebind for the new default framebuffer. */
-				if (!_gles_context_lost && GLESBackend::Get() != nullptr) {
-					GLESBackend *b = GLESBackend::Get();
-					b->Resize(b->GetScreenWidth(), b->GetScreenHeight());
-				}
 				this->MakeDirty(0, 0, _screen.width, _screen.height);
 
 				ANativeWindow_release(nw);
