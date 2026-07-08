@@ -1,7 +1,8 @@
 # Wallpaper Settings + Native/Android Comms Redesign
 
 Date: 2026-07-09
-Status: design approved, pending spec review
+Status: Ready for implementation plan
+**Plan-confidence status:** Ready for implementation plan (iteration 2, confidence 90%)
 
 ## Goal
 
@@ -53,38 +54,38 @@ service and `GameActivity`:
 
 ```java
 public final class WallpaperNative {
-    public static native void nativeWallpaperCommand(int code, int arg1, int arg2);
+    public static native void nativeWallpaperCommand(String command, int arg1, int arg2);
 }
 ```
 
 C++ entry (in `sdl2_gles_v.cpp`):
 
 ```
-Java_org_openttd_android_WallpaperNative_nativeWallpaperCommand(env, cls, code, a1, a2)
-    switch (code) → writes the SAME atomics already drained in Tick()/GL thread
+Java_org_openttd_android_WallpaperNative_nativeWallpaperCommand(env, cls, command, a1, a2)
+    dispatch on the command NAME (string) → writes the SAME atomics already drained in Tick()
 ```
+
+Command names are passed as **strings** — self-describing, so there is no numeric
+enum to keep in sync between Java and C++. The set of command names is the shared
+contract; native ignores an unknown name (forward-compatible).
 
 ### Command set
 
-| code | arg1 / arg2 | maps to (existing mechanism) |
+| command | arg1 / arg2 | maps to (existing mechanism) |
 |---|---|---|
-| `CMD_PREPARE_BG` | — | hide hook: rotate-map-if-elapsed **else** jump POI |
-| `CMD_ROTATE_MAP` | delta | `_gles_rotate_map` (SWITCH_MAP = +1) |
-| `CMD_NAVIGATE_POI` | delta | `_gles_navigate_poi` |
-| `CMD_SCROLL_CAMERA` | dx, dy | `_gles_scroll_dx` / `_gles_scroll_dy` |
-| `CMD_SET_PAUSED` | 0/1 | `SetGameThreadPaused` |
-| `CMD_SURFACE_CHANGED` | — | `_gles_surface_changed` |
-| `CMD_RELOAD_SETTINGS` | — | `_gles_reload_settings` (new) → re-read cfg |
-| `CMD_REFRESH_TITLE_MAPS` | — | `_gles_refresh_title_maps` |
-| `CMD_DUMP_ATLAS` | — | `_gles_dump_atlas` (native derives dir) |
-
-The command enum is the one thing kept in sync (Java constants ↔ C++ enum),
-~9 values — the same coupling h2lwp accepts for its 3-value event enum.
+| `"PREPARE_BG"` | — | hide hook: rotate-map-if-elapsed **else** jump POI |
+| `"ROTATE_MAP"` | delta | `_gles_rotate_map` (SWITCH_MAP = +1) |
+| `"NAVIGATE_POI"` | delta | `_gles_navigate_poi` |
+| `"SCROLL_CAMERA"` | dx, dy | `_gles_scroll_dx` / `_gles_scroll_dy` |
+| `"SET_PAUSED"` | 0/1 | `SetGameThreadPaused` |
+| `"SURFACE_CHANGED"` | — | `_gles_surface_changed` |
+| `"RELOAD_SETTINGS"` | — | `_gles_reload_settings` (new) → re-read cfg |
+| `"REFRESH_TITLE_MAPS"` | — | `_gles_refresh_title_maps` |
 
 **Removed from JNI:** `nativeSetBrightness` (→ cfg), `nativeSetIntervalActive`
-(→ native cadence). `nativeSwitchMap` folds into `CMD_ROTATE_MAP(+1)`.
-Net: ~15 JNI functions (11 service + 5 `GameActivity` duplicates, minus overlap)
-collapse to **1**.
+(→ native cadence), `nativeDumpAtlas` (feature dropped — the atlas bug it debugged
+is fixed). `nativeSwitchMap` folds into `ROTATE_MAP(+1)`. Net: ~15 JNI functions
+(11 service + 5 `GameActivity` duplicates, minus overlap) collapse to **1**.
 
 ## Component 2 — settings in `openttd.cfg`
 
@@ -94,26 +95,28 @@ brightness = 100          ; 0..100 percent
 map_update_interval = 2   ; 0=every POI-wrap, 1=10min, 2=30min, 3=2h, 4=24h
 ```
 
-**Native read** — `WallpaperReadConfig()`, called at startup and when
-`CMD_RELOAD_SETTINGS` is drained on the game thread:
+**Native read** — `WallpaperReadConfig()`, called from `LoadWallpaperGame()` for
+the initial read (wallpaper-mode entry, after config is already loaded, on the game
+thread) and again whenever `RELOAD_SETTINGS` is drained on the game thread:
 
 - open `IniFile(_config_file)` → `GetGroup("wallpaper")` → `GetItem("brightness")`,
   `GetItem("map_update_interval")`; parse ints, defaults 100 / 2 on missing.
-- apply brightness: `GLESBackend::SetBrightness(brightness / 100.0f)`.
+- apply brightness: `GLESBackend::SetBrightness(brightness / 100.0f)` called
+  directly — a single benign float store read by GL draw; safe from the game thread.
 - store `map_update_interval` into native `_wp_interval_index`.
 
-**Android write** — a small Kotlin/Java INI editor that rewrites only the two
-`[wallpaper]` keys in `getFilesDir()/openttd.cfg`, leaving every other line
-untouched (h2lwp `WallpaperConfigRepository` style). After writing, broadcast
+**Android write** — a new `WallpaperConfig` class (Kotlin/Java) that rewrites only
+the two `[wallpaper]` keys in `getFilesDir()/openttd.cfg`, leaving every other line
+untouched (mirrors h2lwp `WallpaperConfigRepository`). After writing, broadcast
 `SETTINGS_CHANGED`; the service receiver calls
-`nativeWallpaperCommand(CMD_RELOAD_SETTINGS, 0, 0)`.
+`nativeWallpaperCommand("RELOAD_SETTINGS", 0, 0)`.
 
 ### Settings-change flow
 
 ```
 SeekBar / dialog → WallpaperConfig.setBrightness(70)   (edits [wallpaper] in cfg)
   → sendBroadcast(SETTINGS_CHANGED)
-  → service receiver → nativeWallpaperCommand(CMD_RELOAD_SETTINGS, 0, 0)
+  → service receiver → nativeWallpaperCommand("RELOAD_SETTINGS", 0, 0)
   → _gles_reload_settings = true → Tick() drains → WallpaperReadConfig() → apply
 ```
 
@@ -147,6 +150,11 @@ Index 0 = rotate on POI-wrap: `RequestNextTitleMap`'s guard becomes
 `cancelIntervalTimer`, `nativeSetIntervalActive`, and the `_gles_interval_active`
 atomic.
 
+**Threading:** the reload read and the cadence check both run on the game thread in
+the existing `Tick()` atomic-drain — consistent with the in-flight lwp2
+single-producer model (`gameloop_ticks`, game-thread sprite-dimension reads). No new
+thread or queue is introduced; the string command only sets the same atomics.
+
 ## Removals summary
 
 | Layer | Removed | Replaced by |
@@ -155,21 +163,26 @@ atomic.
 | Java | interval `Handler` / timer methods | native cadence |
 | Java | 11 service natives + 5 `GameActivity` dups | `WallpaperNative.nativeWallpaperCommand` |
 | Java | `SETTINGS_CHANGED` value extras | bare reload trigger |
+| Java | `DUMP_ATLAS` broadcast + receiver | — (dropped) |
 | C++ | ~15 JNI fns, `nativeSetBrightness`, `nativeSetIntervalActive`, `_gles_interval_active` | 1 JNI fn + `WallpaperReadConfig()` + native interval state |
+| C++ | `nativeDumpAtlas`, `_gles_dump_atlas`, `_gles_dump_atlas_dir` | — (dropped) |
 
 **Kept:** broadcast receivers (external `adb` control API) — each now just calls
-`nativeWallpaperCommand(code, …)`; the `title_assets_provisioned` SharedPreference
+`nativeWallpaperCommand("NAME", …)`; the `title_assets_provisioned` SharedPreference
 (app state, not a wallpaper setting); all SDL surface/lifecycle natives.
 
 ## Error handling / edge cases
 
-- Missing/empty `[wallpaper]` section or unparseable values → defaults (100 / 2).
-- cfg missing entirely (first run before any settings write) → defaults; native
-  never creates the file, the Android view does on first write.
-- `CMD_RELOAD_SETTINGS` arriving before the engine is initialized → the atomic is
+- Missing/empty `[wallpaper]` section or unparseable values → in-memory defaults
+  (100 / 2). Native never writes the section; the Android view creates it on the
+  first settings change (first run before any write → defaults apply).
+- `RELOAD_SETTINGS` arriving before the engine is initialized → the atomic is
   simply drained once the game loop starts; harmless.
 - Native stays read-only on the cfg in wallpaper mode to avoid a cross-process
   write race with the Android view.
+- Concurrent read-during-write (Android mid-write while native reads): accepted as
+  negligible — writes are tiny and rare (a user tapping a setting), and a rare
+  malformed parse falls back to defaults. No atomic-write / locking added.
 
 ## Testing
 
@@ -178,8 +191,8 @@ atomic.
   on missing keys.
 - **Round-trip preserve**: load a cfg containing `[wallpaper]` plus other groups,
   `SaveToConfig()`, assert `[wallpaper]` still present.
-- **Command dispatch**: invoke `nativeWallpaperCommand` for each code, assert the
-  corresponding atomic / native state changes.
+- **Command dispatch**: invoke `nativeWallpaperCommand` for each command name,
+  assert the corresponding atomic / native state changes; an unknown name is a no-op.
 - **On-device** (`tools/run_android.py all`): brightness slider changes live;
   interval change causes a map swap on lock/unlock after the interval elapses;
   `adb` broadcasts still drive POI / map / scroll.
@@ -191,3 +204,32 @@ atomic.
 - Any change to the typed OpenTTD settings-table framework — `[wallpaper]` is a
   deliberately ad-hoc section read directly via `IniFile`.
 - Desktop (non-`WALLPAPER_BUILD`) behavior.
+
+## Confidence Survey
+
+No open questions. All Iteration 1 questions were answered interactively and folded
+into the plan body (see Reconciliation Log).
+
+## Reconciliation Log
+
+Append-only. Newest entry at the bottom.
+
+### Iteration 1 — 2026-07-09
+- **Confidence:** 80% (cap from Risk: cross-boundary cfg read/write failure mode not analyzed; and Readiness: enough underspecification that two engineers would diverge)
+- **Resolved:** (none — first iteration)
+- **Still uncertain:** concurrent file-access safety (Q1.1), enum-sync mechanism (Q1.2), startup read wiring (Q1.3), threading fit for reload/cadence (Q1.4/Q1.5), Android writer component (Q1.6), dump-atlas dir (Q1.7), first-run defaults (Q1.8). Universal cap: spec did not mention interaction with in-flight lwp2 threading work (addressed by Q1.5).
+- **New questions:** Q1.1 … Q1.8
+
+### Iteration 2 — 2026-07-09
+- **Confidence:** 90% (universal in-flight cap lifted via Q1.5; Risk and Readiness gaps closed). Answered interactively, folded into body.
+- **Resolved:**
+  - Q1.1 → accept partial-read race as negligible, no atomic-write/locking → Error handling.
+  - Q1.2 → command names as **strings** over JNI, no enum to sync → Component 1 (signature + command table).
+  - Q1.3 → `WallpaperReadConfig()` initial read in `LoadWallpaperGame()` → Component 2.
+  - Q1.4 → direct `GLESBackend::SetBrightness` in reload path (benign float store) → Component 2.
+  - Q1.5 → reload + cadence on game thread in existing `Tick()` drain → Component 3 (Threading note).
+  - Q1.6 → new `WallpaperConfig` Android class editing only `[wallpaper]` keys → Component 2.
+  - Q1.7 → **drop DUMP_ATLAS** entirely (atlas bug fixed; feature unneeded) → Component 1 + Removals.
+  - Q1.8 → native in-memory defaults, never writes; Android creates section on first change → Error handling.
+- **Still uncertain:** none blocking. Remaining detail (exact command-name strings, `WallpaperConfig` write method) is implementation-plan granularity.
+- **New questions:** (none)
