@@ -177,7 +177,9 @@ sleep 3
 adb exec-out screencap -p > /tmp/openttd/stage2_poi_c.png
 ```
 
-Read all three PNGs. Expected: the camera sits at **distinct** map locations (not the fixed geometric center the stub produced), each broadcast visibly moves it, and cluster POIs (logcat `zoom=1`) render zoomed out (`In2x`). Cross-check each frame's position against the matching `POI[i]` logcat `fx/fy`.
+Read all three PNGs. Expected: the camera sits at **distinct** map locations (not the fixed geometric center the stub produced), each broadcast visibly moves it. Cross-check each frame's position against the matching `POI[i]` logcat `fx/fy`.
+
+> **Correction (final review, M1):** an earlier draft of this step also expected cluster POIs (logcat `zoom=1`) to "render zoomed out (`In2x`)". That is **not achievable with the ported code** — scanners compute `poi.zoom`, but `ShowCurrentPOI` never assigns it to `vp.zoom` (a verbatim omission inherited from the `gles` reference). Verify only distinct positions here; the zoom-application gap is tracked as a follow-up (see Out of scope).
 
 - [ ] **Step 4: SWITCH_MAP → fresh scan (spec gate #4)**
 
@@ -237,6 +239,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - WallpaperService lifecycle / on-device service verification (Stage 3).
 - POI scoring tuning against real title maps; perf instrumentation of the scan (Stage 5).
 - Any explicit `ScanMapPOIs` mutex guard (only if the accepted race manifests — see Global Constraints / Task 2 Step 6).
+- **FOLLOW-UP (M1, final review):** apply the computed `poi.zoom` to the viewport in `ShowCurrentPOI` so cluster POIs actually render zoomed out. Currently `poi.zoom` is scored but never written to `vp.zoom` (verbatim omission from the `gles` reference); the camera always renders at default zoom. Deferred — needs viewport-zoom handling (likely more than a one-line `vp.zoom` assignment) and diverges from the reference.
 
 ## Self-Review (performed at write time)
 
