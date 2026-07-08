@@ -1,5 +1,6 @@
 package org.openttd.android;
 
+import android.app.AlertDialog;
 import android.app.WallpaperManager;
 import android.content.ComponentName;
 import android.content.Intent;
@@ -17,6 +18,7 @@ import com.google.android.material.appbar.MaterialToolbar;
 public class WallpaperSettingsActivity extends AppCompatActivity {
 
     private TextView txtBrightnessValue;
+    private TextView txtIntervalValue;
     private SeekBar seekbarBrightness;
 
     @Override
@@ -42,6 +44,8 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
 
         txtBrightnessValue = findViewById(R.id.txt_brightness_value);
         seekbarBrightness = findViewById(R.id.seekbar_brightness);
+        txtIntervalValue = findViewById(R.id.txt_interval_value);
+        findViewById(R.id.row_map_interval).setOnClickListener(v -> showIntervalDialog());
 
         findViewById(R.id.btn_set_wallpaper).setOnClickListener(v -> {
             Intent intent = new Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER);
@@ -85,9 +89,38 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
         refreshAll();
     }
 
+    private String[] intervalLabels() {
+        return new String[]{
+            getString(R.string.interval_every_switch),
+            getString(R.string.interval_10m),
+            getString(R.string.interval_30m),
+            getString(R.string.interval_2h),
+            getString(R.string.interval_24h),
+        };
+    }
+
+    private void showIntervalDialog() {
+        int current = SettingsHelper.getMapUpdateInterval(this);
+        new AlertDialog.Builder(this)
+            .setTitle(R.string.map_interval_title)
+            .setSingleChoiceItems(intervalLabels(), current, (dialog, which) -> {
+                SettingsHelper.setMapUpdateInterval(this, which);
+                dialog.dismiss();
+                refreshAll();
+            })
+            .setNegativeButton(R.string.cancel, null)
+            .show();
+    }
+
     private void refreshAll() {
         int brightness = SettingsHelper.getBrightness(this);
         seekbarBrightness.setProgress(brightness);
         txtBrightnessValue.setText(brightness + "%");
+
+        String[] labels = intervalLabels();
+        int interval = SettingsHelper.getMapUpdateInterval(this);
+        int idx = (interval >= 0 && interval < labels.length)
+            ? interval : SettingsHelper.DEFAULT_MAP_INTERVAL;
+        txtIntervalValue.setText(labels[idx]);
     }
 }
