@@ -61,6 +61,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static boolean sLibrariesLoaded = false;
     private static boolean sSDLInitialized = false;
     private int mLastBrightness = SettingsHelper.DEFAULT_BRIGHTNESS;
+    private static final int BRIGHTNESS_RETRY_MS = 250;
+    private static final int BRIGHTNESS_RETRY_MAX = 8; // ~2s window
 
     @Override
     public void onCreate() {
@@ -158,6 +160,13 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (!sLibrariesLoaded || !sSDLInitialized) return;
         float b = value / 100.0f;
         nativeSetBrightness(b);
+    }
+
+    private void pushBrightnessRetry(int attempt) {
+        pushBrightness();
+        if (attempt + 1 >= BRIGHTNESS_RETRY_MAX) return;
+        new android.os.Handler(android.os.Looper.getMainLooper())
+            .postDelayed(() -> pushBrightnessRetry(attempt + 1), BRIGHTNESS_RETRY_MS);
     }
 
     @Override
@@ -263,8 +272,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
             nativeSurfaceChanged();
-            new android.os.Handler(android.os.Looper.getMainLooper())
-                .postDelayed(() -> pushBrightness(), 500);
+            pushBrightnessRetry(0);
         }
 
         @Override

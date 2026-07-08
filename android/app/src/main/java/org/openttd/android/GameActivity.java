@@ -55,14 +55,21 @@ public class GameActivity extends SDLActivity {
         pushBrightnessDelayed();
     }
 
+    private static final int BRIGHTNESS_RETRY_MS = 250;
+    private static final int BRIGHTNESS_RETRY_MAX = 8; // ~2s window
+
     private void pushBrightnessDelayed() {
-        // GLESBackend isn't ready until SDL thread starts rendering.
-        // Retry until it accepts the value.
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            int value = SettingsHelper.getBrightness(getApplicationContext());
-            float b = value / 100.0f;
-            nativeSetBrightness(b);
-        }, 500);
+        pushBrightnessRetry(0);
+    }
+
+    // Idempotent re-push: the JNI null-check drops pushes until GLESBackend
+    // exists, so re-posting for ~2s lets the value stick once the renderer is up.
+    private void pushBrightnessRetry(int attempt) {
+        int value = SettingsHelper.getBrightness(getApplicationContext());
+        nativeSetBrightness(value / 100.0f);
+        if (attempt + 1 >= BRIGHTNESS_RETRY_MAX) return;
+        new android.os.Handler(android.os.Looper.getMainLooper())
+            .postDelayed(() -> pushBrightnessRetry(attempt + 1), BRIGHTNESS_RETRY_MS);
     }
 
     private Button btn(String text, View.OnClickListener listener) {

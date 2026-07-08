@@ -75,7 +75,7 @@
                     android:id="@+id/seekbar_brightness"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:max="99" />
+                    android:max="100" />
             </LinearLayout>
 
             <TextView
