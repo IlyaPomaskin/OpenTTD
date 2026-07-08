@@ -116,6 +116,11 @@ static const int MAX_TILE_EXTENT_RIGHT  = ZOOM_BASE * TILE_PIXELS;              
 static const int MAX_TILE_EXTENT_TOP    = ZOOM_BASE * MAX_BUILDING_PIXELS;             ///< Maximum top    extent of tile relative to north corner (not considering bridges).
 static const int MAX_TILE_EXTENT_BOTTOM = ZOOM_BASE * (TILE_PIXELS + 2 * TILE_HEIGHT); ///< Maximum bottom extent of tile relative to north corner (worst case: #SLOPE_STEEP_N).
 
+#ifdef WALLPAPER_BUILD
+static const int WALLPAPER_RENDER_MARGIN_TILES = 4;                                   ///< Extra tiles rendered beyond each screen edge in wallpaper mode.
+static const int WALLPAPER_RENDER_MARGIN = ZOOM_BASE * TILE_PIXELS * WALLPAPER_RENDER_MARGIN_TILES; ///< Same margin in viewport (virtual) coordinates.
+#endif
+
 struct StringSpriteToDraw {
 	std::string string;
 	uint16_t width;
@@ -1819,6 +1824,18 @@ static void ViewportDrawStrings(ZoomLevel zoom, const StringSpriteToDrawVector *
 
 void ViewportDoDraw(const Viewport &vp, int left, int top, int right, int bottom)
 {
+#ifdef WALLPAPER_BUILD
+	if (_game_mode == GameMode::Wallpaper) {
+		/* Expand the render zone beyond the screen so tiles/objects on just-offscreen tiles that
+		 * extend on-screen are scanned and drawn. Off-screen sprites are clipped by the GPU; the
+		 * wallpaper only ever draws into the snapshot dummy buffer, so no real buffer overruns. */
+		left   -= WALLPAPER_RENDER_MARGIN;
+		top    -= WALLPAPER_RENDER_MARGIN;
+		right  += WALLPAPER_RENDER_MARGIN;
+		bottom += WALLPAPER_RENDER_MARGIN;
+	}
+#endif
+
 	_vd.dpi.zoom = vp.zoom;
 	int mask = ScaleByZoom(-1, vp.zoom);
 
