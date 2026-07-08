@@ -1,5 +1,9 @@
 package org.openttd.android;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
@@ -21,6 +25,10 @@ public class GameActivity extends SDLActivity {
     private static native void nativeScrollCamera(int dx, int dy);
     private static native void nativeSetGamePaused(boolean paused);
     private static native void nativeSetBrightness(float brightness);
+    private static native void nativeDumpAtlas(String dir);
+
+    private static final String ACTION_DUMP_ATLAS = "org.openttd.android.DUMP_ATLAS";
+    private BroadcastReceiver mDumpAtlasReceiver;
 
     @Override
     protected String[] getLibraries() {
@@ -53,6 +61,19 @@ public class GameActivity extends SDLActivity {
         super.onCreate(savedInstanceState);
         addOverlayButtons();
         pushBrightnessDelayed();
+
+        mDumpAtlasReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                java.io.File ext = getExternalFilesDir(null);
+                String base = (ext != null) ? ext.getAbsolutePath() : getFilesDir().getAbsolutePath();
+                String dir = base + "/atlas_dump";
+                Log.i(TAG, "DUMP_ATLAS broadcast received -> " + dir);
+                nativeDumpAtlas(dir);
+            }
+        };
+        registerReceiver(mDumpAtlasReceiver, new IntentFilter(ACTION_DUMP_ATLAS),
+            Context.RECEIVER_EXPORTED);
     }
 
     private static final int BRIGHTNESS_RETRY_MS = 250;
@@ -209,6 +230,10 @@ public class GameActivity extends SDLActivity {
     protected void onDestroy() {
         Log.w(TAG, "onDestroy: isChangingConfigurations=" + isChangingConfigurations()
             + " isFinishing=" + isFinishing());
+        if (mDumpAtlasReceiver != null) {
+            unregisterReceiver(mDumpAtlasReceiver);
+            mDumpAtlasReceiver = null;
+        }
         if (isFinishing()) {
             // Kill immediately — SDL's onDestroy blocks on mSDLThread.join()
             // which hangs because OpenTTD doesn't handle SDL_QUIT.

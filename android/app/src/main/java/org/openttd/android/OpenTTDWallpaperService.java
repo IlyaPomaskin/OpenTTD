@@ -23,6 +23,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String ACTION_NEXT_MAP = "org.openttd.android.NEXT_MAP";
     private static final String ACTION_PREV_MAP = "org.openttd.android.PREV_MAP";
     private static final String ACTION_SCROLL_CAMERA = "org.openttd.android.SCROLL_CAMERA";
+    private static final String ACTION_DUMP_ATLAS = "org.openttd.android.DUMP_ATLAS";
 
 
     /** Jump camera to next POI and start rendering the new area. */
@@ -45,6 +46,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static native void nativeSetIntervalActive(boolean active);
     /** Rebuild the native title-file list after import/delete. */
     private static native void nativeRefreshTitleMaps();
+    /** Debug: dump the sprite atlas to PNG/JSON under the given directory. */
+    private static native void nativeDumpAtlas(String dir);
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -53,6 +56,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mNextMapReceiver;
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
+    private BroadcastReceiver mDumpAtlasReceiver;
     private BroadcastReceiver mSettingsChangedReceiver;
     private BroadcastReceiver mTitleMapsChangedReceiver;
 
@@ -151,6 +155,18 @@ public class OpenTTDWallpaperService extends WallpaperService {
             }
         };
         registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA),
+            Context.RECEIVER_EXPORTED);
+        mDumpAtlasReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                java.io.File ext = getExternalFilesDir(null);
+                String base = (ext != null) ? ext.getAbsolutePath() : getFilesDir().getAbsolutePath();
+                String dir = base + "/atlas_dump";
+                Log.i(TAG, "DUMP_ATLAS broadcast received -> " + dir);
+                nativeDumpAtlas(dir);
+            }
+        };
+        registerReceiver(mDumpAtlasReceiver, new IntentFilter(ACTION_DUMP_ATLAS),
             Context.RECEIVER_EXPORTED);
         mSettingsChangedReceiver = new BroadcastReceiver() {
             @Override
@@ -273,6 +289,10 @@ public class OpenTTDWallpaperService extends WallpaperService {
         if (mScrollCameraReceiver != null) {
             unregisterReceiver(mScrollCameraReceiver);
             mScrollCameraReceiver = null;
+        }
+        if (mDumpAtlasReceiver != null) {
+            unregisterReceiver(mDumpAtlasReceiver);
+            mDumpAtlasReceiver = null;
         }
         if (mSettingsChangedReceiver != null) {
             unregisterReceiver(mSettingsChangedReceiver);

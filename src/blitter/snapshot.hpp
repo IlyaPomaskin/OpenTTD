@@ -18,7 +18,8 @@
  *
  * Set as the active blitter for the entire session in snapshot mode.
  * Draw() records DrawCommands into the snapshot buffer.
- * Encode() caches sprite metadata into the GPU atlas.
+ * Encode() returns a metadata-only Sprite (dimensions); pixels are decoded
+ * later on the GL thread straight from the GRF and uploaded to the atlas.
  * No pixels are written, no GL calls are made.
  * Safe to use from the game thread without a GL context.
  */

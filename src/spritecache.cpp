@@ -609,7 +609,7 @@ static void *ReadSprite(const SpriteCache *sc, SpriteID id, SpriteType sprite_ty
 		sprite[ZoomLevel::Min] = sprite[_font_zoom];
 	}
 
-	return encoder->Encode(sprite_type, sprite, allocator, id);
+	return encoder->Encode(sprite_type, sprite, allocator);
 }
 
 struct GrfSpriteOffset {
@@ -1008,4 +1008,4 @@ void GfxClearFontSpriteCache()
 	}
 }
 
-/* static */ SpriteCollMap<ReusableBuffer<SpriteLoader::CommonPixel>> SpriteLoader::Sprite::buffer;
+/* static */ thread_local SpriteCollMap<ReusableBuffer<SpriteLoader::CommonPixel>> SpriteLoader::Sprite::buffer;

@@ -18,6 +18,8 @@
 #include <GLES3/gl3.h>
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <sys/stat.h>
 
 #include "../safeguards.h"
 
@@ -399,22 +401,6 @@ const GLESSpriteEntry *GLESSpriteAtlas::Lookup(GLESSpriteID key) const
 	return &it->second;
 }
 
-void GLESSpriteAtlas::CacheMeta(SpriteID id, int16_t w, int16_t h, int16_t xo, int16_t yo)
-{
-	this->meta_cache[id] = {w, h, xo, yo};
-}
-
-bool GLESSpriteAtlas::GetCachedMeta(SpriteID id, int16_t &w, int16_t &h, int16_t &xo, int16_t &yo) const
-{
-	auto it = this->meta_cache.find(id);
-	if (it == this->meta_cache.end()) return false;
-	w = it->second.width;
-	h = it->second.height;
-	xo = it->second.x_offs;
-	yo = it->second.y_offs;
-	return true;
-}
-
 static int ComputeOccupancy(const std::vector<GLESAtlasPage> &pages)
 {
 	if (pages.empty()) return 0;
@@ -520,10 +506,197 @@ bool GLESSpriteAtlas::LoadSpriteOnGLThread(SpriteID sprite_id)
 	/* Upload directly. */
 	this->Upload(sprite_id, kGPUScaleBaseZoom, sl.data, w, h, has_rgb, has_remap);
 
-	/* Cache meta for fast-path. */
-	const auto &root = sprite.Root();
-	this->CacheMeta(sprite_id, root.width, root.height, root.x_offs, root.y_offs);
-
 	GLES_PERF_COUNT(_gles_perf.gl_thread_loads++);
 	return true;
+}
+
+/* ---- Debug atlas dump (PNG + JSON) ---- */
+
+namespace {
+
+uint32_t Crc32(const uint8_t *data, size_t len)
+{
+	static uint32_t table[256];
+	static bool init = false;
+	if (!init) {
+		for (uint32_t n = 0; n < 256; n++) {
+			uint32_t c = n;
+			for (int k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+			table[n] = c;
+		}
+		init = true;
+	}
+	uint32_t crc = 0xFFFFFFFFu;
+	for (size_t i = 0; i < len; i++) crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+	return crc ^ 0xFFFFFFFFu;
+}
+
+void PutU32BE(std::vector<uint8_t> &v, uint32_t x)
+{
+	v.push_back((x >> 24) & 0xFF); v.push_back((x >> 16) & 0xFF);
+	v.push_back((x >> 8) & 0xFF); v.push_back(x & 0xFF);
+}
+
+void WriteChunk(std::vector<uint8_t> &out, const char (&type)[5], const std::vector<uint8_t> &data)
+{
+	PutU32BE(out, static_cast<uint32_t>(data.size()));
+	size_t crc_start = out.size();
+	out.insert(out.end(), type, type + 4);
+	out.insert(out.end(), data.begin(), data.end());
+	PutU32BE(out, Crc32(out.data() + crc_start, out.size() - crc_start));
+}
+
+/** Minimal PNG writer: 8-bit RGBA, uncompressed DEFLATE (stored blocks). No libpng/zlib. */
+bool WritePNG(const std::string &path, int w, int h, const uint8_t *rgba, bool flip_v)
+{
+	/* Raw scanlines: filter byte 0 + RGBA row. */
+	std::vector<uint8_t> raw;
+	raw.reserve(static_cast<size_t>(h) * (1 + static_cast<size_t>(w) * 4));
+	for (int y = 0; y < h; y++) {
+		int src = flip_v ? (h - 1 - y) : y;
+		raw.push_back(0);
+		const uint8_t *row = rgba + static_cast<size_t>(src) * w * 4;
+		raw.insert(raw.end(), row, row + static_cast<size_t>(w) * 4);
+	}
+
+	/* zlib stream: header + stored blocks + adler32. */
+	std::vector<uint8_t> zlib;
+	zlib.push_back(0x78); zlib.push_back(0x01);
+	const size_t MAX_BLOCK = 65535;
+	for (size_t off = 0; off < raw.size(); off += MAX_BLOCK) {
+		size_t block = std::min(MAX_BLOCK, raw.size() - off);
+		zlib.push_back((off + block >= raw.size()) ? 1 : 0);
+		zlib.push_back(block & 0xFF); zlib.push_back((block >> 8) & 0xFF);
+		uint16_t nlen = ~static_cast<uint16_t>(block);
+		zlib.push_back(nlen & 0xFF); zlib.push_back((nlen >> 8) & 0xFF);
+		zlib.insert(zlib.end(), raw.begin() + off, raw.begin() + off + block);
+	}
+	uint32_t a = 1, b = 0;
+	for (uint8_t byte : raw) { a = (a + byte) % 65521; b = (b + a) % 65521; }
+	PutU32BE(zlib, (b << 16) | a);
+
+	std::vector<uint8_t> out;
+	const uint8_t sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+	out.insert(out.end(), sig, sig + 8);
+
+	std::vector<uint8_t> ihdr;
+	PutU32BE(ihdr, w); PutU32BE(ihdr, h);
+	ihdr.push_back(8); ihdr.push_back(6); // 8-bit, RGBA
+	ihdr.push_back(0); ihdr.push_back(0); ihdr.push_back(0);
+	WriteChunk(out, "IHDR", ihdr);
+	WriteChunk(out, "IDAT", zlib);
+	WriteChunk(out, "IEND", {});
+
+	FILE *fp = fopen(path.c_str(), "wb");
+	if (fp == nullptr) return false;
+	fwrite(out.data(), 1, out.size(), fp);
+	fclose(fp);
+	return true;
+}
+
+} // namespace
+
+void GLESSpriteAtlas::DumpToFiles(const std::string &dir)
+{
+	mkdir(dir.c_str(), 0755); // ignore EEXIST
+
+	const int size = this->atlas_size;
+	const size_t layer_bytes = static_cast<size_t>(size) * size * 4;
+
+	GLuint fbo = 0;
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+	/* Read every layer of both array textures back into memory (glReadPixels row 0 ==
+	 * texture storage row 0 == packer y=0, so buffer order matches JSON coords: no flip). */
+	auto read_all = [&](GLuint tex, size_t layers) {
+		std::vector<std::vector<uint8_t>> bufs(layers);
+		for (size_t l = 0; l < layers; l++) {
+			bufs[l].resize(layer_bytes);
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, tex, 0, static_cast<GLint>(l));
+			if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+				Debug(driver, 0, "DumpToFiles: FBO incomplete layer {}", l);
+				continue;
+			}
+			glReadPixels(0, 0, size, size, GL_RGBA, GL_UNSIGNED_BYTE, bufs[l].data());
+		}
+		return bufs;
+	};
+	auto colour_bufs = read_all(this->colour_array_tex, this->colour_pages.size());
+	auto remap_bufs = read_all(this->remap_array_tex, this->remap_pages.size());
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDeleteFramebuffers(1, &fbo);
+
+	/* Raw layers. */
+	for (size_t l = 0; l < colour_bufs.size(); l++) {
+		std::string path = fmt::format("{}/atlas_colour_L{}.png", dir, l);
+		Debug(driver, 0, "DumpToFiles: {} ({})", path, WritePNG(path, size, size, colour_bufs[l].data(), false) ? "ok" : "FAILED");
+	}
+	for (size_t l = 0; l < remap_bufs.size(); l++) {
+		std::string path = fmt::format("{}/atlas_remap_L{}.png", dir, l);
+		Debug(driver, 0, "DumpToFiles: {} ({})", path, WritePNG(path, size, size, remap_bufs[l].data(), false) ? "ok" : "FAILED");
+	}
+
+	/* Resolved layers: reproduce the shader's colour per sprite. True-colour sprites use
+	 * their RGB; palette-only sprites map the remap index through the current palette.
+	 * Combined per-sprite because a sprite's colour and remap regions are packed at
+	 * different atlas coordinates. Transparent (index 0) elsewhere. */
+	for (size_t L = 0; L < colour_bufs.size(); L++) {
+		std::vector<uint8_t> resolved(layer_bytes, 0);
+		for (const auto &[key, e] : this->sprites) {
+			if (e.colour.atlas_idx != L) continue;
+			const GLESSpriteRegion &c = e.colour;
+			bool use_palette = e.palette_only && e.has_remap && e.remap.atlas_idx < remap_bufs.size();
+			for (uint16_t dy = 0; dy < c.h; dy++) {
+				for (uint16_t dx = 0; dx < c.w; dx++) {
+					size_t ci = (static_cast<size_t>(c.y + dy) * size + (c.x + dx)) * 4;
+					uint8_t r, g, b, a;
+					if (use_palette) {
+						const GLESSpriteRegion &rr = e.remap;
+						size_t ri = (static_cast<size_t>(rr.y + dy) * size + (rr.x + dx)) * 4;
+						uint8_t idx = remap_bufs[rr.atlas_idx][ri];
+						if (idx == 0) { r = g = b = a = 0; }
+						else { Colour col = _cur_palette.palette[idx]; r = col.r; g = col.g; b = col.b; a = 255; }
+					} else {
+						r = colour_bufs[L][ci]; g = colour_bufs[L][ci + 1];
+						b = colour_bufs[L][ci + 2]; a = colour_bufs[L][ci + 3];
+					}
+					resolved[ci] = r; resolved[ci + 1] = g; resolved[ci + 2] = b; resolved[ci + 3] = a;
+				}
+			}
+		}
+		std::string path = fmt::format("{}/atlas_resolved_L{}.png", dir, L);
+		Debug(driver, 0, "DumpToFiles: {} ({})", path, WritePNG(path, size, size, resolved.data(), false) ? "ok" : "FAILED");
+	}
+
+	auto write_json = [&](const char *prefix, bool remap_atlas) {
+		std::string path = fmt::format("{}/atlas_{}.json", dir, prefix);
+		FILE *fp = fopen(path.c_str(), "wb");
+		if (fp == nullptr) { Debug(driver, 0, "DumpToFiles: cannot open {}", path); return; }
+		size_t layers = remap_atlas ? this->remap_pages.size() : this->colour_pages.size();
+		fmt::print(fp, "{{\n  \"atlas\": \"{}\",\n  \"size\": {},\n  \"layers\": {},\n  \"sprites\": [\n",
+			prefix, size, layers);
+		bool first = true;
+		for (const auto &[key, e] : this->sprites) {
+			if (remap_atlas && !e.has_remap) continue;
+			const GLESSpriteRegion &r = remap_atlas ? e.remap : e.colour;
+			SpriteID id = static_cast<SpriteID>(key >> 4);
+			SpriteFile *f = GetOriginFile(id);
+			std::string name = (f != nullptr) ? f->GetSimplifiedFilename() : "";
+			fmt::print(fp,
+				"{}    {{\"id\": {}, \"name\": \"{}\", \"local_id\": {}, \"layer\": {}, "
+				"\"x\": {}, \"y\": {}, \"w\": {}, \"h\": {}, \"has_remap\": {}, \"palette_only\": {}}}",
+				first ? "" : ",\n", id, name, GetSpriteLocalID(id), r.atlas_idx,
+				r.x, r.y, r.w, r.h, e.has_remap ? "true" : "false", e.palette_only ? "true" : "false");
+			first = false;
+		}
+		fmt::print(fp, "\n  ]\n}}\n");
+		fclose(fp);
+		Debug(driver, 0, "DumpToFiles: {} ({} sprites)", path, this->sprites.size());
+	};
+	write_json("colour", false);
+	write_json("remap", true);
+
+	Debug(driver, 0, "DumpToFiles: done -> {}", dir);
 }

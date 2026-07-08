@@ -11,7 +11,6 @@
 #include "snapshot.hpp"
 #include "../gfx_func.h"
 #include "../zoom_func.h"
-#include "../video/gles_backend.h"
 #include "../video/gles_perf.h"
 #include "../table/sprites.h"
 
@@ -20,7 +19,7 @@
 /** Register the snapshot blitter factory so it can be selected by name. */
 static FBlitter_Snapshot iFBlitter_Snapshot;
 
-Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
+Sprite *Blitter_Snapshot::Encode([[maybe_unused]] SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator)
 {
 	GLES_PERF_COUNT(_gles_perf.encode_total++);
 
@@ -30,14 +29,6 @@ Sprite *Blitter_Snapshot::Encode(SpriteType sprite_type, const SpriteLoader::Spr
 	dest_sprite->width = root.width;
 	dest_sprite->x_offs = root.x_offs;
 	dest_sprite->y_offs = root.y_offs;
-
-	/* Skip font glyphs — no valid this->encoding_sprite_id_. */
-	if (sprite_type == SpriteType::Font) return dest_sprite;
-
-	if (GLESBackend::Get() != nullptr) {
-		GLESBackend::Get()->GetSpriteAtlas().CacheMeta(this->encoding_sprite_id_,
-			root.width, root.height, root.x_offs, root.y_offs);
-	}
 	return dest_sprite;
 }
 

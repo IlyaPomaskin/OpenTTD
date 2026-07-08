@@ -14,6 +14,7 @@
 #include <vector>
 #include <unordered_map>
 #include <atomic>
+#include <string>
 #include "../spriteloader/spriteloader.hpp"
 #include "../spriteloader/sprite_file_type.hpp"
 #include "../zoom_type.h"
@@ -70,11 +71,6 @@ private:
 	uint16_t atlas_size = 2048;              ///< Atlas page dimension.
 
 	std::unordered_map<GLESSpriteID, GLESSpriteEntry> sprites; ///< All uploaded sprites.
-
-	/** Cached Sprite root dimensions for ReadSprite fast-path.
-	 *  Never cleared — dimensions are constant per SpriteID. */
-	struct SpriteMeta { int16_t width, height, x_offs, y_offs; };
-	std::unordered_map<SpriteID, SpriteMeta> meta_cache;
 
 	std::vector<uint8_t> upload_rgba_buf; ///< Reusable buffer for RGBA pixel conversion.
 	std::vector<uint8_t> upload_m_buf;    ///< Reusable buffer for M channel extraction.
@@ -150,12 +146,6 @@ public:
 	/** Look up a previously uploaded sprite. Returns nullptr if not found. */
 	const GLESSpriteEntry *Lookup(GLESSpriteID key) const;
 
-	/** Cache root dimensions from Encode. Game thread only. */
-	void CacheMeta(SpriteID id, int16_t w, int16_t h, int16_t xo, int16_t yo);
-
-	/** Get cached root dimensions. Returns true if found. Game thread only. */
-	bool GetCachedMeta(SpriteID id, int16_t &w, int16_t &h, int16_t &xo, int16_t &yo) const;
-
 	/** Get the GL_TEXTURE_2D_ARRAY handle for the colour atlas. */
 	GLuint GetColourTexture() const { return colour_array_tex; }
 
@@ -170,6 +160,10 @@ public:
 	/** Get atlas occupancy as approximate percentage (0-100). */
 	int GetColourOccupancyPercent() const;
 	int GetRemapOccupancyPercent() const;
+
+	/** Debug: dump every atlas layer to PNG + a per-atlas JSON of sprite regions
+	 *  into `dir`. GL thread only (reads textures back via glReadPixels). */
+	void DumpToFiles(const std::string &dir);
 
 };
 

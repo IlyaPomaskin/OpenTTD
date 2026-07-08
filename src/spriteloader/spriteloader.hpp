@@ -57,9 +57,12 @@ public:
 
 	/**
 	 * Structure for passing information from the sprite loader to the blitter.
-	 * You can only use this struct once at a time when using AllocateData to
-	 * allocate the memory as that will always return the same memory address.
-	 * This to prevent thousands of malloc + frees just to load a sprite.
+	 * You can only use this struct once at a time (per thread) when using
+	 * AllocateData to allocate the memory as that will always return the same
+	 * memory address. This to prevent thousands of malloc + frees just to load a
+	 * sprite. The backing buffer is thread-local so the wallpaper GLES decode
+	 * thread and the game thread can decode sprites concurrently without stomping
+	 * each other's scratch data.
 	 */
 	struct Sprite {
 		uint16_t height;                   ///< Height of the sprite
@@ -76,8 +79,9 @@ public:
 		 */
 		void AllocateData(ZoomLevel zoom, size_t size) { this->data = Sprite::buffer[zoom].ZeroAllocate(size); }
 	private:
-		/** Allocated memory to pass sprite data around */
-		static SpriteCollMap<ReusableBuffer<SpriteLoader::CommonPixel>> buffer;
+		/** Allocated memory to pass sprite data around (thread-local: each decode
+		 *  thread gets its own scratch so concurrent decodes don't collide). */
+		static thread_local SpriteCollMap<ReusableBuffer<SpriteLoader::CommonPixel>> buffer;
 	};
 
 	/**
@@ -152,15 +156,6 @@ public:
 	 */
 	virtual Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator) = 0;
 
-	/** Encode with known SpriteID. Sets encoding_sprite_id_ before calling virtual Encode(). */
-	Sprite *Encode(SpriteType sprite_type, const SpriteLoader::SpriteCollection &sprite, SpriteAllocator &allocator, SpriteID sprite_id)
-	{
-		this->encoding_sprite_id_ = sprite_id;
-		auto *result = this->Encode(sprite_type, sprite, allocator);
-		this->encoding_sprite_id_ = UINT32_MAX;
-		return result;
-	}
-
 	/**
 	 * Get the value which the height and width on a sprite have to be aligned by.
 	 * @return The needed alignment or 0 if any alignment is accepted.
@@ -169,8 +164,5 @@ public:
 	{
 		return 0;
 	}
-
-protected:
-	SpriteID encoding_sprite_id_ = UINT32_MAX; ///< SpriteID set by 4-arg Encode(), read by subclasses.
 };
 #endif /* SPRITELOADER_HPP */

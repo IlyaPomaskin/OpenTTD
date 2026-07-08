@@ -66,6 +66,10 @@ std::atomic<bool> _gles_surface_changed{false};
 std::atomic<bool> _gles_interval_active{false};
 /** Set from Java on title-map import/delete; drained on the GL thread to rebuild the list. */
 std::atomic<bool> _gles_refresh_title_maps{false};
+/** Debug: set from Java to dump the sprite atlas to PNG/JSON; drained on the GL thread.
+ *  `_gles_dump_atlas_dir` is published before the flag (release via the atomic store). */
+std::atomic<bool> _gles_dump_atlas{false};
+static std::string _gles_dump_atlas_dir;
 
 #ifdef __ANDROID__
 
@@ -208,6 +212,26 @@ extern "C" JNIEXPORT void JNICALL
 Java_org_openttd_android_OpenTTDWallpaperService_nativeRefreshTitleMaps(JNIEnv *, jclass)
 {
 	_gles_refresh_title_maps = true;
+}
+
+static void RequestAtlasDump(JNIEnv *env, jstring dir)
+{
+	const char *s = env->GetStringUTFChars(dir, nullptr);
+	_gles_dump_atlas_dir = (s != nullptr) ? s : "";
+	if (s != nullptr) env->ReleaseStringUTFChars(dir, s);
+	_gles_dump_atlas = true; // publish dir before flag
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_OpenTTDWallpaperService_nativeDumpAtlas(JNIEnv *env, jclass, jstring dir)
+{
+	RequestAtlasDump(env, dir);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_org_openttd_android_GameActivity_nativeDumpAtlas(JNIEnv *env, jclass, jstring dir)
+{
+	RequestAtlasDump(env, dir);
 }
 
 #endif /* __ANDROID__ */
@@ -476,7 +500,7 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 	/* Fast path: nothing pending, no lock. Overlay actions arrive rarely (JNI broadcasts). */
 	bool any = _gles_jump_waypoint.load() || _gles_navigate_poi.load() != 0 ||
 		_gles_rotate_map.load() != 0 || _gles_scroll_dx.load() != 0 || _gles_scroll_dy.load() != 0 ||
-		_gles_refresh_title_maps.load();
+		_gles_refresh_title_maps.load() || _gles_dump_atlas.load();
 	if (!any) return;
 
 	/* Overlay actions mutate window/viewport state; serialize against the game thread's
@@ -495,6 +519,10 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 	if (_gles_refresh_title_maps.exchange(false)) {
 		Debug(driver, 1, "Tick: refresh_title_maps triggered");
 		RefreshTitleMaps();
+	}
+	if (_gles_dump_atlas.exchange(false)) {
+		Debug(driver, 0, "Tick: dump_atlas -> {}", _gles_dump_atlas_dir);
+		if (GLESBackend::Get() != nullptr) GLESBackend::Get()->GetSpriteAtlas().DumpToFiles(_gles_dump_atlas_dir);
 	}
 	{
 		int scroll_dx = _gles_scroll_dx.exchange(0);
