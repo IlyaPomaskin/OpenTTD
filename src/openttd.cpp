@@ -13,10 +13,10 @@
 #include "sound/sound_driver.hpp"
 #include "music/music_driver.hpp"
 #include "video/video_driver.hpp"
+#include "video/gles_perf.h"
 #ifdef WALLPAPER_BUILD
 #include "video/gles_poi.h"
 #include "video/gles_backend.h"
-#include "video/gles_perf.h"
 #include "wallpaper.h"
 #endif
 #include "mixer.h"
@@ -1038,7 +1038,11 @@ bool SafeLoad(const std::string &filename, SaveLoadOperation fop, DetailedFileTy
 	switch (ogm) {
 		default:
 		case GameMode::Menu: LoadIntroGame(); break;
-		case GameMode::Wallpaper: LoadWallpaperGame(); break;
+		case GameMode::Wallpaper:
+#ifdef WALLPAPER_BUILD
+			LoadWallpaperGame();
+#endif
+			break;
 		case GameMode::Editor: MakeNewEditorWorld(); break;
 	}
 	return false;
@@ -1212,8 +1216,10 @@ void SwitchToMode(SwitchMode new_mode)
 			break;
 
 		case SwitchMode::Wallpaper: // Switch to wallpaper mode
+#ifdef WALLPAPER_BUILD
 			Debug(misc, 0, "SwitchToMode(SwitchMode::Wallpaper): screen={}x{}", _screen.width, _screen.height);
 			LoadWallpaperGame();
+#endif
 			break;
 
 		case SwitchMode::Menu: // Switch to game intro menu

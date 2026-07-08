@@ -26,7 +26,9 @@
 #include <chrono>
 #include <filesystem>
 #include <set>
+#ifdef WALLPAPER_BUILD
 #include "video/gles_backend.h"
+#endif
 
 #include "safeguards.h"
 
@@ -157,9 +159,11 @@ void LoadWallpaperGame()
 	InvalidatePOIs();
 
 	/* Request GLES sprite atlas clear (deferred to GL thread). */
+#ifdef WALLPAPER_BUILD
 	if (GLESBackend::Get() != nullptr) {
 		GLESBackend::Get()->GetSpriteAtlas().RequestClear();
 	}
+#endif
 
 	ResetWindowSystem();
 	SetupColoursAndInitialWindow();
