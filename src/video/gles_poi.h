@@ -14,7 +14,6 @@
 #include <string>
 #include <vector>
 #include <utility>
-#include "../vehicle_type.h"
 
 /**
  * A scored point of interest found by scanning the current map.
@@ -28,7 +27,6 @@ struct GlesPOI {
 	uint32_t delay_ms;   ///< Time to hold position before moving to next POI
 	std::string reason;  ///< Why this POI was selected
 	std::vector<std::pair<float, float>> influences; ///< Map positions of objects that contributed to score
-	VehicleID follow_vehicle = VehicleID::Invalid(); ///< If valid, camera follows this vehicle instead of static position
 };
 
 /**
