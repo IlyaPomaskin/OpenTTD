@@ -14,6 +14,7 @@ public class SettingsHelper {
     public static final int DEFAULT_BRIGHTNESS = 100;
 
     public static final String ACTION_SETTINGS_CHANGED = "org.openttd.android.SETTINGS_CHANGED";
+    public static final String ACTION_TITLE_MAPS_CHANGED = "org.openttd.android.TITLE_MAPS_CHANGED";
 
     public static SharedPreferences getPrefs(Context context) {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
