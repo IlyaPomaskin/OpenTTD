@@ -53,6 +53,18 @@ android {
     }
 }
 
+// Ensure generated baseset/lang assets (written by the copy_assets CMake
+// target during the native build) exist before AGP merges assets into the
+// APK, so a single clean assembleDebug is asset-complete. Guarded so
+// Java-only iterations (-PskipNativeBuild) don't reference a missing task.
+if (!project.hasProperty('skipNativeBuild')) {
+    afterEvaluate {
+        tasks.named('mergeDebugAssets').configure {
+            dependsOn 'externalNativeBuildDebug'
+        }
+    }
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.7.1'
     implementation 'com.google.android.material:material:1.12.0'
