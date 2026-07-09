@@ -62,7 +62,7 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override
             public void onStopTrackingTouch(SeekBar seekBar) {
-                SettingsHelper.setBrightness(WallpaperSettingsActivity.this, seekBar.getProgress());
+                WallpaperConfig.setBrightness(WallpaperSettingsActivity.this, seekBar.getProgress());
             }
         });
 
@@ -100,11 +100,11 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
     }
 
     private void showIntervalDialog() {
-        int current = SettingsHelper.getMapUpdateInterval(this);
+        int current = WallpaperConfig.getMapUpdateInterval(this);
         new AlertDialog.Builder(this)
             .setTitle(R.string.map_interval_title)
             .setSingleChoiceItems(intervalLabels(), current, (dialog, which) -> {
-                SettingsHelper.setMapUpdateInterval(this, which);
+                WallpaperConfig.setMapUpdateInterval(this, which);
                 dialog.dismiss();
                 refreshAll();
             })
@@ -113,14 +113,14 @@ public class WallpaperSettingsActivity extends AppCompatActivity {
     }
 
     private void refreshAll() {
-        int brightness = SettingsHelper.getBrightness(this);
+        int brightness = WallpaperConfig.getBrightness(this);
         seekbarBrightness.setProgress(brightness);
         txtBrightnessValue.setText(brightness + "%");
 
         String[] labels = intervalLabels();
-        int interval = SettingsHelper.getMapUpdateInterval(this);
+        int interval = WallpaperConfig.getMapUpdateInterval(this);
         int idx = (interval >= 0 && interval < labels.length)
-            ? interval : SettingsHelper.DEFAULT_MAP_INTERVAL;
+            ? interval : WallpaperConfig.DEFAULT_MAP_INTERVAL;
         txtIntervalValue.setText(labels[idx]);
     }
 }
