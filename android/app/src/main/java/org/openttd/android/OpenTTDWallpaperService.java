@@ -23,31 +23,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private static final String ACTION_NEXT_MAP = "org.openttd.android.NEXT_MAP";
     private static final String ACTION_PREV_MAP = "org.openttd.android.PREV_MAP";
     private static final String ACTION_SCROLL_CAMERA = "org.openttd.android.SCROLL_CAMERA";
-    private static final String ACTION_DUMP_ATLAS = "org.openttd.android.DUMP_ATLAS";
-
-
-    /** Jump camera to next POI and start rendering the new area. */
-    private static native void nativePrepareBackground();
-    /** Trigger map regeneration. */
-    private static native void nativeSwitchMap();
-    /** Navigate POI by delta (+1/-1) without auto map rotation. */
-    private static native void nativeNavigatePOI(int delta);
-    /** Rotate title map by delta (+1/-1). */
-    private static native void nativeRotateMap(int delta);
-    /** Scroll camera by pixel offset. */
-    private static native void nativeScrollCamera(int dx, int dy);
-    /** Pause/resume game thread when wallpaper not visible. */
-    private static native void nativeSetGamePaused(boolean paused);
-    /** Signal GL thread that wallpaper surface changed and EGL needs rebind. */
-    private static native void nativeSurfaceChanged();
-    /** Set screen brightness (0.0=black, 1.0=full). */
-    private static native void nativeSetBrightness(float brightness);
-    /** Enable/disable interval-driven rotation (suppresses POI-wrap auto-rotate). */
-    private static native void nativeSetIntervalActive(boolean active);
-    /** Rebuild the native title-file list after import/delete. */
-    private static native void nativeRefreshTitleMaps();
-    /** Debug: dump the sprite atlas to PNG/JSON under the given directory. */
-    private static native void nativeDumpAtlas(String dir);
 
     private BroadcastReceiver mJumpReceiver;
     private BroadcastReceiver mSwitchMapReceiver;
@@ -56,10 +31,8 @@ public class OpenTTDWallpaperService extends WallpaperService {
     private BroadcastReceiver mNextMapReceiver;
     private BroadcastReceiver mPrevMapReceiver;
     private BroadcastReceiver mScrollCameraReceiver;
-    private BroadcastReceiver mDumpAtlasReceiver;
     private BroadcastReceiver mSettingsChangedReceiver;
     private BroadcastReceiver mTitleMapsChangedReceiver;
-
 
     // Same library list as GameActivity.getLibraries()
     private static final String[] LIBRARIES = {
@@ -69,195 +42,53 @@ public class OpenTTDWallpaperService extends WallpaperService {
 
     private static boolean sLibrariesLoaded = false;
     private static boolean sSDLInitialized = false;
-    private int mLastBrightness = SettingsHelper.DEFAULT_BRIGHTNESS;
-    private static final int BRIGHTNESS_RETRY_MS = 250;
-    private static final int BRIGHTNESS_RETRY_MAX = 8; // ~2s window
-
-    private static final long[] INTERVAL_MS = {
-        0L,                    // index 0: no timer (POI-wrap cadence)
-        10L * 60 * 1000,       // 1: 10 min
-        30L * 60 * 1000,       // 2: 30 min
-        2L * 60 * 60 * 1000,   // 3: 2 h
-        24L * 60 * 60 * 1000,  // 4: 24 h
-    };
-
-    private android.os.Handler mMainHandler;
-    private Runnable mIntervalRunnable;
-    private int mCurrentInterval = SettingsHelper.DEFAULT_MAP_INTERVAL;
-    private boolean mEngineVisible = false;
-    private boolean mColdStartApplied = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        mMainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
-        mJumpReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "JUMP_POI broadcast received");
-                nativePrepareBackground();
-            }
-        };
-        registerReceiver(mJumpReceiver, new IntentFilter(ACTION_JUMP_POI),
-            Context.RECEIVER_EXPORTED);
-        mSwitchMapReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "SWITCH_MAP broadcast received");
-                nativeSwitchMap();
-            }
-        };
-        registerReceiver(mSwitchMapReceiver, new IntentFilter(ACTION_SWITCH_MAP),
-            Context.RECEIVER_EXPORTED);
-        mNextPoiReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "NEXT_POI broadcast received");
-                nativeNavigatePOI(1);
-            }
-        };
-        registerReceiver(mNextPoiReceiver, new IntentFilter(ACTION_NEXT_POI),
-            Context.RECEIVER_EXPORTED);
-        mPrevPoiReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "PREV_POI broadcast received");
-                nativeNavigatePOI(-1);
-            }
-        };
-        registerReceiver(mPrevPoiReceiver, new IntentFilter(ACTION_PREV_POI),
-            Context.RECEIVER_EXPORTED);
-        mNextMapReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "NEXT_MAP broadcast received");
-                nativeRotateMap(1);
-            }
-        };
-        registerReceiver(mNextMapReceiver, new IntentFilter(ACTION_NEXT_MAP),
-            Context.RECEIVER_EXPORTED);
-        mPrevMapReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "PREV_MAP broadcast received");
-                nativeRotateMap(-1);
-            }
-        };
-        registerReceiver(mPrevMapReceiver, new IntentFilter(ACTION_PREV_MAP),
-            Context.RECEIVER_EXPORTED);
+        mJumpReceiver = command(WallpaperNative.CMD_PREPARE_BG, 0, 0);
+        registerReceiver(mJumpReceiver, new IntentFilter(ACTION_JUMP_POI), Context.RECEIVER_EXPORTED);
+        mSwitchMapReceiver = command(WallpaperNative.CMD_ROTATE_MAP, 1, 0);
+        registerReceiver(mSwitchMapReceiver, new IntentFilter(ACTION_SWITCH_MAP), Context.RECEIVER_EXPORTED);
+        mNextPoiReceiver = command(WallpaperNative.CMD_NAVIGATE_POI, 1, 0);
+        registerReceiver(mNextPoiReceiver, new IntentFilter(ACTION_NEXT_POI), Context.RECEIVER_EXPORTED);
+        mPrevPoiReceiver = command(WallpaperNative.CMD_NAVIGATE_POI, -1, 0);
+        registerReceiver(mPrevPoiReceiver, new IntentFilter(ACTION_PREV_POI), Context.RECEIVER_EXPORTED);
+        mNextMapReceiver = command(WallpaperNative.CMD_ROTATE_MAP, 1, 0);
+        registerReceiver(mNextMapReceiver, new IntentFilter(ACTION_NEXT_MAP), Context.RECEIVER_EXPORTED);
+        mPrevMapReceiver = command(WallpaperNative.CMD_ROTATE_MAP, -1, 0);
+        registerReceiver(mPrevMapReceiver, new IntentFilter(ACTION_PREV_MAP), Context.RECEIVER_EXPORTED);
         mScrollCameraReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 int dx = intent.getIntExtra("dx", 0);
                 int dy = intent.getIntExtra("dy", 0);
-                Log.i(TAG, "SCROLL_CAMERA broadcast received dx=" + dx + " dy=" + dy);
-                nativeScrollCamera(dx, dy);
+                Log.i(TAG, "SCROLL_CAMERA dx=" + dx + " dy=" + dy);
+                if (sLibrariesLoaded && sSDLInitialized) {
+                    WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SCROLL_CAMERA, dx, dy);
+                }
             }
         };
-        registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA),
-            Context.RECEIVER_EXPORTED);
-        mDumpAtlasReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                java.io.File ext = getExternalFilesDir(null);
-                String base = (ext != null) ? ext.getAbsolutePath() : getFilesDir().getAbsolutePath();
-                String dir = base + "/atlas_dump";
-                Log.i(TAG, "DUMP_ATLAS broadcast received -> " + dir);
-                nativeDumpAtlas(dir);
-            }
-        };
-        registerReceiver(mDumpAtlasReceiver, new IntentFilter(ACTION_DUMP_ATLAS),
-            Context.RECEIVER_EXPORTED);
-        mSettingsChangedReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                int interval = intent.getIntExtra(SettingsHelper.KEY_MAP_INTERVAL,
-                    SettingsHelper.DEFAULT_MAP_INTERVAL);
-                int brightness = intent.getIntExtra(SettingsHelper.KEY_BRIGHTNESS,
-                    SettingsHelper.DEFAULT_BRIGHTNESS);
-                Log.i(TAG, "SETTINGS_CHANGED: interval=" + interval
-                    + " brightness=" + brightness);
-                mLastBrightness = brightness;
-                pushBrightness(brightness);
-                applyInterval(interval);
-            }
-        };
+        registerReceiver(mScrollCameraReceiver, new IntentFilter(ACTION_SCROLL_CAMERA), Context.RECEIVER_EXPORTED);
+        mSettingsChangedReceiver = command(WallpaperNative.CMD_RELOAD_SETTINGS, 0, 0);
         registerReceiver(mSettingsChangedReceiver,
-            new IntentFilter(SettingsHelper.ACTION_SETTINGS_CHANGED),
-            Context.RECEIVER_EXPORTED);
-        mTitleMapsChangedReceiver = new BroadcastReceiver() {
+            new IntentFilter(WallpaperConfig.ACTION_SETTINGS_CHANGED), Context.RECEIVER_EXPORTED);
+        mTitleMapsChangedReceiver = command(WallpaperNative.CMD_REFRESH_TITLE_MAPS, 0, 0);
+        registerReceiver(mTitleMapsChangedReceiver,
+            new IntentFilter(SettingsHelper.ACTION_TITLE_MAPS_CHANGED), Context.RECEIVER_EXPORTED);
+    }
+
+    /** A receiver that forwards a fixed command to the native engine. */
+    private BroadcastReceiver command(final String cmd, final int arg1, final int arg2) {
+        return new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
-                Log.i(TAG, "TITLE_MAPS_CHANGED broadcast received");
-                if (sLibrariesLoaded && sSDLInitialized) nativeRefreshTitleMaps();
+                Log.i(TAG, "broadcast -> " + cmd + " " + arg1 + "," + arg2);
+                if (sLibrariesLoaded && sSDLInitialized) {
+                    WallpaperNative.nativeWallpaperCommand(cmd, arg1, arg2);
+                }
             }
         };
-        registerReceiver(mTitleMapsChangedReceiver,
-            new IntentFilter(SettingsHelper.ACTION_TITLE_MAPS_CHANGED),
-            Context.RECEIVER_EXPORTED);
-    }
-
-    private void pushBrightness() {
-        pushBrightness(mLastBrightness);
-    }
-
-    private void pushBrightness(int value) {
-        if (!sLibrariesLoaded || !sSDLInitialized) return;
-        float b = value / 100.0f;
-        nativeSetBrightness(b);
-    }
-
-    private void applyInterval(int index) {
-        mCurrentInterval = index;
-        boolean timed = index >= 1 && index < INTERVAL_MS.length;
-        if (sLibrariesLoaded && sSDLInitialized) nativeSetIntervalActive(timed);
-        cancelIntervalTimer();
-        if (timed && mEngineVisible) armIntervalTimer(index);
-    }
-
-    private void armIntervalTimer(int index) {
-        if (index < 1 || index >= INTERVAL_MS.length) return;
-        final long period = INTERVAL_MS[index];
-        cancelIntervalTimer();
-        mIntervalRunnable = new Runnable() {
-            @Override
-            public void run() {
-                Log.i(TAG, "interval tick: rotating title map");
-                if (sLibrariesLoaded && sSDLInitialized) nativeRotateMap(1);
-                mMainHandler.postDelayed(this, period);
-            }
-        };
-        mMainHandler.postDelayed(mIntervalRunnable, period);
-    }
-
-    private void cancelIntervalTimer() {
-        if (mIntervalRunnable != null) {
-            mMainHandler.removeCallbacks(mIntervalRunnable);
-            mIntervalRunnable = null;
-        }
-    }
-
-    private void onEngineVisible() {
-        mEngineVisible = true;
-        if (!mColdStartApplied) {
-            mColdStartApplied = true;
-            mLastBrightness = SettingsHelper.getBrightness(getApplicationContext());
-            applyInterval(SettingsHelper.getMapUpdateInterval(getApplicationContext()));
-        } else if (mCurrentInterval >= 1 && mCurrentInterval < INTERVAL_MS.length) {
-            armIntervalTimer(mCurrentInterval);
-        }
-    }
-
-    private void onEngineHidden() {
-        mEngineVisible = false;
-        cancelIntervalTimer();
-    }
-
-    private void pushBrightnessRetry(int attempt) {
-        pushBrightness();
-        if (attempt + 1 >= BRIGHTNESS_RETRY_MAX) return;
-        new android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed(() -> pushBrightnessRetry(attempt + 1), BRIGHTNESS_RETRY_MS);
     }
 
     @Override
@@ -290,10 +121,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
             unregisterReceiver(mScrollCameraReceiver);
             mScrollCameraReceiver = null;
         }
-        if (mDumpAtlasReceiver != null) {
-            unregisterReceiver(mDumpAtlasReceiver);
-            mDumpAtlasReceiver = null;
-        }
         if (mSettingsChangedReceiver != null) {
             unregisterReceiver(mSettingsChangedReceiver);
             mSettingsChangedReceiver = null;
@@ -302,7 +129,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
             unregisterReceiver(mTitleMapsChangedReceiver);
             mTitleMapsChangedReceiver = null;
         }
-        cancelIntervalTimer();
         super.onDestroy();
     }
 
@@ -371,8 +197,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             Log.i(TAG, "onSurfaceCreated: took surface ownership sOverrideSurface=" + SDLActivity.sOverrideSurface);
             Log.i(TAG, "onSurfaceCreated: calling onNativeSurfaceCreated surface=" + mEngineSurface);
             SDLActivity.onNativeSurfaceCreated();
-            nativeSurfaceChanged();
-            pushBrightnessRetry(0);
+            WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SURFACE_CHANGED, 0, 0);
         }
 
         @Override
@@ -388,7 +213,7 @@ public class OpenTTDWallpaperService extends WallpaperService {
             SDLActivity.nativeSetScreenResolution(width, height, width, height, 60.0f);
             SDLActivity.onNativeResize();
             SDLActivity.onNativeSurfaceChanged();
-            nativeSurfaceChanged();
+            WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SURFACE_CHANGED, 0, 0);
         }
 
         @Override
@@ -418,7 +243,6 @@ public class OpenTTDWallpaperService extends WallpaperService {
             if (!sSDLInitialized) return;
             mVisible = visible;
             if (visible) {
-                OpenTTDWallpaperService.this.onEngineVisible();
                 // Re-inject surface if lost during engine transition
                 Surface currentSurface = getSurfaceHolder().getSurface();
                 Log.i(TAG, "onVisibilityChanged visible: currentSurface=" + currentSurface
@@ -437,22 +261,16 @@ public class OpenTTDWallpaperService extends WallpaperService {
                     SDLActivity.onNativeSurfaceChanged();
                 }
                 Log.i(TAG, "onVisibilityChanged: resuming game thread");
-                nativeSetGamePaused(false);
-                pushBrightness();
+                WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SET_PAUSED, 0, 0);
                 SDLActivity.mNextNativeState = SDLActivity.NativeState.RESUMED;
                 SDLActivity.handleNativeState();
             } else {
-                /* Jump POI now while still rendering — the game+GL threads
-                 * keep running (SDL not paused) so the new camera position
-                 * gets rendered and the sprite cache warms up.  Delay the
-                 * game thread pause to allow a few frames at the new POI. */
-                Log.i(TAG, "onVisibilityChanged: jumping POI, delaying pause for warm-up");
-                OpenTTDWallpaperService.this.onEngineHidden();
-                nativePrepareBackground();
+                Log.i(TAG, "onVisibilityChanged: prepare background, delaying pause for warm-up");
+                WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_PREPARE_BG, 0, 0);
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     if (!mVisible) {
                         Log.i(TAG, "onVisibilityChanged: warm-up done, pausing game thread");
-                        nativeSetGamePaused(true);
+                        WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SET_PAUSED, 1, 0);
                     }
                 }, 150);
             }
