@@ -37,6 +37,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <functional>
+#include <vector>
+#include <mutex>
 #include <cmath>
 #ifdef __ANDROID__
 #include <jni.h>
@@ -50,26 +53,46 @@
 
 #include "../safeguards.h"
 
-/** Set to true from Java on hide; processed in Tick() to advance camera to next POI. */
-std::atomic<bool> _gles_jump_waypoint{false};
-/** POI navigation delta requested from Java; processed in Tick(). */
-std::atomic<int> _gles_navigate_poi{0};
-/** Map rotation delta requested from Java; processed in Tick(). */
-std::atomic<int> _gles_rotate_map{0};
-/** Camera scroll delta requested from Java; processed in Tick(). */
-std::atomic<int> _gles_scroll_dx{0};
-std::atomic<int> _gles_scroll_dy{0};
-/** Set from Java when the wallpaper surface changes; GL thread re-binds EGL. */
+/** Set from Java when the wallpaper surface changes; drained in the EGL-rebind
+ *  path (not ProcessOverlayActions). Kept as an atomic — it is a GL-context signal. */
 std::atomic<bool> _gles_surface_changed{false};
-/** Level gate: true while an interval index 1-4 owns title-map cadence, suppressing
- *  the POI-wrap RequestNextTitleMap(). Written directly by JNI, read on the game thread. */
-std::atomic<bool> _gles_interval_active{false};
-/** Set from Java on title-map import/delete; drained on the GL thread to rebuild the list. */
-std::atomic<bool> _gles_refresh_title_maps{false};
-/** Debug: set from Java to dump the sprite atlas to PNG/JSON; drained on the GL thread.
- *  `_gles_dump_atlas_dir` is published before the flag (release via the atomic store). */
-std::atomic<bool> _gles_dump_atlas{false};
-static std::string _gles_dump_atlas_dir;
+
+/** Wallpaper settings owned by native (source of truth), read from openttd.cfg.
+ *  Continuously-read *state* (brightness every frame, interval on each hide), so
+ *  these stay atomic rather than becoming commands. */
+std::atomic<int> _wp_interval_index{2};   ///< 0=POI-wrap, 1=10min, 2=30min, 3=2h, 4=24h
+std::atomic<float> _wp_brightness{1.0f};  ///< 0..1, pushed to the blit shader each frame
+
+/** Java commands become closures run on the GL thread in ProcessOverlayActions().
+ *  Two queues: `prelock` closures touch no game state (run before game_state_mutex);
+ *  `overlay` closures mutate window/viewport state (run under it, one lock per batch).
+ *  Producers are JNI threads; the consumer is the GL/draw thread. */
+using WpCommand = std::function<void()>;
+static std::mutex _wp_cmd_mutex;
+static std::vector<WpCommand> _wp_prelock_cmds;
+static std::vector<WpCommand> _wp_overlay_cmds;
+
+static void PostPrelock(WpCommand cmd)
+{
+	std::lock_guard<std::mutex> lock(_wp_cmd_mutex);
+	_wp_prelock_cmds.push_back(std::move(cmd));
+}
+static void PostOverlay(WpCommand cmd)
+{
+	std::lock_guard<std::mutex> lock(_wp_cmd_mutex);
+	_wp_overlay_cmds.push_back(std::move(cmd));
+}
+
+/** Native map-rotation cadence (rotate-on-hide); touched only on the GL thread. */
+static constexpr std::chrono::milliseconds WP_INTERVAL_MS[] = {
+	std::chrono::milliseconds(0),
+	std::chrono::minutes(10),
+	std::chrono::minutes(30),
+	std::chrono::hours(2),
+	std::chrono::hours(24),
+};
+static constexpr int WP_INTERVAL_COUNT = 5;
+static std::chrono::steady_clock::time_point _wp_last_rotation = std::chrono::steady_clock::now();
 
 #ifdef __ANDROID__
 
@@ -108,130 +131,61 @@ static struct CrashHandlerInstaller {
 	}
 } _crash_handler_installer;
 
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativePrepareBackground(JNIEnv *, jclass)
+static void DispatchWallpaperCommand(std::string_view cmd, int arg1, int arg2)
 {
-	_gles_jump_waypoint = true;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeSwitchMap(JNIEnv *, jclass)
-{
-	RotateTitleMap(1);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeNavigatePOI(JNIEnv *, jclass, jint delta)
-{
-	_gles_navigate_poi = delta;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeRotateMap(JNIEnv *, jclass, jint delta)
-{
-	_gles_rotate_map = delta;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeRotateMap(JNIEnv *, jclass, jint delta)
-{
-	_gles_rotate_map = delta;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeNavigatePOI(JNIEnv *, jclass, jint delta)
-{
-	_gles_navigate_poi = delta;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
-{
-	_gles_scroll_dx = dx;
-	_gles_scroll_dy = dy;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeSetGamePaused(JNIEnv *, jclass, jboolean paused)
-{
-	auto *drv = VideoDriver::GetInstance();
-	if (drv != nullptr) {
-		Debug(driver, 0, "[LOAD] app_pause: paused={}", paused ? "true" : "false");
-		drv->SetGameThreadPaused(paused);
+	if (cmd == "PREPARE_BG") {
+		PostOverlay([] {
+			auto now = std::chrono::steady_clock::now();
+			int idx = _wp_interval_index.load();
+			bool interval_elapsed = idx >= 1 && idx < WP_INTERVAL_COUNT &&
+				(now - _wp_last_rotation) >= WP_INTERVAL_MS[idx];
+			if (interval_elapsed) {
+				Debug(driver, 1, "prepare_bg -> rotate map (interval elapsed)");
+				RotateTitleMap(1);
+				_wp_last_rotation = now;
+			} else {
+				Debug(driver, 1, "prepare_bg -> jump POI");
+				PrepareBackground();
+			}
+		});
+	} else if (cmd == "ROTATE_MAP") {
+		PostOverlay([delta = arg1] { Debug(driver, 1, "rotate_map={}", delta); RotateTitleMap(delta); });
+	} else if (cmd == "NAVIGATE_POI") {
+		PostOverlay([delta = arg1] { Debug(driver, 1, "navigate_poi={}", delta); NavigatePOI(delta); });
+	} else if (cmd == "SCROLL_CAMERA") {
+		PostOverlay([dx = arg1, dy = arg2] {
+			Window *w = GetMainWindow();
+			if (w != nullptr && w->viewport != nullptr) {
+				w->viewport->dest_scrollpos_x += ScaleByZoom(dx, w->viewport->zoom);
+				w->viewport->dest_scrollpos_y += ScaleByZoom(dy, w->viewport->zoom);
+				w->viewport->follow_vehicle = VehicleID::Invalid();
+			}
+		});
+	} else if (cmd == "REFRESH_TITLE_MAPS") {
+		PostOverlay([] { Debug(driver, 1, "refresh_title_maps"); RefreshTitleMaps(); });
+	} else if (cmd == "RELOAD_SETTINGS") {
+		PostPrelock([] { Debug(driver, 1, "reload_settings"); WallpaperReadConfig(); });
+	} else if (cmd == "SET_PAUSED") {
+		auto *drv = VideoDriver::GetInstance();
+		if (drv != nullptr) {
+			Debug(driver, 0, "[LOAD] app_pause: paused={}", (arg1 != 0) ? "true" : "false");
+			drv->SetGameThreadPaused(arg1 != 0);
+		}
+	} else if (cmd == "SURFACE_CHANGED") {
+		Debug(driver, 0, "[CTX] SURFACE_CHANGED: signalling GL thread");
+		_gles_surface_changed = true;
+	} else {
+		Debug(driver, 1, "nativeWallpaperCommand: unknown command '{}'", cmd);
 	}
 }
 
 extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeSetBrightness(JNIEnv *, jclass, jfloat brightness)
+Java_org_openttd_android_WallpaperNative_nativeWallpaperCommand(JNIEnv *env, jclass, jstring jcommand, jint arg1, jint arg2)
 {
-	if (GLESBackend::Get() != nullptr) {
-		GLESBackend::Get()->SetBrightness(brightness);
-	}
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeScrollCamera(JNIEnv *, jclass, jint dx, jint dy)
-{
-	_gles_scroll_dx = dx;
-	_gles_scroll_dy = dy;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeSetGamePaused(JNIEnv *, jclass, jboolean paused)
-{
-	auto *drv = VideoDriver::GetInstance();
-	if (drv != nullptr) {
-		Debug(driver, 0, "[LOAD] app_pause: paused={}", paused ? "true" : "false");
-		drv->SetGameThreadPaused(paused);
-	}
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeSetBrightness(JNIEnv *, jclass, jfloat brightness)
-{
-	if (GLESBackend::Get() != nullptr) {
-		GLESBackend::Get()->SetBrightness(brightness);
-	}
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeSurfaceChanged(JNIEnv *, jclass)
-{
-	Debug(driver, 0, "[CTX] nativeSurfaceChanged: signalling GL thread");
-	_gles_surface_changed = true;
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeSetIntervalActive(JNIEnv *, jclass, jboolean active)
-{
-	_gles_interval_active = (active == JNI_TRUE);
-	Debug(driver, 0, "[LOAD] interval_active={}", (active == JNI_TRUE) ? "true" : "false");
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeRefreshTitleMaps(JNIEnv *, jclass)
-{
-	_gles_refresh_title_maps = true;
-}
-
-static void RequestAtlasDump(JNIEnv *env, jstring dir)
-{
-	const char *s = env->GetStringUTFChars(dir, nullptr);
-	_gles_dump_atlas_dir = (s != nullptr) ? s : "";
-	if (s != nullptr) env->ReleaseStringUTFChars(dir, s);
-	_gles_dump_atlas = true; // publish dir before flag
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_OpenTTDWallpaperService_nativeDumpAtlas(JNIEnv *env, jclass, jstring dir)
-{
-	RequestAtlasDump(env, dir);
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_openttd_android_GameActivity_nativeDumpAtlas(JNIEnv *env, jclass, jstring dir)
-{
-	RequestAtlasDump(env, dir);
+	const char *s = (jcommand != nullptr) ? env->GetStringUTFChars(jcommand, nullptr) : nullptr;
+	std::string cmd = (s != nullptr) ? s : "";
+	if (s != nullptr) env->ReleaseStringUTFChars(jcommand, s);
+	DispatchWallpaperCommand(cmd, arg1, arg2);
 }
 
 #endif /* __ANDROID__ */
@@ -497,45 +451,28 @@ void VideoDriver_SDL_GLES::ProcessOverlayActions()
 	this->DrainCommandQueue();
 	while (this->PollEvent()) {}
 
-	/* Fast path: nothing pending, no lock. Overlay actions arrive rarely (JNI broadcasts). */
-	bool any = _gles_jump_waypoint.load() || _gles_navigate_poi.load() != 0 ||
-		_gles_rotate_map.load() != 0 || _gles_scroll_dx.load() != 0 || _gles_scroll_dy.load() != 0 ||
-		_gles_refresh_title_maps.load() || _gles_dump_atlas.load();
-	if (!any) return;
-
-	/* Overlay actions mutate window/viewport state; serialize against the game thread's
-	 * window rebuild (SwitchToMode -> LoadWallpaperGame -> ResetWindowSystem runs under
-	 * game_state_mutex) by taking the same mutex here on the draw thread. */
-	std::lock_guard<std::mutex> lock(this->game_state_mutex);
-
-	if (_gles_jump_waypoint.exchange(false)) {
-		Debug(driver, 1, "Tick: jump_waypoint triggered");
-		PrepareBackground();
-	}
-	int poi_delta = _gles_navigate_poi.exchange(0);
-	if (poi_delta != 0) { Debug(driver, 1, "Tick: navigate_poi={}", poi_delta); NavigatePOI(poi_delta); }
-	int map_delta = _gles_rotate_map.exchange(0);
-	if (map_delta != 0) { Debug(driver, 1, "Tick: rotate_map={}", map_delta); RotateTitleMap(map_delta); }
-	if (_gles_refresh_title_maps.exchange(false)) {
-		Debug(driver, 1, "Tick: refresh_title_maps triggered");
-		RefreshTitleMaps();
-	}
-	if (_gles_dump_atlas.exchange(false)) {
-		Debug(driver, 0, "Tick: dump_atlas -> {}", _gles_dump_atlas_dir);
-		if (GLESBackend::Get() != nullptr) GLESBackend::Get()->GetSpriteAtlas().DumpToFiles(_gles_dump_atlas_dir);
-	}
+	/* Swap both command queues out under the short cmd lock, then run them without
+	 * holding it (the closures themselves may take game_state_mutex). */
+	std::vector<WpCommand> prelock;
+	std::vector<WpCommand> overlay;
 	{
-		int scroll_dx = _gles_scroll_dx.exchange(0);
-		int scroll_dy = _gles_scroll_dy.exchange(0);
-		if (scroll_dx != 0 || scroll_dy != 0) {
-			Window *w = GetMainWindow();
-			if (w != nullptr && w->viewport != nullptr) {
-				w->viewport->dest_scrollpos_x += ScaleByZoom(scroll_dx, w->viewport->zoom);
-				w->viewport->dest_scrollpos_y += ScaleByZoom(scroll_dy, w->viewport->zoom);
-				w->viewport->follow_vehicle = VehicleID::Invalid();
-			}
-		}
+		std::lock_guard<std::mutex> lock(_wp_cmd_mutex);
+		prelock.swap(_wp_prelock_cmds);
+		overlay.swap(_wp_overlay_cmds);
 	}
+
+	/* Pre-lock closures touch no game state (RELOAD_SETTINGS re-reads the cfg file);
+	 * run them outside game_state_mutex so the game thread never blocks on file IO. */
+	for (auto &cmd : prelock) cmd();
+
+	if (overlay.empty()) return;
+
+	/* Overlay closures mutate window/viewport state; serialize against the game
+	 * thread's window rebuild (SwitchToMode -> LoadWallpaperGame -> ResetWindowSystem
+	 * runs under game_state_mutex) by taking the same mutex here — once for the whole
+	 * batch — on the draw thread. */
+	std::lock_guard<std::mutex> lock(this->game_state_mutex);
+	for (auto &cmd : overlay) cmd();
 }
 
 bool VideoDriver_SDL_GLES::SnapshotTick()
@@ -657,6 +594,7 @@ bool VideoDriver_SDL_GLES::PaintFromSnapshot()
 	}
 
 	[[maybe_unused]] auto t_blit0 = std::chrono::steady_clock::now();
+	backend->SetBrightness(_wp_brightness.load(std::memory_order_relaxed));
 	backend->BlitToScreen();
 	[[maybe_unused]] auto t_blit1 = std::chrono::steady_clock::now();
 	SDL_GL_SwapWindow(this->sdl_window);

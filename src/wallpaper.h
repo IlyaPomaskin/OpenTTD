@@ -17,6 +17,10 @@ void RotateTitleMap(int delta);
 void RefreshTitleMaps();
 void LoadWallpaperGame();
 
+#ifdef WALLPAPER_BUILD
+void WallpaperReadConfig();
+#endif
+
 /** Try loading a title map starting from the current index. Returns true on success. */
 bool LoadNextTitleMap();
 

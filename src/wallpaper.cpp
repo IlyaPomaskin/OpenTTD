@@ -22,6 +22,10 @@
 #include "string_func.h"
 #include "video/gles_poi.h"
 #include "viewport_func.h"
+#include "ini_type.h"
+#include "core/string_consumer.hpp"
+#include <algorithm>
+#include <charconv>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -37,7 +41,8 @@ static std::vector<std::pair<std::string, Subdirectory>> _title_files;
 static size_t _title_file_idx = 0;
 
 #ifdef __ANDROID__
-extern std::atomic<bool> _gles_interval_active;
+extern std::atomic<int> _wp_interval_index;
+extern std::atomic<float> _wp_brightness;
 #endif
 
 /**
@@ -91,8 +96,8 @@ bool CanRotateTitleMap()
 void RequestNextTitleMap()
 {
 #ifdef __ANDROID__
-	/* An interval index 1-4 owns cadence; suppress the POI-wrap auto-rotate. */
-	if (_gles_interval_active.load()) return;
+	/* Interval index 1-4 owns cadence (native rotate-on-hide); suppress POI-wrap auto-rotate. */
+	if (_wp_interval_index.load() != 0) return;
 #endif
 	RotateTitleMap(1);
 }
@@ -145,6 +150,38 @@ bool LoadNextTitleMap()
 	return false;
 }
 
+#ifdef WALLPAPER_BUILD
+extern std::string _config_file;
+
+/**
+ * Re-read the ad-hoc [wallpaper] section of openttd.cfg into native state.
+ * Android is the sole writer of that section; native is read-only here.
+ * Called on the game thread from LoadWallpaperGame() (initial) and on the GL
+ * thread from the RELOAD_SETTINGS drain. Missing/invalid values fall back to
+ * the defaults (brightness 100, interval 2).
+ */
+void WallpaperReadConfig()
+{
+	int brightness = 100;
+	int interval = 2;
+
+	IniFile ini;
+	ini.LoadFromDisk(_config_file, Subdirectory::None);
+	if (const IniGroup *group = ini.GetGroup("wallpaper"); group != nullptr) {
+		if (const IniItem *item = group->GetItem("brightness"); item != nullptr && item->value) {
+			if (auto v = ParseInteger<int>(*item->value); v.has_value()) brightness = *v;
+		}
+		if (const IniItem *item = group->GetItem("map_update_interval"); item != nullptr && item->value) {
+			if (auto v = ParseInteger<int>(*item->value); v.has_value()) interval = *v;
+		}
+	}
+
+	_wp_brightness = std::clamp(brightness, 0, 100) / 100.0f;
+	_wp_interval_index = std::clamp(interval, 0, 4);
+	Debug(misc, 0, "[LOAD] wallpaper_config: brightness={} interval={}", brightness, interval);
+}
+#endif
+
 /**
  * Load a title map in wallpaper mode.
  *
@@ -160,6 +197,7 @@ void LoadWallpaperGame()
 
 	/* Request GLES sprite atlas clear (deferred to GL thread). */
 #ifdef WALLPAPER_BUILD
+	WallpaperReadConfig();
 	if (GLESBackend::Get() != nullptr) {
 		GLESBackend::Get()->GetSpriteAtlas().RequestClear();
 	}
