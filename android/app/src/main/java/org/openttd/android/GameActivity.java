@@ -1,9 +1,6 @@
 package org.openttd.android;
 
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.util.Log;
@@ -19,16 +16,6 @@ public class GameActivity extends SDLActivity {
 
     private static final String TAG = "GameActivity";
     private static final int SCROLL_PX = 600;
-
-    private static native void nativeRotateMap(int delta);
-    private static native void nativeNavigatePOI(int delta);
-    private static native void nativeScrollCamera(int dx, int dy);
-    private static native void nativeSetGamePaused(boolean paused);
-    private static native void nativeSetBrightness(float brightness);
-    private static native void nativeDumpAtlas(String dir);
-
-    private static final String ACTION_DUMP_ATLAS = "org.openttd.android.DUMP_ATLAS";
-    private BroadcastReceiver mDumpAtlasReceiver;
 
     @Override
     protected String[] getLibraries() {
@@ -60,37 +47,6 @@ public class GameActivity extends SDLActivity {
         }
         super.onCreate(savedInstanceState);
         addOverlayButtons();
-        pushBrightnessDelayed();
-
-        mDumpAtlasReceiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                java.io.File ext = getExternalFilesDir(null);
-                String base = (ext != null) ? ext.getAbsolutePath() : getFilesDir().getAbsolutePath();
-                String dir = base + "/atlas_dump";
-                Log.i(TAG, "DUMP_ATLAS broadcast received -> " + dir);
-                nativeDumpAtlas(dir);
-            }
-        };
-        registerReceiver(mDumpAtlasReceiver, new IntentFilter(ACTION_DUMP_ATLAS),
-            Context.RECEIVER_EXPORTED);
-    }
-
-    private static final int BRIGHTNESS_RETRY_MS = 250;
-    private static final int BRIGHTNESS_RETRY_MAX = 8; // ~2s window
-
-    private void pushBrightnessDelayed() {
-        pushBrightnessRetry(0);
-    }
-
-    // Idempotent re-push: the JNI null-check drops pushes until GLESBackend
-    // exists, so re-posting for ~2s lets the value stick once the renderer is up.
-    private void pushBrightnessRetry(int attempt) {
-        int value = SettingsHelper.getBrightness(getApplicationContext());
-        nativeSetBrightness(value / 100.0f);
-        if (attempt + 1 >= BRIGHTNESS_RETRY_MAX) return;
-        new android.os.Handler(android.os.Looper.getMainLooper())
-            .postDelayed(() -> pushBrightnessRetry(attempt + 1), BRIGHTNESS_RETRY_MS);
     }
 
     private Button btn(String text, View.OnClickListener listener) {
@@ -116,10 +72,10 @@ public class GameActivity extends SDLActivity {
         navBar.setId(View.generateViewId());
 
         navBar.setElevation(10);
-        navBar.addView(btn("< Map", v -> { Log.d(TAG, "BTN: < Map"); nativeRotateMap(-1); }));
-        navBar.addView(btn("Map >", v -> { Log.d(TAG, "BTN: Map >"); nativeRotateMap(1); }));
-        navBar.addView(btn("< POI", v -> { Log.d(TAG, "BTN: < POI"); nativeNavigatePOI(-1); }));
-        navBar.addView(btn("POI >", v -> { Log.d(TAG, "BTN: POI >"); nativeNavigatePOI(1); }));
+        navBar.addView(btn("< Map", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_ROTATE_MAP, -1, 0)));
+        navBar.addView(btn("Map >", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_ROTATE_MAP, 1, 0)));
+        navBar.addView(btn("< POI", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_NAVIGATE_POI, -1, 0)));
+        navBar.addView(btn("POI >", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_NAVIGATE_POI, 1, 0)));
 
         RelativeLayout.LayoutParams navParams = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT,
@@ -138,14 +94,14 @@ public class GameActivity extends SDLActivity {
         dpad.setPadding(4, 4, 4, 4);
         dpad.setId(View.generateViewId());
 
-        Button up = btn("\u25B2", v -> nativeScrollCamera(0, -SCROLL_PX));
+        Button up = btn("\u25B2", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SCROLL_CAMERA, 0, -SCROLL_PX));
         up.setId(View.generateViewId());
         RelativeLayout.LayoutParams upP = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
         upP.addRule(RelativeLayout.CENTER_HORIZONTAL);
         dpad.addView(up, upP);
 
-        Button left = btn("\u25C0", v -> nativeScrollCamera(-SCROLL_PX, 0));
+        Button left = btn("\u25C0", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SCROLL_CAMERA, -SCROLL_PX, 0));
         left.setId(View.generateViewId());
         RelativeLayout.LayoutParams leftP = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
@@ -153,7 +109,7 @@ public class GameActivity extends SDLActivity {
         leftP.addRule(RelativeLayout.ALIGN_PARENT_START);
         dpad.addView(left, leftP);
 
-        Button down = btn("\u25BC", v -> nativeScrollCamera(0, SCROLL_PX));
+        Button down = btn("\u25BC", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SCROLL_CAMERA, 0, SCROLL_PX));
         down.setId(View.generateViewId());
         RelativeLayout.LayoutParams downP = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
@@ -161,7 +117,7 @@ public class GameActivity extends SDLActivity {
         downP.addRule(RelativeLayout.END_OF, left.getId());
         dpad.addView(down, downP);
 
-        Button right = btn("\u25B6", v -> nativeScrollCamera(SCROLL_PX, 0));
+        Button right = btn("\u25B6", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SCROLL_CAMERA, SCROLL_PX, 0));
         RelativeLayout.LayoutParams rightP = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
         rightP.addRule(RelativeLayout.BELOW, up.getId());
@@ -184,8 +140,8 @@ public class GameActivity extends SDLActivity {
         pauseBar.setBackgroundColor(0x80000000);
         pauseBar.setPadding(4, 4, 4, 4);
 
-        pauseBar.addView(btn("\u25B6", v -> nativeSetGamePaused(false)));
-        pauseBar.addView(btn("\u23F8", v -> nativeSetGamePaused(true)));
+        pauseBar.addView(btn("\u25B6", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SET_PAUSED, 0, 0)));
+        pauseBar.addView(btn("\u23F8", v -> WallpaperNative.nativeWallpaperCommand(WallpaperNative.CMD_SET_PAUSED, 1, 0)));
 
         RelativeLayout.LayoutParams pauseParams = new RelativeLayout.LayoutParams(
                 RelativeLayout.LayoutParams.WRAP_CONTENT,
@@ -230,10 +186,6 @@ public class GameActivity extends SDLActivity {
     protected void onDestroy() {
         Log.w(TAG, "onDestroy: isChangingConfigurations=" + isChangingConfigurations()
             + " isFinishing=" + isFinishing());
-        if (mDumpAtlasReceiver != null) {
-            unregisterReceiver(mDumpAtlasReceiver);
-            mDumpAtlasReceiver = null;
-        }
         if (isFinishing()) {
             // Kill immediately — SDL's onDestroy blocks on mSDLThread.join()
             // which hangs because OpenTTD doesn't handle SDL_QUIT.
